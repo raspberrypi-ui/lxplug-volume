@@ -33,6 +33,8 @@
 #define ICONS_VOLUME_LOW    PACKAGE_DATA_DIR "/images/volume-low.png"
 #define ICONS_MUTE          PACKAGE_DATA_DIR "/images/mute.png"
 
+#define ICON_BUTTON_TRIM 4
+
 typedef struct {
 
     /* Graphics. */
@@ -327,6 +329,28 @@ static void volumealsa_update_current_icon(VolumeALSAPlugin * vol)
     vol->icon_fallback= icon_fallback;
 }
 
+void image_set_from_file(LXPanel * p, GtkWidget * image, const char * file)
+{
+    GdkPixbuf * pixbuf = gdk_pixbuf_new_from_file_at_scale(file, panel_get_icon_size (p) - ICON_BUTTON_TRIM, panel_get_icon_size (p) - ICON_BUTTON_TRIM, TRUE, NULL);
+    if (pixbuf != NULL)
+    {
+        gtk_image_set_from_pixbuf(GTK_IMAGE(image), pixbuf);
+        g_object_unref(pixbuf);
+    }
+}
+
+gboolean image_set_icon_theme(LXPanel * p, GtkWidget * image, const gchar * icon)
+{
+    if (gtk_icon_theme_has_icon(panel_get_icon_theme (p), icon))
+    {
+        GdkPixbuf * pixbuf = gtk_icon_theme_load_icon(panel_get_icon_theme (p), icon, panel_get_icon_size (p) - ICON_BUTTON_TRIM, 0, NULL);
+        gtk_image_set_from_pixbuf(GTK_IMAGE(image), pixbuf);
+        g_object_unref(pixbuf);
+        return TRUE;
+    }
+    return FALSE;
+}
+
 /* Do a full redraw of the display. */
 static void volumealsa_update_display(VolumeALSAPlugin * vol)
 {
@@ -337,11 +361,11 @@ static void volumealsa_update_display(VolumeALSAPlugin * vol)
     volumealsa_update_current_icon(vol);
 
     /* Change icon, fallback to default icon if theme doesn't exsit */
-    if ( ! lxpanel_image_set_icon_theme(vol->panel, vol->tray_icon, vol->icon_panel))
+    if ( ! image_set_icon_theme(vol->panel, vol->tray_icon, vol->icon_panel))
     {
-        if ( ! lxpanel_image_set_icon_theme(vol->panel, vol->tray_icon, vol->icon))
+        if ( ! image_set_icon_theme(vol->panel, vol->tray_icon, vol->icon))
         {
-            lxpanel_image_set_from_file(vol->panel, vol->tray_icon, vol->icon_fallback);
+            image_set_from_file(vol->panel, vol->tray_icon, vol->icon_fallback);
         }
     }
 
@@ -622,7 +646,11 @@ static GtkWidget *volumealsa_configure(LXPanel *panel, GtkWidget *p)
         {
             command_line = "alsamixergui";
         }
-        else if ((path = g_find_program_in_path("alsamixer")))
+        else if ((path = g_find_program_in_path("xfce4-mixer")))
+        {
+            command_line = "xfce4-mixer";
+        }
+       else if ((path = g_find_program_in_path("alsamixer")))
         {
             g_free(path);
             if ((path = g_find_program_in_path("xterm")))
