@@ -522,7 +522,7 @@ static void volumealsa_build_popup_window(GtkWidget *p)
 
     /* Create a frame as the child of the viewport. */
     GtkWidget * frame = gtk_frame_new(_("Volume"));
-    gtk_frame_set_shadow_type(GTK_FRAME(frame), GTK_SHADOW_IN);
+    //gtk_frame_set_shadow_type(GTK_FRAME(frame), GTK_SHADOW_IN);
     gtk_container_add(GTK_CONTAINER(viewport), frame);
 
     /* Create a vertical box as the child of the frame. */
@@ -545,7 +545,7 @@ static void volumealsa_build_popup_window(GtkWidget *p)
     vol->mute_check_handler = g_signal_connect(vol->mute_check, "toggled", G_CALLBACK(volumealsa_popup_mute_toggled), vol);
 
     /* Set background to default. */
-    gtk_widget_set_style(viewport, panel_get_defstyle(vol->panel));
+    //gtk_widget_set_style(viewport, panel_get_defstyle(vol->panel));
 }
 
 /* Plugin constructor. */
