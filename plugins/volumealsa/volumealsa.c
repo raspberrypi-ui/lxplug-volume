@@ -434,11 +434,11 @@ static void volumealsa_popup_map(GtkWidget * widget, VolumeALSAPlugin * vol)
 
 static void volumealsa_theme_change(GtkWidget * widget, VolumeALSAPlugin * vol)
 {
-    if ( ! lxpanel_image_set_icon_theme(vol->panel, vol->tray_icon, vol->icon_panel))
+    if ( ! image_set_icon_theme(vol->panel, vol->tray_icon, vol->icon_panel))
     {
-        if ( ! lxpanel_image_set_icon_theme(vol->panel, vol->tray_icon, vol->icon))
+        if ( ! image_set_icon_theme(vol->panel, vol->tray_icon, vol->icon))
         {
-            lxpanel_image_set_from_file(vol->panel, vol->tray_icon, vol->icon_fallback);
+            image_set_from_file(vol->panel, vol->tray_icon, vol->icon_fallback);
         }
     }
 }
@@ -564,7 +564,9 @@ static GtkWidget *volumealsa_constructor(LXPanel *panel, config_setting_t *setti
 
     /* Allocate top level widget and set into Plugin widget pointer. */
     vol->panel = panel;
-    vol->plugin = p = gtk_event_box_new();
+    vol->plugin = p = gtk_button_new();
+    gtk_button_set_relief (GTK_BUTTON (vol->plugin), GTK_RELIEF_NONE);
+    //vol->plugin = p = gtk_event_box_new();
     vol->settings = settings;
     lxpanel_plugin_set_data(p, vol, volumealsa_destructor);
     gtk_widget_add_events(p, GDK_BUTTON_PRESS_MASK);
