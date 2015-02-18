@@ -179,13 +179,74 @@ static gboolean asound_restart(gpointer vol_gpointer)
     return FALSE;
 }
 
+void get_default_card (char *id)
+{
+  char tokenbuf[256], type[16], cid[16], state = 0, indef = 0;
+  char *bufptr = tokenbuf;
+  int inchar, count;
+  char *user_config_file = g_build_filename (g_get_home_dir (), "/.asoundrc", NULL);
+  FILE *fp = fopen (user_config_file, "rb");
+  if (fp)
+  {
+  	type[0] = 0;
+  	cid[0] = 0;
+  	count = 0;
+  	while ((inchar = fgetc (fp)) != EOF)
+  	{
+  		if (inchar == ' ' || inchar == '\t' || inchar == '\n' || inchar == '\r')
+  		{
+  			if (bufptr != tokenbuf)
+  			{
+  				*bufptr = 0;
+  				switch (state)
+  				{
+  					case 1 :	strcpy (type, tokenbuf);
+  						  		state = 0;
+  						  		break;
+   					case 2 :  	strcpy (cid, tokenbuf);
+  						  		state = 0;
+  						  		break;
+  					default : 	if (!strcmp (tokenbuf, "type") && indef) state = 1;
+  						  		else if (!strcmp (tokenbuf, "card") && indef) state = 2;
+  						  		else if (!strcmp (tokenbuf, "pcm.!default")) indef = 1;
+  						  		else if (!strcmp (tokenbuf, "}")) indef = 0;
+  						  		break;
+  				}
+  				bufptr = tokenbuf;
+  				count = 0;
+  				if (cid[0] && type[0]) break;
+  			}
+  			else 
+  			{
+  				bufptr = tokenbuf;
+  				count = 0;
+  			}
+  		}
+  		else 
+  		{
+  			if (count < 255)
+  			{ 
+  				*bufptr++ = inchar;
+  				count++;
+  			}
+  			else tokenbuf[255] = 0;
+  		}
+  	}
+  	fclose (fp);
+  }
+  if (cid[0] && type[0]) sprintf (id, "%s:%s", type, cid);
+  else sprintf (id, "hw:0");
+}
+
 /* Initialize the ALSA interface. */
 static gboolean asound_initialize(VolumeALSAPlugin * vol)
 {
+	char device[32];
+	get_default_card (device);
     /* Access the "default" device. */
     snd_mixer_selem_id_alloca(&vol->sid);
     snd_mixer_open(&vol->mixer, 0);
-    snd_mixer_attach(vol->mixer, "default");
+    snd_mixer_attach(vol->mixer, device);
     snd_mixer_selem_register(vol->mixer, NULL, NULL);
     snd_mixer_load(vol->mixer);
 
@@ -680,7 +741,9 @@ static GtkWidget *volumealsa_configure(LXPanel *panel, GtkWidget *p)
 
 /* Callback when panel configuration changes. */
 static void volumealsa_panel_configuration_changed(LXPanel *panel, GtkWidget *p)
-{
+{  
+    asound_restart(lxpanel_plugin_get_data(p));
+   	
     /* Do a full redraw. */
     volumealsa_update_display(lxpanel_plugin_get_data(p));
 }
