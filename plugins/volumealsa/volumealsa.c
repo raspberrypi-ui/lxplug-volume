@@ -18,6 +18,7 @@
 
 #include <gtk/gtk.h>
 #include <stdlib.h>
+#include <string.h>
 #include <fcntl.h>
 #include <unistd.h>
 #include <glib.h>
@@ -26,6 +27,11 @@
 #include <alsa/asoundlib.h>
 #include <poll.h>
 #include <libfm/fm-gtk.h>
+
+#include <gst/gst.h>
+#include <gst/audio/mixerutils.h>
+#include <gst/interfaces/mixer.h>
+
 #include "plugin.h"
 
 #define ICONS_VOLUME_HIGH   PACKAGE_DATA_DIR "/images/volume-high.png"
@@ -34,6 +40,8 @@
 #define ICONS_MUTE          PACKAGE_DATA_DIR "/images/mute.png"
 
 #define ICON_BUTTON_TRIM 4
+
+#define CUSTOM_MENU 
 
 typedef struct {
 
@@ -449,6 +457,154 @@ static void volumealsa_update_display(VolumeALSAPlugin * vol)
     g_free(tooltip);
 }
 
+#ifdef CUSTOM_MENU
+static void volumealsa_popup_set_position(GtkWidget * menu, gint * px, gint * py, gboolean * push_in, gpointer data)
+{
+    VolumeALSAPlugin * vol= (VolumeALSAPlugin *) data;
+
+    /* Determine the coordinates. */
+    lxpanel_plugin_popup_set_position_helper(vol->panel, vol->plugin, menu, px, py);
+    *push_in = TRUE;
+}
+
+static gboolean 
+_xfce_mixer_filter_mixer (GstMixer *mixer,
+                          gpointer  user_data)
+{
+  GstElementFactory *factory;
+  const gchar       *long_name;
+  gchar             *device_name = NULL;
+  gchar             *internal_name;
+  gchar             *name;
+  gchar             *p;
+  gint               length;
+  gint              *counter = user_data;
+  gchar *device;
+
+  /* Get long name of the mixer element */
+  factory = gst_element_get_factory (GST_ELEMENT (mixer));
+  long_name = gst_element_factory_get_longname (factory);
+
+  /* Get the device name of the mixer element */
+  if (g_object_class_find_property (G_OBJECT_GET_CLASS (G_OBJECT (mixer)), "device-name"))
+    g_object_get (mixer, "device-name", &device_name, NULL);
+  
+  if (g_object_class_find_property (G_OBJECT_GET_CLASS (G_OBJECT (mixer)), "device"))
+    g_object_get (mixer, "device", &device, NULL);
+      
+  /* Fall back to default name if neccessary */
+  if (G_UNLIKELY (device_name == NULL))
+    device_name = g_strdup_printf (_("Unknown Volume Control %d"), (*counter)++);
+
+  /* Build display name */
+  name = g_strdup_printf ("%s (%s)", device_name, long_name);
+
+  /* Free device name */
+  g_free (device_name);
+
+  /* Set name to be used by xfce4-mixer */
+  g_object_set_data_full (G_OBJECT (mixer), "xfce-mixer-name", name, (GDestroyNotify) g_free);
+  g_object_set_data_full (G_OBJECT (mixer), "xfce-mixer-id", device, (GDestroyNotify) g_free);
+
+  /* Count alpha-numeric characters in the name */
+  for (length = 0, p = name; *p != '\0'; ++p)
+    if (g_ascii_isalnum (*p))
+      ++length;
+
+  /* Generate internal name */
+  internal_name = g_new0 (gchar, length+1);
+  for (length = 0, p = name; *p != '\0'; ++p)
+    if (g_ascii_isalnum (*p))
+      internal_name[length++] = *p;
+  internal_name[length] = '\0';
+
+  /* Remember name for use by xfce4-mixer */
+  g_object_set_data_full (G_OBJECT (mixer), "xfce-mixer-internal-name", internal_name, (GDestroyNotify) g_free);
+  /* Keep the mixer (we want all devices to be visible) */
+  return TRUE;
+}
+
+const gchar *
+xfce_mixer_get_card_id (GstElement *card)
+{
+  g_return_val_if_fail (GST_IS_MIXER (card), NULL);
+  return g_object_get_data (G_OBJECT (card), "xfce-mixer-id");
+}
+
+guint
+xfce_mixer_is_default_card (GstElement *card)
+{
+  g_return_val_if_fail (GST_IS_MIXER (card), 0);
+  
+  char tokenbuf[256], type[16], cid[16], state = 0, indef = 0;
+  char *bufptr = tokenbuf;
+  int inchar, count;
+  char *user_config_file = g_build_filename (g_get_home_dir (), "/.asoundrc", NULL);
+  FILE *fp = fopen (user_config_file, "rb");
+  if (fp)
+  {
+  	type[0] = 0;
+  	cid[0] = 0;
+  	count = 0;
+  	while ((inchar = fgetc (fp)) != EOF)
+  	{
+  		if (inchar == ' ' || inchar == '\t' || inchar == '\n' || inchar == '\r')
+  		{
+  			if (bufptr != tokenbuf)
+  			{
+  				*bufptr = 0;
+  				switch (state)
+  				{
+  					case 1 :	strcpy (type, tokenbuf);
+  						  		state = 0;
+  						  		break;
+   					case 2 :  	strcpy (cid, tokenbuf);
+  						  		state = 0;
+  						  		break;
+  					default : 	if (!strcmp (tokenbuf, "type") && indef) state = 1;
+  						  		else if (!strcmp (tokenbuf, "card") && indef) state = 2;
+  						  		else if (!strcmp (tokenbuf, "pcm.!default")) indef = 1;
+  						  		else if (!strcmp (tokenbuf, "}")) indef = 0;
+  						  		break;
+  				}
+  				bufptr = tokenbuf;
+  				count = 0;
+  				if (cid[0] && type[0]) break;
+  			}
+  			else 
+  			{
+  				bufptr = tokenbuf;
+  				count = 0;
+  			}
+  		}
+  		else 
+  		{
+  			if (count < 255)
+  			{ 
+  				*bufptr++ = inchar;
+  				count++;
+  			}
+  			else tokenbuf[255] = 0;
+  		}
+  	}
+  	fclose (fp);
+  }
+  if (cid[0] && type[0]) sprintf (tokenbuf, "%s:%s", type, cid);
+  else sprintf (tokenbuf, "hw:0");
+  if (!strcmp (tokenbuf, xfce_mixer_get_card_id (card))) return 1;
+  return 0;
+}
+
+const gchar *
+xfce_mixer_get_card_display_name (GstElement *card)
+{
+  g_return_val_if_fail (GST_IS_MIXER (card), NULL);
+  //if (xfce_mixer_is_default_card (card))
+  //	return g_strconcat (g_object_get_data (G_OBJECT (card), "xfce-mixer-name"), " (Default)", NULL);
+  //else
+  	return g_object_get_data (G_OBJECT (card), "xfce-mixer-name");
+}
+#endif
 
 /* Handler for "button-press-event" signal on main widget. */
 static gboolean volumealsa_button_press_event(GtkWidget * widget, GdkEventButton * event, LXPanel * panel)
@@ -475,6 +631,32 @@ static gboolean volumealsa_button_press_event(GtkWidget * widget, GdkEventButton
     {
         gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(vol->mute_check), ! gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(vol->mute_check)));
     }
+#ifdef CUSTOM_MENU    
+    else if (event->button == 3)
+    {
+  		gint counter = 0;
+      	GList *mixers = gst_audio_default_registry_mixer_filter (_xfce_mixer_filter_mixer, FALSE, &counter);
+		GtkWidget *image, *menu = gtk_menu_new ();
+		GList *iter;
+  		for (iter = mixers; iter != NULL; iter = g_list_next (iter))
+    	{
+       		GtkWidget *mi = gtk_image_menu_item_new_with_label (xfce_mixer_get_card_display_name (iter->data));
+       		
+       		if (xfce_mixer_is_default_card (iter->data))
+       			image = gtk_image_new_from_icon_name("dialog-ok-apply", GTK_ICON_SIZE_MENU);
+       		else image = NULL;
+       		gtk_image_menu_item_set_image(GTK_IMAGE_MENU_ITEM(mi), image);
+
+
+            //g_signal_connect(mi, "button-press-event", G_CALLBACK(taskbar_popup_activate_event), (gpointer) tk_cursor);
+            gtk_menu_shell_append(GTK_MENU_SHELL(menu), mi);
+    	}
+		
+    	gtk_widget_show_all(menu);
+        gtk_menu_popup(GTK_MENU(menu), NULL, NULL, (GtkMenuPositionFunc) volumealsa_popup_set_position, (gpointer) vol,
+                event->button, event->time);
+    }
+#endif
     return TRUE;
 }
 
@@ -622,12 +804,18 @@ static GtkWidget *volumealsa_constructor(LXPanel *panel, config_setting_t *setti
         volumealsa_destructor(vol);
         return NULL;
     }
+    
+    /* Initialise Gstreamer */
+  	gst_init (NULL, NULL);
 
     /* Allocate top level widget and set into Plugin widget pointer. */
     vol->panel = panel;
     vol->plugin = p = gtk_button_new();
     gtk_button_set_relief (GTK_BUTTON (vol->plugin), GTK_RELIEF_NONE);
     //vol->plugin = p = gtk_event_box_new();
+#ifdef CUSTOM_MENU    
+    g_signal_connect(vol->plugin, "button-press-event", G_CALLBACK(volumealsa_button_press_event), NULL);
+#endif
     vol->settings = settings;
     lxpanel_plugin_set_data(p, vol, volumealsa_destructor);
     gtk_widget_add_events(p, GDK_BUTTON_PRESS_MASK);
@@ -757,8 +945,11 @@ LXPanelPluginInit fm_module_init_lxpanel_gtk = {
 
     .new_instance = volumealsa_constructor,
     .config = volumealsa_configure,
-    .reconfigure = volumealsa_panel_configuration_changed,
+    .reconfigure = volumealsa_panel_configuration_changed
+#ifndef CUSTOM_MENU   
+    ,
     .button_press_event = volumealsa_button_press_event
+#endif    
 };
 
 /* vim: set sw=4 et sts=4 : */
