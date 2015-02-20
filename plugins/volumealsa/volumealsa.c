@@ -53,6 +53,7 @@ typedef struct {
     GtkWidget * popup_window;			/* Top level window for popup */
     GtkWidget * volume_scale;			/* Scale for volume */
     GtkWidget * mute_check;			/* Checkbox for mute state */
+    GtkWidget *rb1, *rb2, *rb3;     /* Radio buttons for Pi audio out */
     gboolean show_popup;			/* Toggle to show and hide the popup on left click */
     guint volume_scale_handler;			/* Handler for vscale widget */
     guint mute_check_handler;			/* Handler for mute_check widget */
@@ -81,6 +82,7 @@ static gboolean asound_initialize(VolumeALSAPlugin * vol);
 static void asound_deinitialize(VolumeALSAPlugin * vol);
 static void volumealsa_update_display(VolumeALSAPlugin * vol);
 static void volumealsa_destructor(gpointer user_data);
+static void volumealsa_build_popup_window(GtkWidget *p);
 
 /*** ALSA ***/
 
@@ -694,6 +696,7 @@ static gboolean set_default_card_event(GtkWidget * widget, GdkEventButton * even
 {
 	xfce_mixer_set_default_card (widget->name);
     asound_restart (vol);
+    volumealsa_build_popup_window (vol->plugin);
     volumealsa_update_display (vol);
     return TRUE;
 }
@@ -825,16 +828,45 @@ static void volumealsa_popup_mute_toggled(GtkWidget * widget, VolumeALSAPlugin *
     volumealsa_update_display(vol);
 }
 
+static void bcm_output_changed (GtkWidget *widget, gpointer data)
+{	
+	char cmdbuf[64];
+	if (gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON (widget)))
+	{
+		sprintf (cmdbuf, "amixer cset numid=3 %s", widget->name);
+		system (cmdbuf);
+	}
+}
+
 /* Build the window that appears when the top level widget is clicked. */
 static void volumealsa_build_popup_window(GtkWidget *p)
 {
     VolumeALSAPlugin * vol = lxpanel_plugin_get_data(p);
+    
+    if (vol->popup_window) 
+    { 
+    	gtk_widget_destroy (vol->popup_window); 
+    	vol->popup_window = NULL; 
+    }
+    
+    /* Find if the BRCM card is being used as the default */
+    gint counter = 0;
+    GList *iter, *mixers = gst_audio_default_registry_mixer_filter (_xfce_mixer_filter_mixer, FALSE, &counter);
+	char bcm_def = 0;
+  	for (iter = mixers; iter != NULL; iter = g_list_next (iter))
+    {
+       	if (xfce_mixer_is_default_card (iter->data) && !strncmp (xfce_mixer_get_card_display_name (iter->data), "bcm2835", 7))
+       	{	
+       		bcm_def = 1;
+       		break;
+       	}
+    }
 
     /* Create a new window. */
     vol->popup_window = gtk_window_new(GTK_WINDOW_POPUP);
     gtk_window_set_decorated(GTK_WINDOW(vol->popup_window), FALSE);
     gtk_container_set_border_width(GTK_CONTAINER(vol->popup_window), 5);
-    gtk_window_set_default_size(GTK_WINDOW(vol->popup_window), 80, 140);
+    gtk_window_set_default_size(GTK_WINDOW(vol->popup_window), 80, bcm_def ? 280 : 140);
     gtk_window_set_skip_taskbar_hint(GTK_WINDOW(vol->popup_window), TRUE);
     gtk_window_set_skip_pager_hint(GTK_WINDOW(vol->popup_window), TRUE);
     gtk_window_set_type_hint(GTK_WINDOW(vol->popup_window), GDK_WINDOW_TYPE_HINT_UTILITY);
@@ -857,11 +889,16 @@ static void volumealsa_build_popup_window(GtkWidget *p)
     gtk_container_add(GTK_CONTAINER(scrolledwindow), viewport);
     gtk_viewport_set_shadow_type(GTK_VIEWPORT(viewport), GTK_SHADOW_NONE);
     gtk_widget_show(viewport);
+    
+    /* Create a vertical box as the child of the viewport. */
+    GtkWidget *bvbox = gtk_vbox_new (FALSE, 0);
+    gtk_container_add(GTK_CONTAINER(viewport), bvbox);
+    gtk_widget_show (bvbox);
 
-    /* Create a frame as the child of the viewport. */
+    /* Create a frame as the child of the vbox. */
     GtkWidget * frame = gtk_frame_new(_("Volume"));
     //gtk_frame_set_shadow_type(GTK_FRAME(frame), GTK_SHADOW_IN);
-    gtk_container_add(GTK_CONTAINER(viewport), frame);
+    gtk_box_pack_start(GTK_BOX(bvbox), frame, TRUE, TRUE, 0);
 
     /* Create a vertical box as the child of the frame. */
     GtkWidget * box = gtk_vbox_new(FALSE, 0);
@@ -882,6 +919,41 @@ static void volumealsa_build_popup_window(GtkWidget *p)
     gtk_box_pack_end(GTK_BOX(box), vol->mute_check, FALSE, FALSE, 0);
     vol->mute_check_handler = g_signal_connect(vol->mute_check, "toggled", G_CALLBACK(volumealsa_popup_mute_toggled), vol);
 
+    /* If the BCM soundcard is being used, add the radio buttons to select output */
+	if (bcm_def)
+	{
+    	/* Create a frame as the child of the vbox. */
+    	GtkWidget * frame2 = gtk_frame_new (_("Output"));
+    	gtk_box_pack_end (GTK_BOX(bvbox), frame2, FALSE, FALSE, 0);
+
+    	/* Create a vertical box as the child of the frame. */
+    	GtkWidget * box2 = gtk_vbox_new (FALSE, 0);
+    	gtk_container_add (GTK_CONTAINER(frame2), box2);
+    	
+		vol->rb1 = gtk_radio_button_new_with_label (NULL, "Auto");
+		gtk_widget_show (vol->rb1);
+    	gtk_box_pack_start (GTK_BOX(box2), vol->rb1, FALSE, FALSE, 0);
+    	gtk_widget_set_name (vol->rb1, "0");
+        g_signal_connect (vol->rb1, "toggled", G_CALLBACK(bcm_output_changed), NULL);
+        //gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (entry), * (int *) val == rb_group);
+		
+		vol->rb2 = gtk_radio_button_new_with_label (gtk_radio_button_group (GTK_RADIO_BUTTON (vol->rb1)), "Analog");
+        gtk_radio_button_group (GTK_RADIO_BUTTON (vol->rb2));
+		gtk_widget_show (vol->rb2);
+    	gtk_box_pack_start (GTK_BOX(box2), vol->rb2, FALSE, FALSE, 0);
+    	gtk_widget_set_name (vol->rb2, "1");
+        g_signal_connect (vol->rb2, "toggled", G_CALLBACK(bcm_output_changed), NULL);
+        //gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (entry), * (int *) val == rb_group);
+		
+		vol->rb3 = gtk_radio_button_new_with_label (gtk_radio_button_group (GTK_RADIO_BUTTON (vol->rb1)), "HDMI");
+        gtk_radio_button_group (GTK_RADIO_BUTTON (vol->rb3));
+		gtk_widget_show (vol->rb3);
+    	gtk_box_pack_start (GTK_BOX(box2), vol->rb3, FALSE, FALSE, 0);
+    	gtk_widget_set_name (vol->rb3, "2");
+        g_signal_connect (vol->rb3, "toggled", G_CALLBACK(bcm_output_changed), NULL);
+        //gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (entry), * (int *) val == rb_group);
+	}
+	
     /* Set background to default. */
     //gtk_widget_set_style(viewport, panel_get_defstyle(vol->panel));
 }
@@ -1025,10 +1097,12 @@ static GtkWidget *volumealsa_configure(LXPanel *panel, GtkWidget *p)
 /* Callback when panel configuration changes. */
 static void volumealsa_panel_configuration_changed(LXPanel *panel, GtkWidget *p)
 {  
-    asound_restart(lxpanel_plugin_get_data(p));
-   	
+    VolumeALSAPlugin * vol = lxpanel_plugin_get_data(p);
+    
+    asound_restart(vol);
+    volumealsa_build_popup_window (vol->plugin);
     /* Do a full redraw. */
-    volumealsa_update_display(lxpanel_plugin_get_data(p));
+    volumealsa_update_display(vol);
 }
 
 FM_DEFINE_MODULE(lxpanel_gtk, volumealsa)
