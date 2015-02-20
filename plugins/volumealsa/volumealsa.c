@@ -604,9 +604,104 @@ xfce_mixer_get_card_display_name (GstElement *card)
   //else
   	return g_object_get_data (G_OBJECT (card), "xfce-mixer-name");
 }
+
+void xfce_mixer_set_default_card (char *id)
+{
+  char cmdbuf[256], idbuf[16], type[16], cid[16], *card, *bufptr = cmdbuf, state = 0, indef = 0;
+  int inchar, count;
+  char *user_config_file = g_build_filename (g_get_home_dir (), "/.asoundrc", NULL);
+
+  // Break the id string into the type (before the colon) and the card number (after the colon)
+  strcpy (idbuf, id);
+  card = strchr (idbuf, ':') + 1;
+  *(strchr (idbuf, ':')) = 0;
+ 
+  FILE *fp = fopen (user_config_file, "rb");
+  if (!fp)
+  {
+  	// File does not exist - create it from scratch
+  	fp = fopen (user_config_file, "wb");
+  	fprintf (fp, "pcm.!default {\n\ttype %s\n\tcard %s\n}\n\nctl.!default {\n\ttype %s\n\tcard %s\n}\n", idbuf, card, idbuf, card);
+  	fclose (fp);
+  }
+  else
+  {
+	// File exists - check to see whether it contains a default card
+	type[0] = 0;
+  	cid[0] = 0;
+  	count = 0;
+  	while ((inchar = fgetc (fp)) != EOF)
+  	{
+  		if (inchar == ' ' || inchar == '\t' || inchar == '\n' || inchar == '\r')
+  		{
+  			if (bufptr != cmdbuf)
+  			{
+  				*bufptr = 0;
+  				switch (state)
+  				{
+  					case 1 :	strcpy (type, cmdbuf);
+  						  		state = 0;
+  						  		break;
+   					case 2 :  	strcpy (cid, cmdbuf);
+  						  		state = 0;
+  						  		break;
+  					default : 	if (!strcmp (cmdbuf, "type") && indef) state = 1;
+  						  		else if (!strcmp (cmdbuf, "card") && indef) state = 2;
+  						  		else if (!strcmp (cmdbuf, "pcm.!default")) indef = 1;
+  						  		else if (!strcmp (cmdbuf, "}")) indef = 0;
+  						  		break;
+  				}
+  				bufptr = cmdbuf;
+  				count = 0;
+  				if (cid[0] && type[0]) break;
+  			}
+  			else
+  			{
+  				bufptr = cmdbuf;
+  				count = 0;
+  			}
+  		}
+  		else
+  		{
+  			if (count < 255)
+  			{ 
+  				*bufptr++ = inchar;
+  				count++;
+  			}
+  			else cmdbuf[255] = 0;
+  		}
+  	}
+  	fclose (fp);
+  	if (cid[0] && type[0]) 
+  	{
+  		// This piece of sed is surely self-explanatory...
+  		sprintf (cmdbuf, "sed -i '/pcm.!default\\|ctl.!default/,/}/ { s/type .*/type %s/g; s/card .*/card %s/g; }' %s", idbuf, card, user_config_file);
+  		system (cmdbuf);
+  		// Oh, OK then - it looks for type * and card * within the delimiters pcm.!default or ctl.!default and } and replaces the parameters
+  	}
+  	else
+  	{
+  		// No default card; append to end of file
+  		fp = fopen (user_config_file, "ab");
+  		fprintf (fp, "\n\npcm.!default {\n\ttype %s\n\tcard %s\n}\n\nctl.!default {\n\ttype %s\n\tcard %s\n}\n", idbuf, card, idbuf, card);
+  		fclose (fp);
+  	}
+  }
+  g_free (user_config_file);
+}
+
+static gboolean set_default_card_event(GtkWidget * widget, GdkEventButton * event, VolumeALSAPlugin * vol)
+{
+	xfce_mixer_set_default_card (widget->name);
+    asound_restart (vol);
+    volumealsa_update_display (vol);
+    return TRUE;
+}
+
 #endif
 
 /* Handler for "button-press-event" signal on main widget. */
+
 static gboolean volumealsa_button_press_event(GtkWidget * widget, GdkEventButton * event, LXPanel * panel)
 {
     VolumeALSAPlugin * vol = lxpanel_plugin_get_data(widget);
@@ -646,9 +741,9 @@ static gboolean volumealsa_button_press_event(GtkWidget * widget, GdkEventButton
        			image = gtk_image_new_from_icon_name("dialog-ok-apply", GTK_ICON_SIZE_MENU);
        		else image = NULL;
        		gtk_image_menu_item_set_image(GTK_IMAGE_MENU_ITEM(mi), image);
+			mi->name = xfce_mixer_get_card_id (iter->data);  // use the widget name to store the card id
 
-
-            //g_signal_connect(mi, "button-press-event", G_CALLBACK(taskbar_popup_activate_event), (gpointer) tk_cursor);
+            g_signal_connect(mi, "button-press-event", G_CALLBACK(set_default_card_event), (gpointer) vol/* xfce_mixer_get_card_id (iter->data)*/);
             gtk_menu_shell_append(GTK_MENU_SHELL(menu), mi);
     	}
 		
