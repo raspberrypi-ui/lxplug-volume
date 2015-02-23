@@ -922,6 +922,17 @@ static void volumealsa_build_popup_window(GtkWidget *p)
     /* If the BCM soundcard is being used, add the radio buttons to select output */
 	if (bcm_def)
 	{
+		/* Get the current setting */
+		int tmp, val = 0;
+		char buf[128];
+		FILE *res = popen ("amixer cget numid=3", "r");
+		while (!feof (res))
+		{
+			fgets (buf, 128, res);
+			if (sscanf (buf, "  : values=%d", &tmp)) val = tmp;	
+		}
+		fclose (res);
+	
     	/* Create a frame as the child of the vbox. */
     	GtkWidget * frame2 = gtk_frame_new (_("Output"));
     	gtk_box_pack_end (GTK_BOX(bvbox), frame2, FALSE, FALSE, 0);
@@ -935,7 +946,7 @@ static void volumealsa_build_popup_window(GtkWidget *p)
     	gtk_box_pack_start (GTK_BOX(box2), vol->rb1, FALSE, FALSE, 0);
     	gtk_widget_set_name (vol->rb1, "0");
         g_signal_connect (vol->rb1, "toggled", G_CALLBACK(bcm_output_changed), NULL);
-        //gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (entry), * (int *) val == rb_group);
+        gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (vol->rb1), val == 0);
 		
 		vol->rb2 = gtk_radio_button_new_with_label (gtk_radio_button_group (GTK_RADIO_BUTTON (vol->rb1)), "Analog");
         gtk_radio_button_group (GTK_RADIO_BUTTON (vol->rb2));
@@ -943,7 +954,7 @@ static void volumealsa_build_popup_window(GtkWidget *p)
     	gtk_box_pack_start (GTK_BOX(box2), vol->rb2, FALSE, FALSE, 0);
     	gtk_widget_set_name (vol->rb2, "1");
         g_signal_connect (vol->rb2, "toggled", G_CALLBACK(bcm_output_changed), NULL);
-        //gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (entry), * (int *) val == rb_group);
+        gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (vol->rb2), val == 1);
 		
 		vol->rb3 = gtk_radio_button_new_with_label (gtk_radio_button_group (GTK_RADIO_BUTTON (vol->rb1)), "HDMI");
         gtk_radio_button_group (GTK_RADIO_BUTTON (vol->rb3));
@@ -951,7 +962,7 @@ static void volumealsa_build_popup_window(GtkWidget *p)
     	gtk_box_pack_start (GTK_BOX(box2), vol->rb3, FALSE, FALSE, 0);
     	gtk_widget_set_name (vol->rb3, "2");
         g_signal_connect (vol->rb3, "toggled", G_CALLBACK(bcm_output_changed), NULL);
-        //gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (entry), * (int *) val == rb_group);
+        gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (vol->rb3), val == 2);
 	}
 	
     /* Set background to default. */
