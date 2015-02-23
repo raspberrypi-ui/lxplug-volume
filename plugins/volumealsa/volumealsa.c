@@ -459,16 +459,6 @@ static void volumealsa_update_display(VolumeALSAPlugin * vol)
     g_free(tooltip);
 }
 
-#ifdef CUSTOM_MENU
-static void volumealsa_popup_set_position(GtkWidget * menu, gint * px, gint * py, gboolean * push_in, gpointer data)
-{
-    VolumeALSAPlugin * vol= (VolumeALSAPlugin *) data;
-
-    /* Determine the coordinates. */
-    lxpanel_plugin_popup_set_position_helper(vol->panel, vol->plugin, menu, px, py);
-    *push_in = TRUE;
-}
-
 static gboolean 
 _xfce_mixer_filter_mixer (GstMixer *mixer,
                           gpointer  user_data)
@@ -605,6 +595,17 @@ xfce_mixer_get_card_display_name (GstElement *card)
   //	return g_strconcat (g_object_get_data (G_OBJECT (card), "xfce-mixer-name"), " (Default)", NULL);
   //else
   	return g_object_get_data (G_OBJECT (card), "xfce-mixer-name");
+}
+
+#ifdef CUSTOM_MENU
+
+static void volumealsa_popup_set_position(GtkWidget * menu, gint * px, gint * py, gboolean * push_in, gpointer data)
+{
+    VolumeALSAPlugin * vol= (VolumeALSAPlugin *) data;
+
+    /* Determine the coordinates. */
+    lxpanel_plugin_popup_set_position_helper(vol->panel, vol->plugin, menu, px, py);
+    *push_in = TRUE;
 }
 
 void xfce_mixer_set_default_card (char *id)
@@ -744,7 +745,7 @@ static gboolean volumealsa_button_press_event(GtkWidget * widget, GdkEventButton
        			image = gtk_image_new_from_icon_name("dialog-ok-apply", GTK_ICON_SIZE_MENU);
        		else image = NULL;
        		gtk_image_menu_item_set_image(GTK_IMAGE_MENU_ITEM(mi), image);
-			mi->name = xfce_mixer_get_card_id (iter->data);  // use the widget name to store the card id
+			gtk_widget_set_name (mi, xfce_mixer_get_card_id (iter->data));  // use the widget name to store the card id
 
             g_signal_connect(mi, "button-press-event", G_CALLBACK(set_default_card_event), (gpointer) vol/* xfce_mixer_get_card_id (iter->data)*/);
             gtk_menu_shell_append(GTK_MENU_SHELL(menu), mi);
