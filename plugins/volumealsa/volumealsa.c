@@ -354,6 +354,7 @@ static int asound_get_bcm_output (void)
 static gboolean asound_initialize(VolumeALSAPlugin * vol)
 {
 	char device[32];
+
 	asound_get_default_card (device);
     /* Access the "default" device. */
     snd_mixer_selem_id_alloca(&vol->sid);
@@ -1024,16 +1025,37 @@ static GtkWidget *volumealsa_constructor(LXPanel *panel, config_setting_t *setti
     VolumeALSAPlugin * vol = g_new0(VolumeALSAPlugin, 1);
     GtkWidget *p;
 
+    /* Initialise Gstreamer */
+	gst_init (NULL, NULL);
+
     /* Initialize ALSA.  If that fails, present nothing. */
     if ( ! asound_initialize(vol))
     {
-    	printf ("Bad ALSA...\n");
         volumealsa_destructor(vol);
         return NULL;
     }
     
-    /* Initialise Gstreamer */
-  	gst_init (NULL, NULL);
+  	/* Check the default device is valid and reset if not */
+  	gint counter = 0;
+	GList *iter, *mixers = gst_audio_default_registry_mixer_filter (_xfce_mixer_filter_mixer, FALSE, &counter);    
+
+	/* Get the current setting - find cards, and which one is default */
+	gboolean def_good = FALSE;
+	for (iter = mixers; iter != NULL; iter = g_list_next (iter))
+	{
+		if (xfce_mixer_is_default_card (iter->data))
+		{
+			def_good = TRUE;
+			break;
+		}
+	}
+	
+	if (!def_good)
+	{
+		/* The default device is not present - fall back... */
+		g_warning ("volumealsa: Default ALSA device not valid - resetting to internal");
+		asound_set_default_card (xfce_mixer_get_bcm_device_id ());
+	}
 
     /* Allocate top level widget and set into Plugin widget pointer. */
     vol->panel = panel;
