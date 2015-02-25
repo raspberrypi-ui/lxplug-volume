@@ -787,19 +787,19 @@ static gboolean volumealsa_button_press_event(GtkWidget * widget, GdkEventButton
 			val = asound_get_bcm_output ();
 		}
 		
-       	mi = gtk_image_menu_item_new_with_label (_("Auto"));
+       	mi = gtk_image_menu_item_new_with_label (_("Internal Auto"));
 		if (val == 0) gtk_image_menu_item_set_image (GTK_IMAGE_MENU_ITEM(mi), image);
 		gtk_widget_set_name (mi, "0");
         g_signal_connect (mi, "button-press-event", G_CALLBACK (set_bcm_output), (gpointer) vol);
         gtk_menu_shell_append (GTK_MENU_SHELL(menu), mi);
 		
-       	mi = gtk_image_menu_item_new_with_label (_("Analog"));
+       	mi = gtk_image_menu_item_new_with_label (_("Internal Analog"));
 		if (val == 1) gtk_image_menu_item_set_image (GTK_IMAGE_MENU_ITEM(mi), image);
 		gtk_widget_set_name (mi, "1");
         g_signal_connect (mi, "button-press-event", G_CALLBACK (set_bcm_output), (gpointer) vol);
         gtk_menu_shell_append (GTK_MENU_SHELL(menu), mi);
         
-       	mi = gtk_image_menu_item_new_with_label (_("HDMI"));
+       	mi = gtk_image_menu_item_new_with_label (_("Internal HDMI"));
 		if (val == 2) gtk_image_menu_item_set_image (GTK_IMAGE_MENU_ITEM(mi), image);
 		gtk_widget_set_name (mi, "2");
         g_signal_connect (mi, "button-press-event", G_CALLBACK (set_bcm_output), (gpointer) vol);
@@ -1003,9 +1003,12 @@ static void volumealsa_build_popup_window(GtkWidget *p)
 
     /* Create a new window. */
     vol->popup_window = gtk_window_new(GTK_WINDOW_POPUP);
+    gtk_widget_set_name (vol->popup_window, "volals");
     gtk_window_set_decorated(GTK_WINDOW(vol->popup_window), FALSE);
     gtk_container_set_border_width(GTK_CONTAINER(vol->popup_window), 5);
+#ifndef CUSTOM_MENU
     gtk_window_set_default_size (GTK_WINDOW(vol->popup_window), 100, 140);
+#endif
     gtk_window_set_skip_taskbar_hint(GTK_WINDOW(vol->popup_window), TRUE);
     gtk_window_set_skip_pager_hint(GTK_WINDOW(vol->popup_window), TRUE);
     gtk_window_set_type_hint(GTK_WINDOW(vol->popup_window), GDK_WINDOW_TYPE_HINT_UTILITY);
@@ -1016,6 +1019,7 @@ static void volumealsa_build_popup_window(GtkWidget *p)
 
     /* Create a scrolled window as the child of the top level window. */
     GtkWidget * scrolledwindow = gtk_scrolled_window_new(NULL, NULL);
+    gtk_widget_set_name (scrolledwindow, "whitewd");
     gtk_container_set_border_width (GTK_CONTAINER(scrolledwindow), 0);
     gtk_widget_show(scrolledwindow);
     gtk_container_add(GTK_CONTAINER(vol->popup_window), scrolledwindow);
@@ -1029,6 +1033,13 @@ static void volumealsa_build_popup_window(GtkWidget *p)
     gtk_viewport_set_shadow_type(GTK_VIEWPORT(viewport), GTK_SHADOW_NONE);
     gtk_widget_show(viewport);
     
+#ifdef CUSTOM_MENU
+    gtk_container_set_border_width(GTK_CONTAINER(vol->popup_window), 0);
+    gtk_scrolled_window_set_shadow_type(GTK_SCROLLED_WINDOW(scrolledwindow), GTK_SHADOW_IN);
+    /* Create a vertical box as the child of the viewport. */
+    GtkWidget * box = gtk_vbox_new (FALSE, 0);
+    gtk_container_add(GTK_CONTAINER(viewport), box);
+#else
     /* Create a vertical box as the child of the viewport. */
     GtkWidget *bvbox = gtk_vbox_new (FALSE, 0);
     gtk_container_add(GTK_CONTAINER(viewport), bvbox);
@@ -1042,9 +1053,11 @@ static void volumealsa_build_popup_window(GtkWidget *p)
     /* Create a vertical box as the child of the frame. */
     GtkWidget * box = gtk_vbox_new(FALSE, 0);
     gtk_container_add(GTK_CONTAINER(frame), box);
+#endif
 
     /* Create a vertical scale as the child of the vertical box. */
     vol->volume_scale = gtk_vscale_new(GTK_ADJUSTMENT(gtk_adjustment_new(100, 0, 100, 0, 0, 0)));
+    gtk_widget_set_name (vol->volume_scale, "volscale");
     g_object_set (vol->volume_scale, "height-request", 120, NULL);
     gtk_scale_set_draw_value(GTK_SCALE(vol->volume_scale), FALSE);
     gtk_range_set_inverted(GTK_RANGE(vol->volume_scale), TRUE);
