@@ -823,10 +823,7 @@ static void default_card_toggled (GtkWidget * widget, VolumeALSAPlugin * vol)
 		asound_set_default_card (widget->name);
     	asound_restart (vol);
     	
-    	/* redraw the window */
-    	volumealsa_build_popup_window (vol->plugin);
     	volumealsa_update_display (vol);
-        gtk_widget_show_all (vol->popup_window);
     }
 }
 
@@ -850,10 +847,7 @@ static void bcm_output_toggled (GtkWidget *widget, VolumeALSAPlugin * vol)
 			sprintf (cmdbuf, "amixer cset numid=3 %s", widget->name);
 			system (cmdbuf);
 
-			/* redraw the window */
-    		volumealsa_build_popup_window (vol->plugin);
     		volumealsa_update_display (vol);
-            gtk_widget_show_all (vol->popup_window);
 		}
 		else
 		{
@@ -882,7 +876,7 @@ static void volumealsa_build_popup_window(GtkWidget *p)
     vol->popup_window = gtk_window_new(GTK_WINDOW_POPUP);
     gtk_window_set_decorated(GTK_WINDOW(vol->popup_window), FALSE);
     gtk_container_set_border_width(GTK_CONTAINER(vol->popup_window), 5);
-    //gtk_window_set_default_size (GTK_WINDOW(vol->popup_window), 80, 140);
+    gtk_window_set_default_size (GTK_WINDOW(vol->popup_window), 100, 140);
     gtk_window_set_skip_taskbar_hint(GTK_WINDOW(vol->popup_window), TRUE);
     gtk_window_set_skip_pager_hint(GTK_WINDOW(vol->popup_window), TRUE);
     gtk_window_set_type_hint(GTK_WINDOW(vol->popup_window), GDK_WINDOW_TYPE_HINT_UTILITY);
