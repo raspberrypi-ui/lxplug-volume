@@ -817,8 +817,11 @@ static gboolean volumealsa_button_press_event(GtkWidget * widget, GdkEventButton
     	{
 			if (!xfce_mixer_is_bcm_device (iter->data))
 			{	
-				mi = gtk_separator_menu_item_new ();
-				gtk_menu_shell_append (GTK_MENU_SHELL(vol->menu_popup), mi);
+				if (!ext_dev)
+				{
+					mi = gtk_separator_menu_item_new ();
+					gtk_menu_shell_append (GTK_MENU_SHELL(vol->menu_popup), mi);
+				}
 				
 				char namebuf[128];
 				strcpy (namebuf, xfce_mixer_get_card_display_name (iter->data));
@@ -836,8 +839,8 @@ static gboolean volumealsa_button_press_event(GtkWidget * widget, GdkEventButton
     	
     	if (ext_dev)
     	{
-			mi = gtk_separator_menu_item_new ();
-			gtk_menu_shell_append (GTK_MENU_SHELL(vol->menu_popup), mi);
+			//mi = gtk_separator_menu_item_new ();
+			//gtk_menu_shell_append (GTK_MENU_SHELL(vol->menu_popup), mi);
 				
     		mi = gtk_image_menu_item_new_with_label (_("Device Settings..."));
         	g_signal_connect (mi, "button-press-event", G_CALLBACK (open_config_dialog), (gpointer) vol);
