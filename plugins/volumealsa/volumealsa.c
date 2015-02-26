@@ -53,6 +53,7 @@ typedef struct {
     GtkWidget * popup_window;			/* Top level window for popup */
     GtkWidget * volume_scale;			/* Scale for volume */
     GtkWidget * mute_check;			/* Checkbox for mute state */
+    GtkWidget * menu_popup;
     gboolean show_popup;			/* Toggle to show and hide the popup on left click */
     guint volume_scale_handler;			/* Handler for vscale widget */
     guint mute_check_handler;			/* Handler for mute_check widget */
@@ -349,6 +350,13 @@ static int asound_get_bcm_output (void)
 		if (sscanf (buf, "  : values=%d", &tmp)) val = tmp;	
 	}
 	fclose (res);
+	
+	if (val == 0)
+	{
+		/* set to analog if result is auto */
+		system ("amixer cset numid=3 2");
+		val = 2;
+	}
 	return val;
 }
 
@@ -680,12 +688,12 @@ static void volumealsa_popup_set_position(GtkWidget * menu, gint * px, gint * py
     *push_in = TRUE;
 }
 
-static gboolean set_default_card_event(GtkWidget * widget, GdkEventButton * event, VolumeALSAPlugin * vol)
+static void set_default_card_event (GtkWidget * widget, GdkEventButton * event, VolumeALSAPlugin * vol)
 {
 	asound_set_default_card (widget->name);
     asound_restart (vol);
     volumealsa_update_display (vol);
-    return TRUE;
+    gtk_menu_popdown (GTK_MENU(vol->menu_popup));
 }
 
 static void set_bcm_output (GtkWidget * widget, GdkEventButton * event, VolumeALSAPlugin * vol)
@@ -714,13 +722,14 @@ static void set_bcm_output (GtkWidget * widget, GdkEventButton * event, VolumeAL
 		sprintf (cmdbuf, "amixer cset numid=3 %s", widget->name);
 		system (cmdbuf);
 	}
+    gtk_menu_popdown (GTK_MENU(vol->menu_popup));
 }
 
 static void open_config_dialog (GtkWidget * widget, GdkEventButton * event, VolumeALSAPlugin * vol)
 {
 	volumealsa_configure (vol->panel, vol->plugin);
+    gtk_menu_popdown (GTK_MENU(vol->menu_popup));
 }
-
 
 #endif
 
@@ -757,8 +766,10 @@ static gboolean volumealsa_button_press_event(GtkWidget * widget, GdkEventButton
     {
   		gint counter = 0, val = -1;
       	GList *iter, *mixers = gst_audio_default_registry_mixer_filter (_xfce_mixer_filter_mixer, FALSE, &counter);
-		GtkWidget *image = gtk_image_new_from_icon_name("dialog-ok-apply", GTK_ICON_SIZE_MENU), *mi, *menu = gtk_menu_new ();
-		gboolean def_good = FALSE;
+		GtkWidget *image = gtk_image_new_from_icon_name("dialog-ok-apply", GTK_ICON_SIZE_MENU), *mi;
+		gboolean def_good = FALSE, ext_dev = FALSE;
+		
+		vol->menu_popup = gtk_menu_new ();
 		
 		counter = 2;
 		for (iter = mixers; iter != NULL; iter = g_list_next (iter))
@@ -787,30 +798,26 @@ static gboolean volumealsa_button_press_event(GtkWidget * widget, GdkEventButton
 			val = asound_get_bcm_output ();
 		}
 		
-       	mi = gtk_image_menu_item_new_with_label (_("Internal Auto"));
-		if (val == 0) gtk_image_menu_item_set_image (GTK_IMAGE_MENU_ITEM(mi), image);
-		gtk_widget_set_name (mi, "0");
-        g_signal_connect (mi, "button-press-event", G_CALLBACK (set_bcm_output), (gpointer) vol);
-        gtk_menu_shell_append (GTK_MENU_SHELL(menu), mi);
-		
-       	mi = gtk_image_menu_item_new_with_label (_("Internal Analog"));
+       	mi = gtk_image_menu_item_new_with_label (_("Analog"));
 		if (val == 1) gtk_image_menu_item_set_image (GTK_IMAGE_MENU_ITEM(mi), image);
 		gtk_widget_set_name (mi, "1");
         g_signal_connect (mi, "button-press-event", G_CALLBACK (set_bcm_output), (gpointer) vol);
-        gtk_menu_shell_append (GTK_MENU_SHELL(menu), mi);
+        g_signal_connect (mi, "button-release-event", G_CALLBACK (set_bcm_output), (gpointer) vol);
+        gtk_menu_shell_append (GTK_MENU_SHELL(vol->menu_popup), mi);
         
-       	mi = gtk_image_menu_item_new_with_label (_("Internal HDMI"));
+       	mi = gtk_image_menu_item_new_with_label (_("HDMI"));
 		if (val == 2) gtk_image_menu_item_set_image (GTK_IMAGE_MENU_ITEM(mi), image);
 		gtk_widget_set_name (mi, "2");
         g_signal_connect (mi, "button-press-event", G_CALLBACK (set_bcm_output), (gpointer) vol);
-        gtk_menu_shell_append (GTK_MENU_SHELL(menu), mi);
+        g_signal_connect (mi, "button-release-event", G_CALLBACK (set_bcm_output), (gpointer) vol);
+        gtk_menu_shell_append (GTK_MENU_SHELL(vol->menu_popup), mi);
 		
   		for (iter = mixers; iter != NULL; iter = g_list_next (iter))
     	{
 			if (!xfce_mixer_is_bcm_device (iter->data))
 			{	
 				mi = gtk_separator_menu_item_new ();
-				gtk_menu_shell_append (GTK_MENU_SHELL(menu), mi);
+				gtk_menu_shell_append (GTK_MENU_SHELL(vol->menu_popup), mi);
 				
 				char namebuf[128];
 				strcpy (namebuf, xfce_mixer_get_card_display_name (iter->data));
@@ -820,20 +827,26 @@ static gboolean volumealsa_button_press_event(GtkWidget * widget, GdkEventButton
 				if (xfce_mixer_is_default_card (iter->data)) gtk_image_menu_item_set_image (GTK_IMAGE_MENU_ITEM(mi), image);
 				gtk_widget_set_name (mi, xfce_mixer_get_card_id (iter->data));  // use the widget name to store the card id
 				g_signal_connect (mi, "button-press-event", G_CALLBACK (set_default_card_event), (gpointer) vol);
-				gtk_menu_shell_append (GTK_MENU_SHELL(menu), mi);
+				g_signal_connect (mi, "button-release-event", G_CALLBACK (set_default_card_event), (gpointer) vol);
+				gtk_menu_shell_append (GTK_MENU_SHELL(vol->menu_popup), mi); 
+				ext_dev = TRUE;
             }
     	}
     	
-		mi = gtk_separator_menu_item_new ();
-		gtk_menu_shell_append (GTK_MENU_SHELL(menu), mi);
+    	if (ext_dev)
+    	{
+			mi = gtk_separator_menu_item_new ();
+			gtk_menu_shell_append (GTK_MENU_SHELL(vol->menu_popup), mi);
 				
-    	mi = gtk_image_menu_item_new_with_label (_("Device Settings..."));
-        g_signal_connect (mi, "button-press-event", G_CALLBACK (open_config_dialog), (gpointer) vol);
-        gtk_menu_shell_append (GTK_MENU_SHELL(menu), mi);
+    		mi = gtk_image_menu_item_new_with_label (_("Device Settings..."));
+        	g_signal_connect (mi, "button-press-event", G_CALLBACK (open_config_dialog), (gpointer) vol);
+        	g_signal_connect (mi, "button-release-event", G_CALLBACK (open_config_dialog), (gpointer) vol);
+        	gtk_menu_shell_append (GTK_MENU_SHELL(vol->menu_popup), mi);
+        }
  
-    	gtk_widget_show_all (menu);
-        gtk_menu_popup (GTK_MENU(menu), NULL, NULL, (GtkMenuPositionFunc) volumealsa_popup_set_position, (gpointer) vol,
-                event->button, event->time);
+    	gtk_widget_show_all (vol->menu_popup);
+        gtk_menu_popup (GTK_MENU(vol->menu_popup), NULL, NULL, (GtkMenuPositionFunc) volumealsa_popup_set_position, (gpointer) vol,
+            event->button, event->time);
     }
 #endif
     return TRUE;
