@@ -547,6 +547,7 @@ static void volumealsa_update_display(VolumeALSAPlugin * vol)
     /* Mute status. */
     gboolean mute = asound_is_muted(vol);
     int level = asound_get_volume(vol);
+    if (mute) level = 0;
 
     volumealsa_update_current_icon(vol);
 
@@ -568,7 +569,7 @@ static void volumealsa_update_display(VolumeALSAPlugin * vol)
     if (vol->volume_scale != NULL)
     {
         g_signal_handler_block(vol->volume_scale, vol->volume_scale_handler);
-        gtk_range_set_value(GTK_RANGE(vol->volume_scale), asound_get_volume(vol));
+        gtk_range_set_value(GTK_RANGE(vol->volume_scale), level);
         g_signal_handler_unblock(vol->volume_scale, vol->volume_scale_handler);
     }
 
@@ -882,6 +883,7 @@ static void volumealsa_theme_change(GtkWidget * widget, VolumeALSAPlugin * vol)
 static void volumealsa_popup_scale_changed(GtkRange * range, VolumeALSAPlugin * vol)
 {
     /* Reflect the value of the control to the sound system. */
+    if (!asound_is_muted (vol))
     asound_set_volume(vol, gtk_range_get_value(range));
 
     /* Redraw the controls. */
