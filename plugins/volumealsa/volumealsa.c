@@ -1321,7 +1321,7 @@ FM_DEFINE_MODULE(lxpanel_gtk, volumealsa)
 
 /* Plugin descriptor. */
 LXPanelPluginInit fm_module_init_lxpanel_gtk = {
-    .name = N_("Volume Control"),
+    .name = N_("Volume Control (ALSA)"),
     .description = N_("Display and control volume for ALSA"),
 
     .new_instance = volumealsa_constructor,
