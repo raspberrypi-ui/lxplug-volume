@@ -38,6 +38,7 @@
 #define ICONS_VOLUME_MEDIUM PACKAGE_DATA_DIR "/images/volume-medium.png"
 #define ICONS_VOLUME_LOW    PACKAGE_DATA_DIR "/images/volume-low.png"
 #define ICONS_MUTE          PACKAGE_DATA_DIR "/images/mute.png"
+#define ICONS_TICK          PACKAGE_DATA_DIR "/images/dialog-ok-apply.png"
 
 #define ICON_BUTTON_TRIM 4
 
@@ -767,9 +768,21 @@ static gboolean volumealsa_button_press_event(GtkWidget * widget, GdkEventButton
     {
   		gint counter = 0, val = -1;
       	GList *iter, *mixers = gst_audio_default_registry_mixer_filter (_xfce_mixer_filter_mixer, FALSE, &counter);
-		GtkWidget *image = gtk_image_new_from_icon_name("dialog-ok-apply", GTK_ICON_SIZE_MENU), *mi;
+		GtkWidget *image, *mi;
+		GdkPixbuf *pixbuf = NULL;
 		gboolean def_good = FALSE, ext_dev = FALSE;
 		
+    	if (gtk_icon_theme_has_icon (panel_get_icon_theme (vol->panel), "dialog-ok-apply"))
+        	pixbuf = gtk_icon_theme_load_icon (panel_get_icon_theme (vol->panel), "dialog-ok-apply", 16, 0, NULL);
+    	if (pixbuf == NULL)
+    		pixbuf = gdk_pixbuf_new_from_file_at_scale (ICONS_TICK, 16, 16, TRUE, NULL);
+	
+    	if (pixbuf != NULL)
+    	{
+        	image = gtk_image_new_from_pixbuf(pixbuf);
+        	g_object_unref(pixbuf);
+    	}
+
 		vol->menu_popup = gtk_menu_new ();
 		
 		counter = 2;
