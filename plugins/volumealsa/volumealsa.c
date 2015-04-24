@@ -690,12 +690,22 @@ static void volumealsa_popup_set_position(GtkWidget * menu, gint * px, gint * py
     *push_in = TRUE;
 }
 
+static void send_message (void)
+{
+  // to message the xfce mixer dialog, a Dbus connection is dropped and then reacquired
+  // doing this the other (more logical) way around doesn't work, as Dbus doesn't pass the message fast enough
+  static guint id = 0;
+  if (id) g_bus_unown_name (id);
+  id = g_bus_own_name (G_BUS_TYPE_SESSION, "org.lxde.volumealsa", 0, NULL, NULL, NULL, NULL, NULL);
+}
+
 static void set_default_card_event (GtkWidget * widget, GdkEventButton * event, VolumeALSAPlugin * vol)
 {
     asound_set_default_card (widget->name);
     asound_restart (vol);
     volumealsa_update_display (vol);
     gtk_menu_popdown (GTK_MENU(vol->menu_popup));
+    send_message ();
 }
 
 static void set_bcm_output (GtkWidget * widget, GdkEventButton * event, VolumeALSAPlugin * vol)
@@ -725,6 +735,7 @@ static void set_bcm_output (GtkWidget * widget, GdkEventButton * event, VolumeAL
         system (cmdbuf);
     }
     gtk_menu_popdown (GTK_MENU(vol->menu_popup));
+    send_message ();
 }
 
 static void open_config_dialog (GtkWidget * widget, GdkEventButton * event, VolumeALSAPlugin * vol)
