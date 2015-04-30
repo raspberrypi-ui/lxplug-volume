@@ -93,17 +93,23 @@ static GtkWidget *volumealsa_configure(LXPanel *panel, GtkWidget *p);
 
 /*** ALSA ***/
 
-static gboolean asound_find_element(VolumeALSAPlugin * vol, const char * ename)
+static gboolean asound_find_elements(VolumeALSAPlugin * vol)
 {
+    const char *name;
     for (
       vol->master_element = snd_mixer_first_elem(vol->mixer);
       vol->master_element != NULL;
       vol->master_element = snd_mixer_elem_next(vol->master_element))
     {
         snd_mixer_selem_get_id(vol->master_element, vol->sid);
-        if ((snd_mixer_selem_is_active(vol->master_element))
-        && (strcmp(ename, snd_mixer_selem_id_get_name(vol->sid)) == 0))
-            return TRUE;
+        if ((snd_mixer_selem_is_active(vol->master_element)))
+        {
+            name = snd_mixer_selem_id_get_name(vol->sid);
+            if (!strcmp(name, "Master")) return TRUE;
+            if (!strcmp(name, "Front")) return TRUE;
+            if (!strcmp(name, "PCM")) return TRUE;
+            if (!strcmp(name, "LineOut")) return TRUE;
+        }
     }
     return FALSE;
 }
@@ -382,11 +388,17 @@ static gboolean asound_initialize(VolumeALSAPlugin * vol)
 
     /* Find Master element, or Front element, or PCM element, or LineOut element.
      * If one of these succeeds, master_element is valid. */
-    if ( ! asound_find_element(vol, "Master"))
-        if ( ! asound_find_element(vol, "Front"))
-            if ( ! asound_find_element(vol, "PCM"))
-                if ( ! asound_find_element(vol, "LineOut"))
-                    return FALSE;
+    if (!asound_find_elements (vol))
+    {
+        // this is a belt-and-braces check in case a driver has become corrupt...
+        g_warning ("volumealsa: Can't find elements - resetting to internal");
+        asound_set_default_card (xfce_mixer_get_bcm_device_id ());
+        asound_get_default_card (device);
+        snd_mixer_attach (vol->mixer, device);
+        snd_mixer_selem_register (vol->mixer, NULL, NULL);
+        snd_mixer_load (vol->mixer);
+        if (!asound_find_elements (vol)) return FALSE;
+    }
 
     /* Set the playback volume range as we wish it. */
     snd_mixer_selem_set_playback_volume_range(vol->master_element, 0, 100);
