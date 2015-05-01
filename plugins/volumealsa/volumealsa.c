@@ -109,6 +109,7 @@ static gboolean asound_find_elements(VolumeALSAPlugin * vol)
             if (!strcmp(name, "Front")) return TRUE;
             if (!strcmp(name, "PCM")) return TRUE;
             if (!strcmp(name, "LineOut")) return TRUE;
+//            if (!strcmp(name, "Digital")) return TRUE;
         }
     }
     return FALSE;
@@ -392,13 +393,16 @@ static gboolean asound_initialize(VolumeALSAPlugin * vol)
     {
         // this is a belt-and-braces check in case a driver has become corrupt...
         g_warning ("volumealsa: Can't find elements - resetting to internal");
+        snd_mixer_detach (vol->mixer, device);
+        snd_mixer_free (vol->mixer);
         asound_set_default_card (xfce_mixer_get_bcm_device_id ());
         asound_get_default_card (device);
+        snd_mixer_open (&vol->mixer, 0);
         snd_mixer_attach (vol->mixer, device);
         snd_mixer_selem_register (vol->mixer, NULL, NULL);
         snd_mixer_load (vol->mixer);
         if (!asound_find_elements (vol)) return FALSE;
-    }
+   }
 
     /* Set the playback volume range as we wish it. */
     snd_mixer_selem_set_playback_volume_range(vol->master_element, 0, 100);
