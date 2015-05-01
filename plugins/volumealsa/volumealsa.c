@@ -109,7 +109,7 @@ static gboolean asound_find_elements(VolumeALSAPlugin * vol)
             if (!strcmp(name, "Front")) return TRUE;
             if (!strcmp(name, "PCM")) return TRUE;
             if (!strcmp(name, "LineOut")) return TRUE;
-//            if (!strcmp(name, "Digital")) return TRUE;
+            if (!strcmp(name, "Digital")) return TRUE;
         }
     }
     return FALSE;
