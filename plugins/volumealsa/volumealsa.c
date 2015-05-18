@@ -1319,6 +1319,10 @@ static GtkWidget *volumealsa_configure(LXPanel *panel, GtkWidget *p)
         {
             command_line = "alsamixergui";
         }
+        else if ((path = g_find_program_in_path("pimixer")))
+        {
+            command_line = "pimixer";
+        }
         else if ((path = g_find_program_in_path("xfce4-mixer")))
         {
             command_line = "xfce4-mixer";
