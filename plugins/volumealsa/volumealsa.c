@@ -347,6 +347,12 @@ static void asound_set_default_card (const char *id)
   g_free (user_config_file);
 }
 
+static void asound_set_bcm_card (void)
+{
+    const char *bcm = xfce_mixer_get_bcm_device_id ();
+    if (bcm) asound_set_default_card (bcm);
+}
+
 static int asound_get_bcm_output (void)
 {
     int val = -1, tmp;
@@ -380,7 +386,7 @@ static gboolean asound_initialize(VolumeALSAPlugin * vol)
     if (snd_mixer_attach(vol->mixer, device))
     {
         g_warning ("volumealsa: Default ALSA device not valid - resetting to internal");
-        asound_set_default_card (xfce_mixer_get_bcm_device_id ());
+        asound_set_bcm_card ();
         asound_get_default_card (device);
         snd_mixer_attach(vol->mixer, device);
     }
@@ -395,7 +401,7 @@ static gboolean asound_initialize(VolumeALSAPlugin * vol)
         g_warning ("volumealsa: Can't find elements - resetting to internal");
         snd_mixer_detach (vol->mixer, device);
         snd_mixer_free (vol->mixer);
-        asound_set_default_card (xfce_mixer_get_bcm_device_id ());
+        asound_set_bcm_card ();
         asound_get_default_card (device);
         snd_mixer_open (&vol->mixer, 0);
         snd_mixer_attach (vol->mixer, device);
@@ -833,7 +839,7 @@ static gboolean volumealsa_button_press_event(GtkWidget * widget, GdkEventButton
         {
             /* The default device is not present - fall back... */
             g_warning ("volumealsa: Default ALSA device not valid - resetting to internal");
-            asound_set_default_card (xfce_mixer_get_bcm_device_id ());
+            asound_set_bcm_card ();
             asound_restart (vol);
             volumealsa_update_display (vol);
             val = asound_get_bcm_output ();
@@ -1047,7 +1053,7 @@ static void volumealsa_build_popup_window(GtkWidget *p)
     {
         /* The default device is not present - fall back... */
         g_warning ("volumealsa: Default ALSA device not valid - resetting to internal");
-        asound_set_default_card (xfce_mixer_get_bcm_device_id ());
+        asound_set_bcm_card ();
         asound_restart (vol);
         volumealsa_update_display (vol);
         val = asound_get_bcm_output ();
@@ -1221,7 +1227,7 @@ static GtkWidget *volumealsa_constructor(LXPanel *panel, config_setting_t *setti
     {
         /* The default device is not present - fall back... */
         g_warning ("volumealsa: Default ALSA device not valid - resetting to internal");
-        asound_set_default_card (xfce_mixer_get_bcm_device_id ());
+        asound_set_bcm_card ();
         asound_restart (vol);
     }
 
