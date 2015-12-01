@@ -110,6 +110,7 @@ static gboolean asound_find_elements(VolumeALSAPlugin * vol)
             if (!strcmp(name, "PCM")) return TRUE;
             if (!strcmp(name, "LineOut")) return TRUE;
             if (!strcmp(name, "Digital")) return TRUE;
+            if (!strcmp(name, "Headphone")) return TRUE;
         }
     }
     return FALSE;
