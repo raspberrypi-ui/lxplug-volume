@@ -770,6 +770,15 @@ static void open_config_dialog (GtkWidget * widget, GdkEventButton * event, Volu
 
 #endif
 
+/* Handler for "focus-out" signal on popup window. */
+static gboolean volumealsa_popup_focus_out(GtkWidget * widget, GdkEvent * event, VolumeALSAPlugin * vol)
+{
+    /* Hide the widget. */
+    gtk_widget_hide(vol->popup_window);
+    vol->show_popup = FALSE;
+    return FALSE;
+}
+
 /* Handler for "button-press-event" signal on main widget. */
 
 static gboolean volumealsa_button_press_event(GtkWidget * widget, GdkEventButton * event, LXPanel * panel)
@@ -788,7 +797,13 @@ static gboolean volumealsa_button_press_event(GtkWidget * widget, GdkEventButton
         {
             volumealsa_build_popup_window (vol->plugin);
             volumealsa_update_display (vol);
-            gtk_widget_show_all(vol->popup_window);
+
+            gint x, y;
+            gtk_window_iconify (GTK_WINDOW (vol->popup_window));
+            gtk_widget_show_all (vol->popup_window);
+            lxpanel_plugin_popup_set_position_helper (panel, widget, vol->popup_window, &x, &y);
+            gdk_window_move (gtk_widget_get_window (vol->popup_window), x, y);
+            gtk_window_present (GTK_WINDOW (vol->popup_window));
             vol->show_popup = TRUE;
         }
     }
@@ -902,21 +917,6 @@ static gboolean volumealsa_button_press_event(GtkWidget * widget, GdkEventButton
     }
 #endif
     return TRUE;
-}
-
-/* Handler for "focus-out" signal on popup window. */
-static gboolean volumealsa_popup_focus_out(GtkWidget * widget, GdkEvent * event, VolumeALSAPlugin * vol)
-{
-    /* Hide the widget. */
-    gtk_widget_hide(vol->popup_window);
-    vol->show_popup = FALSE;
-    return FALSE;
-}
-
-/* Handler for "map" signal on popup window. */
-static void volumealsa_popup_map(GtkWidget * widget, VolumeALSAPlugin * vol)
-{
-    lxpanel_plugin_adjust_popup_position(widget, vol->plugin);
 }
 
 static void volumealsa_theme_change(GtkWidget * widget, VolumeALSAPlugin * vol)
@@ -1068,7 +1068,7 @@ static void volumealsa_build_popup_window(GtkWidget *p)
     }
 
     /* Create a new window. */
-    vol->popup_window = gtk_window_new(GTK_WINDOW_POPUP);
+    vol->popup_window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
     gtk_widget_set_name (vol->popup_window, "volals");
     gtk_window_set_decorated(GTK_WINDOW(vol->popup_window), FALSE);
     gtk_container_set_border_width(GTK_CONTAINER(vol->popup_window), 5);
@@ -1081,7 +1081,6 @@ static void volumealsa_build_popup_window(GtkWidget *p)
 
     /* Connect signals. */
     g_signal_connect(G_OBJECT(vol->popup_window), "focus-out-event", G_CALLBACK(volumealsa_popup_focus_out), vol);
-    g_signal_connect(G_OBJECT(vol->popup_window), "map", G_CALLBACK(volumealsa_popup_map), vol);
 
     /* Create a scrolled window as the child of the top level window. */
     GtkWidget * scrolledwindow = gtk_scrolled_window_new(NULL, NULL);
@@ -1128,6 +1127,7 @@ static void volumealsa_build_popup_window(GtkWidget *p)
     gtk_scale_set_draw_value(GTK_SCALE(vol->volume_scale), FALSE);
     gtk_range_set_inverted(GTK_RANGE(vol->volume_scale), TRUE);
     gtk_box_pack_start(GTK_BOX(box), vol->volume_scale, TRUE, TRUE, 0);
+    gtk_widget_set_can_focus (vol->volume_scale, FALSE);
 
     /* Value-changed and scroll-event signals. */
     vol->volume_scale_handler = g_signal_connect(vol->volume_scale, "value-changed", G_CALLBACK(volumealsa_popup_scale_changed), vol);
@@ -1137,6 +1137,7 @@ static void volumealsa_build_popup_window(GtkWidget *p)
     vol->mute_check = gtk_check_button_new_with_label(_("Mute"));
     gtk_box_pack_end(GTK_BOX(box), vol->mute_check, FALSE, FALSE, 0);
     vol->mute_check_handler = g_signal_connect(vol->mute_check, "toggled", G_CALLBACK(volumealsa_popup_mute_toggled), vol);
+    gtk_widget_set_can_focus (vol->mute_check, FALSE);
 
 #ifndef CUSTOM_MENU
     /* Create a frame as the child of the vbox. */
@@ -1239,7 +1240,7 @@ static GtkWidget *volumealsa_constructor(LXPanel *panel, config_setting_t *setti
     gtk_button_set_relief (GTK_BUTTON (vol->plugin), GTK_RELIEF_NONE);
     //vol->plugin = p = gtk_event_box_new();
 #ifdef CUSTOM_MENU
-    g_signal_connect(vol->plugin, "button-press-event", G_CALLBACK(volumealsa_button_press_event), NULL);
+    g_signal_connect(vol->plugin, "button-press-event", G_CALLBACK(volumealsa_button_press_event), vol->panel);
 #endif
     vol->settings = settings;
     lxpanel_plugin_set_data(p, vol, volumealsa_destructor);
