@@ -239,7 +239,9 @@ static int get_default_sink (VolumeALSAPlugin *vol)
         return -1;
     }
     const char *res = g_variant_get_string (g_variant_get_child_value (g_variant_get_child_value (var, 0), 0), NULL);
-    return (res[26] - '0');
+    int sink = res[26] - '0';
+    if (sink >= 0 && sink <= 9) return sink;
+    else return -1;
 }
 
 static void cb_connected (GObject *source, GAsyncResult *res, gpointer user_data)
