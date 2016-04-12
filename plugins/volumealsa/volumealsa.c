@@ -81,6 +81,7 @@ typedef struct {
     char *bt_conname;                       /* BlueZ name of device - just used during connection */
     gboolean bt_used;                       /* flag to show if the current device is Bluetooth */
     int sink;                               /* sink number of current Bluetooth device */
+    guint sub_id;                           /* subscription ID for signal notifications */
 } VolumeALSAPlugin;
 
 static void send_message (void);
@@ -324,6 +325,15 @@ static void disconnect_device (VolumeALSAPlugin *vol)
     g_dbus_proxy_call (G_DBUS_PROXY (interface), "Connect", NULL, G_DBUS_CALL_FLAGS_NONE, -1, NULL, cb_connected, vol);
 }
 
+void stop_pulseaudio (VolumeALSAPlugin *vol)
+{
+    g_dbus_connection_signal_unsubscribe (vol->con, vol->sub_id);
+    system ("pulseaudio --kill");
+    system ("rm ~/.config/bt");
+    vol->bt_used = FALSE;
+}
+
+
 void signal_cb (GDBusConnection *connection, const gchar *sender_name, const gchar *object_path, const gchar *interface_name,
     const gchar *signal_name, GVariant *parameters, gpointer user_data)
 {
@@ -336,33 +346,71 @@ void signal_cb (GDBusConnection *connection, const gchar *sender_name, const gch
         if (sscanf (sinkname, "/org/pulseaudio/core1/sink%d", &sink) == 1 && sink == vol->sink)
         {
             printf ("Sink in use removed\n");
-            system ("pulseaudio --kill");
-            system ("rm ~/.config/bt");
-            vol->bt_used = FALSE;
+            stop_pulseaudio (vol);
             volumealsa_update_display (vol);
         }
     }
 }
 
-static void set_bt_card_event (GtkWidget * widget, GdkEventButton * event, VolumeALSAPlugin * vol)
+static void start_pulseaudio (VolumeALSAPlugin * vol)
 {
+    GError *error;
+
+    // fall out if PA already started...
+
+    vol->con = NULL;
+
     // start the PulseAudio server if it isn't running
     system ("pulseaudio --start");
-    // ask the PulseAudio server what the PulseAudio P2P address is
-    GDBusConnection *con = g_bus_get_sync (G_BUS_TYPE_SESSION, NULL, NULL);
+
+    // request the PulseAudio P2P address from the PulseAudio server
+    error = NULL;
+    GDBusConnection *con = g_bus_get_sync (G_BUS_TYPE_SESSION, NULL, &error);
+    if (error)
+    {
+        printf ("Bus connection error - %s\n", error->message);
+        return;
+    }
+
+    error = NULL;
     GDBusProxy *prox = g_dbus_proxy_new_sync (con, G_DBUS_PROXY_FLAGS_NONE, NULL, "org.PulseAudio1", "/org/pulseaudio/server_lookup1", "org.freedesktop.DBus.Properties", NULL, NULL);
+    if (error)
+    {
+        printf ("Error requesting address - %s\n", error->message);
+        return;
+    }
+
     GVariant *var = g_dbus_proxy_get_cached_property (prox, "Address");
+    if (!var)
+    {
+        printf ("Null address\n");
+        return;
+    }
 
     // create a P2P connection to PulseAudio at the returned address
-    vol->con = g_dbus_connection_new_for_address_sync (g_variant_get_string (var, NULL), G_DBUS_CONNECTION_FLAGS_AUTHENTICATION_CLIENT, NULL, NULL, NULL);
-
-    // listen for signals on PulseAudio
-    GError *error = NULL;
-    var = g_dbus_connection_call_sync (vol->con, NULL, "/org/pulseaudio/core1", "org.PulseAudio.Core1", "ListenForSignal", g_variant_new ("(sao)", "org.PulseAudio.Core1.SinkRemoved", NULL), NULL, 0, -1, NULL, &error);
-    if (error) printf ("Method error %s\n", error->message);
     error = NULL;
-    g_dbus_connection_signal_subscribe (vol->con, NULL, "org.PulseAudio.Core1", NULL, NULL, NULL, G_DBUS_SIGNAL_FLAGS_NONE, signal_cb, vol, NULL);
-    if (error) printf ("Subscribe error %s\n", error->message);
+    vol->con = g_dbus_connection_new_for_address_sync (g_variant_get_string (var, NULL), G_DBUS_CONNECTION_FLAGS_AUTHENTICATION_CLIENT, NULL, NULL, &error);
+    if (error)
+    {
+        printf ("Connection error - %s\n", error->message);
+        vol->con = NULL;
+        return;
+    }
+
+    // request SinkRemoved signals from PulseAudio
+    error = NULL;
+    var = g_dbus_connection_call_sync (vol->con, NULL, "/org/pulseaudio/core1", "org.PulseAudio.Core1", "ListenForSignal", g_variant_new ("(sao)", "org.PulseAudio.Core1.SinkRemoved", NULL), NULL, 0, -1, NULL, &error);
+    if (error) printf ("Method error - %s\n", error->message);
+
+    // set up callback on SinkRemoved signal
+    error = NULL;
+    vol->sub_id = g_dbus_connection_signal_subscribe (vol->con, NULL, "org.PulseAudio.Core1", NULL, NULL, NULL, G_DBUS_SIGNAL_FLAGS_NONE, signal_cb, vol, NULL);
+    if (error) printf ("Subscribe error - %s\n", error->message);
+}
+
+static void set_bt_card_event (GtkWidget * widget, GdkEventButton * event, VolumeALSAPlugin * vol)
+{
+    start_pulseaudio (vol);
 
     // store the name of the BlueZ device to connect to for use in the callback
     vol->bt_conname = g_malloc0 (strlen (widget->name) + 1);
@@ -1036,9 +1084,7 @@ static void send_message (void)
 
 static void set_default_card_event (GtkWidget * widget, GdkEventButton * event, VolumeALSAPlugin * vol)
 {
-    system ("pulseaudio --kill");
-    system ("rm ~/.config/bt");
-    vol->bt_used = FALSE;
+    stop_pulseaudio (vol);
     asound_set_default_card (widget->name);
     asound_restart (vol);
     volumealsa_update_display (vol);
@@ -1052,9 +1098,7 @@ static void set_bcm_output (GtkWidget * widget, GdkEventButton * event, VolumeAL
     const char *bcm;
 
     /* check that the BCM device is default... */
-    system ("pulseaudio --kill");
-    system ("rm ~/.config/bt");
-    vol->bt_used = FALSE;
+    stop_pulseaudio (vol);
     bcm = xfce_mixer_get_bcm_device_id ();
     asound_get_default_card (cmdbuf);
     if (strcmp (cmdbuf, bcm))
@@ -1653,53 +1697,35 @@ static GtkWidget *volumealsa_constructor(LXPanel *panel, config_setting_t *setti
     g_signal_connect(G_OBJECT(p), "scroll-event", G_CALLBACK(volumealsa_popup_scale_scrolled), vol );
     g_signal_connect(panel_get_icon_theme(panel), "changed", G_CALLBACK(volumealsa_theme_change), vol );
 
+    /* Get an object manager for BlueZ */
+    GError *error = NULL;
+    vol->objmanager = g_dbus_object_manager_client_new_for_bus_sync (G_BUS_TYPE_SYSTEM, 0, "org.bluez", "/", NULL, NULL, NULL, NULL, &error);
+    if (error) printf ("Error getting object manager - %s\n", error->message);
+
     /* Check whether a Bluetooth audio device is the current default - start PulseAudio if it is */
     sprintf (buffer, "%s/.config/bt", getenv ("HOME"));
     if (fp = fopen (buffer, "rb"))
     {
         fclose (fp);
-        system ("pulseaudio --start");
-    }
-
-    /* Get an object manager for BlueZ */
-    GError *error;
-    error = NULL;
-    vol->objmanager = g_dbus_object_manager_client_new_for_bus_sync (G_BUS_TYPE_SYSTEM, 0, "org.bluez", "/", NULL, NULL, NULL, NULL, &error);
-    if (error) printf ("Error getting object manager - %s\n", error->message);
-
-    /* Find the address of the PulseAudio server */
-    GDBusConnection *con = g_bus_get_sync (G_BUS_TYPE_SESSION, NULL, NULL);
-    GDBusProxy *prox = g_dbus_proxy_new_sync (con, G_DBUS_PROXY_FLAGS_NONE, NULL, "org.PulseAudio1", "/org/pulseaudio/server_lookup1", "org.freedesktop.DBus.Properties", NULL, NULL);
-    GVariant *var = g_dbus_proxy_get_cached_property (prox, "Address");
-
-    /* Try to connect to it */
-    error = NULL;
-    vol->con = g_dbus_connection_new_for_address_sync (g_variant_get_string (var, NULL), G_DBUS_CONNECTION_FLAGS_AUTHENTICATION_CLIENT, NULL, NULL, &error);
-    if (!error && vol->con)
-    {
-        /* Reconnect the current Bluetooth audio device */
-        sprintf (buffer, "%s/.config/bt", getenv ("HOME"));
-        if (fp = fopen (buffer, "rb"))
+        start_pulseaudio (vol);
+        if (vol->con)
         {
-            /* Get the BlueZ path of the audio device */
-            fgets (buffer, 128, fp);
-            fclose (fp);
-            buffer[strlen(buffer) - 1] = 0;
-            vol->bt_conname = g_malloc0 (strlen (buffer) + 1);
-            strcpy (vol->bt_conname, buffer);
+            /* Reconnect the current Bluetooth audio device */
+            sprintf (buffer, "%s/.config/bt", getenv ("HOME"));
+            if (fp = fopen (buffer, "rb"))
+            {
+                /* Get the BlueZ path of the audio device */
+                fgets (buffer, 128, fp);
+                fclose (fp);
+                buffer[strlen(buffer) - 1] = 0;
+                vol->bt_conname = g_malloc0 (strlen (buffer) + 1);
+                strcpy (vol->bt_conname, buffer);
 
-            printf ("Connecting...\n");
-            GDBusInterface *interface = g_dbus_object_manager_get_interface (vol->objmanager, vol->bt_conname, "org.bluez.Device1");
-            g_dbus_proxy_call (G_DBUS_PROXY (interface), "Connect", NULL, G_DBUS_CALL_FLAGS_NONE, -1, NULL, cb_connected, vol);
+                printf ("Connecting...\n");
+                GDBusInterface *interface = g_dbus_object_manager_get_interface (vol->objmanager, vol->bt_conname, "org.bluez.Device1");
+                g_dbus_proxy_call (G_DBUS_PROXY (interface), "Connect", NULL, G_DBUS_CALL_FLAGS_NONE, -1, NULL, cb_connected, vol);
+            }
         }
-
-        /* Subscribe to signals to detect removal of devices */
-        error = NULL;
-        var = g_dbus_connection_call_sync (vol->con, NULL, "/org/pulseaudio/core1", "org.PulseAudio.Core1", "ListenForSignal", g_variant_new ("(sao)", "org.PulseAudio.Core1.SinkRemoved", NULL), NULL, 0, -1, NULL, &error);
-        if (error) printf ("Method error %s\n", error->message);
-        error = NULL;
-        g_dbus_connection_signal_subscribe (vol->con, NULL, "org.PulseAudio.Core1", NULL, NULL, NULL, G_DBUS_SIGNAL_FLAGS_NONE, signal_cb, vol, NULL);
-        if (error) printf ("Subscribe error %s\n", error->message);
     }
 
     /* Update the display, show the widget, and return. */
