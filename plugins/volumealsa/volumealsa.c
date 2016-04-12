@@ -76,12 +76,12 @@ typedef struct {
     const char* icon_panel;
     const char* icon_fallback;
 
-    GDBusConnection *con;                   /* DBus P2P connection to PulseAudio server */
     GDBusObjectManager *objmanager;         /* BlueZ object manager */
     char *bt_conname;                       /* BlueZ name of device - just used during connection */
+    GDBusConnection *con;                   /* DBus P2P connection to PulseAudio server */
+    guint sub_id;                           /* subscription ID for signal notifications on PA server */
     gboolean bt_used;                       /* flag to show if the current device is Bluetooth */
     int sink;                               /* sink number of current Bluetooth device */
-    guint sub_id;                           /* subscription ID for signal notifications */
 } VolumeALSAPlugin;
 
 static void send_message (void);
@@ -97,6 +97,7 @@ static gboolean xfce_mixer_is_bcm_device (GstElement *card);
 static const gchar * xfce_mixer_get_bcm_device_id (void);
 static GtkWidget *volumealsa_configure(LXPanel *panel, GtkWidget *p);
 
+/* Bluetooth via PulseAudio */
 
 static guint32 get_bt_vol (VolumeALSAPlugin *vol)
 {
@@ -139,116 +140,105 @@ static void set_bt_mute (VolumeALSAPlugin *vol, gboolean mute)
     g_dbus_connection_call_sync (vol->con, NULL, buffer, "org.freedesktop.DBus.Properties", "Set", var, NULL, 0, -1, NULL, NULL);
 }
 
-static gboolean get_bt_default_dev (VolumeALSAPlugin *vol, char **dev)
+static gboolean get_bz_name_of_pa_sink (VolumeALSAPlugin *vol, char **dev)
 {
     GError *error;
     GVariant *var1, *var2;
+    const gchar *key;
 
+    // query PulseAudio for the path of the default sink - returned in the format "/org/pulseaudio/core1/sinkn"
     error = NULL;
     var1 = g_dbus_connection_call_sync (vol->con, NULL, "/org/pulseaudio/core1", "org.freedesktop.DBus.Properties", "Get", g_variant_new ("(ss)", "org.PulseAudio.Core1", "FallbackSink"), NULL, 0, -1, NULL, &error);
     if (error)
     {
-        printf ("Cannot get default device - %s\n", error->message);
+        printf ("Cannot get path for default device - %s\n", error->message);
         return FALSE;
     }
     if (!var1)
     {
-        printf ("No default sink list\n");
+        printf ("Default device not set\n");
         return FALSE;
     }
+
+    // query the device with that path for its name - returned in the format "bluez_sink.aa_bb_cc_dd_ee_ff"
+    key = g_variant_get_string (g_variant_get_child_value (g_variant_get_child_value (var1, 0), 0), NULL);
     error = NULL;
-    var2 = g_dbus_connection_call_sync (vol->con, NULL, g_variant_get_string (g_variant_get_child_value (g_variant_get_child_value (var1, 0), 0), NULL), "org.freedesktop.DBus.Properties", "Get", g_variant_new ("(ss)", "org.PulseAudio.Core1.Device", "Name"), NULL, 0, -1, NULL, &error);
+    var2 = g_dbus_connection_call_sync (vol->con, NULL, key, "org.freedesktop.DBus.Properties", "Get", g_variant_new ("(ss)", "org.PulseAudio.Core1.Device", "Name"), NULL, 0, -1, NULL, &error);
     if (error)
     {
-        printf ("Cannot get default device - %s\n", error->message);
+        printf ("Cannot get name of default device - %s\n", error->message);
         return FALSE;
     }
     if (!var2)
     {
-        printf ("No name found\n");
+        printf ("Default device has null name\n");
         return FALSE;
     }
-    printf ("Default device = %s\n", g_variant_get_string (g_variant_get_child_value (g_variant_get_child_value (var2, 0), 0), NULL));
     *dev = g_variant_dup_string (g_variant_get_child_value (g_variant_get_child_value (var2, 0), 0), NULL);
     return TRUE;
 }
 
-int get_pa_sink (VolumeALSAPlugin *vol, const char *dev)
+int set_pa_sink_from_bz_name (VolumeALSAPlugin *vol, const char *dev)
 {
     GError *error;
-    GVariant *var, *var2;
+    GVariant *var1, *var2;
     GVariantIter iter;
     gchar *key;
     const gchar *res;
     int sink;
 
+    // get the list of PulseAudio sinks - returned as an array of paths in the format "/org/pulseaudio/core1/sinkn"
     error = NULL;
-    var = g_dbus_connection_call_sync (vol->con, NULL, "/org/pulseaudio/core1", "org.freedesktop.DBus.Properties", "Get", g_variant_new ("(ss)", "org.PulseAudio.Core1", "Sinks"), NULL, 0, -1, NULL, &error);
+    var1 = g_dbus_connection_call_sync (vol->con, NULL, "/org/pulseaudio/core1", "org.freedesktop.DBus.Properties", "Get", g_variant_new ("(ss)", "org.PulseAudio.Core1", "Sinks"), NULL, 0, -1, NULL, &error);
     if (error)
     {
         printf ("Could not read sink list - %s\n", error->message);
         return -1;
     }
+    if (!var1)
+    {
+        printf ("Sink list null\n");
+        return -1;
+    }
 
-    g_variant_iter_init (&iter, g_variant_get_child_value (g_variant_get_child_value (var, 0), 0));
+    // iterate through the sink list
+    g_variant_iter_init (&iter, g_variant_get_child_value (g_variant_get_child_value (var1, 0), 0));
     while (g_variant_iter_next (&iter, "o", &key, NULL))
     {
+        // for each sink in the list, query the device with that path for its name - returned in the format "bluez_sink.aa_bb_cc_dd_ee_ff"
         error = NULL;
         var2 = g_dbus_connection_call_sync (vol->con, NULL, key, "org.freedesktop.DBus.Properties", "Get", g_variant_new ("(ss)", "org.PulseAudio.Core1.Device", "Name"), NULL, 0, -1, NULL, &error);
         if (error)
         {
-            printf ("Could not get name - %s\n", error->message);
+            printf ("Cannot get name of device - %s\n", error->message);
+            return -1;
+        }
+        if (!var2)
+        {
+            printf ("Default device has null name\n");
             return -1;
         }
         res = g_variant_get_string (g_variant_get_child_value (g_variant_get_child_value (var2, 0), 0), NULL);
+
+        // if the six octets at the end of the name match those supplied, set as the default sink
         if (!g_strcmp0 (dev + 20, res + 11))
         {
             if (sscanf (key, "/org/pulseaudio/core1/sink%d", &sink) != 1) return -1;
+            var2 = g_variant_new ("o", key);
+            var1 = g_variant_new ("(ssv)", "org.PulseAudio.Core1", "FallbackSink", var2);
+
+            error = NULL;
+            g_dbus_connection_call_sync (vol->con, NULL, "/org/pulseaudio/core1", "org.freedesktop.DBus.Properties", "Set", var1, NULL, 0, -1, NULL, &error);
+            if (error) printf ("Cannot set sink - %s\n", error->message);
             return sink;
         }
     }
     return -1;
 }
 
-static void set_default_sink (VolumeALSAPlugin *vol, int sink)
+static void close_dialog (GtkButton *button, gpointer user_data)
 {
-    GError *error;
-    GVariant *value, *var;
-    char buffer[32];
-
-    if (sink < 0)
-    {
-        printf ("Cannot set default sink to invalid sink # %d\n", sink);
-        return;
-    }
-    vol->sink = sink;
-    sprintf (buffer, "/org/pulseaudio/core1/sink%d", vol->sink);
-    value = g_variant_new ("o", buffer);
-    var = g_variant_new ("(ssv)", "org.PulseAudio.Core1", "FallbackSink", value);
-
-    error = NULL;
-    g_dbus_connection_call_sync (vol->con, NULL, "/org/pulseaudio/core1", "org.freedesktop.DBus.Properties", "Set", var, NULL, 0, -1, NULL, &error);
-    if (error) printf ("Cannot set sink - %s\n", error->message);
-}
-
-static int get_default_sink (VolumeALSAPlugin *vol)
-{
-    GError *error = NULL;
-    GVariant *var = g_dbus_connection_call_sync (vol->con, NULL, "/org/pulseaudio/core1", "org.freedesktop.DBus.Properties", "Get", g_variant_new ("(ss)", "org.PulseAudio.Core1", "FallbackSink"), NULL, 0, -1, NULL, &error);
-    if (error)
-    {
-        printf ("Error reading sink - %s\n", error->message);
-        return -1;
-    }
-    if (!var)
-    {
-        printf ("No default sink\n");
-        return -1;
-    }
-    int sink;
-    const char *res = g_variant_get_string (g_variant_get_child_value (g_variant_get_child_value (var, 0), 0), NULL);
-    if (sscanf (res, "/org/pulseaudio/core1/sink%d", &sink) != 1) return -1;
-    return sink;
+    gtk_widget_destroy (GTK_WIDGET (user_data));
 }
 
 static void cb_connected (GObject *source, GAsyncResult *res, gpointer user_data)
@@ -256,21 +246,39 @@ static void cb_connected (GObject *source, GAsyncResult *res, gpointer user_data
     VolumeALSAPlugin *vol = (VolumeALSAPlugin *) user_data;
     GError *error = NULL;
     GVariant *var = g_dbus_proxy_call_finish (G_DBUS_PROXY (source), res, &error);
-    char buffer[128];
+    char buffer[256];
+    GtkWidget *dlg, *lbl, *btn;
 
     if (error)
     {
-        //system ("pulseaudio --kill");
         printf ("Connect error %s\n", error->message);
+
+        // show a warning dialog
+        dlg = gtk_dialog_new_with_buttons ("Connection Failure", NULL, GTK_DIALOG_MODAL | GTK_DIALOG_DESTROY_WITH_PARENT, NULL);
+        gtk_window_set_icon (GTK_WINDOW (dlg), gdk_pixbuf_new_from_file ("/usr/share/lxpanel/images/preferences-system-bluetooth.png", NULL));
+        gtk_window_set_position (GTK_WINDOW (dlg), GTK_WIN_POS_CENTER_ALWAYS);
+        gtk_container_set_border_width (GTK_CONTAINER (dlg), 10);
+        sprintf (buffer, "Failed to connect to device - %s. Try to connect again.", error->message);
+        lbl = gtk_label_new (buffer);
+        gtk_label_set_line_wrap (GTK_LABEL (lbl), TRUE);
+        gtk_label_set_justify (GTK_LABEL (lbl), GTK_JUSTIFY_LEFT);
+        gtk_misc_set_alignment (GTK_MISC (lbl), 0.0, 0.0);
+        gtk_box_pack_start (GTK_BOX (gtk_dialog_get_content_area (GTK_DIALOG (dlg))), lbl, TRUE, TRUE, 0);
+        btn = gtk_dialog_add_button (GTK_DIALOG (dlg), "OK", 1);
+        g_signal_connect (btn, "clicked", G_CALLBACK (close_dialog), dlg);
+        gtk_widget_show_all (dlg);
     }
     else
     {
         printf ("Connected OK\n");
+
+        // save the connection data to a file for use after reboot
         sprintf (buffer, "echo %s > ~/.config/bt", vol->bt_conname);
         system (buffer);
+
+        // update the globals with connection details
         vol->bt_used = TRUE;
-        int sink = get_pa_sink (vol, vol->bt_conname);
-        set_default_sink (vol, sink);
+        vol->sink = set_pa_sink_from_bz_name (vol, vol->bt_conname);
         g_free (vol->bt_conname);
         vol->bt_conname = NULL;
 
@@ -301,6 +309,7 @@ static void disconnect_device (VolumeALSAPlugin *vol)
     GError *error = NULL;
     char buffer[32];
     sprintf (buffer, "/org/pulseaudio/core1/sink%d", vol->sink);
+    vol->sink = -1;
     GVariant *var = g_dbus_connection_call_sync (vol->con, NULL, buffer, "org.freedesktop.DBus.Properties", "Get", g_variant_new ("(ss)", "org.PulseAudio.Core1.Device", "Name"), NULL, 0, -1, NULL, &error);
     if (var)
     {
@@ -327,14 +336,16 @@ static void disconnect_device (VolumeALSAPlugin *vol)
 
 void stop_pulseaudio (VolumeALSAPlugin *vol)
 {
+    printf ("Stopping PulseAudio\n");
     g_dbus_connection_signal_unsubscribe (vol->con, vol->sub_id);
     system ("pulseaudio --kill");
     system ("rm ~/.config/bt");
     vol->bt_used = FALSE;
+    vol->con = NULL;
+    vol->sink = -1;
 }
 
-
-void signal_cb (GDBusConnection *connection, const gchar *sender_name, const gchar *object_path, const gchar *interface_name,
+void cb_signal (GDBusConnection *connection, const gchar *sender_name, const gchar *object_path, const gchar *interface_name,
     const gchar *signal_name, GVariant *parameters, gpointer user_data)
 {
     VolumeALSAPlugin *vol = (VolumeALSAPlugin *) user_data;
@@ -356,6 +367,7 @@ static void start_pulseaudio (VolumeALSAPlugin * vol)
 {
     GError *error;
 
+    printf ("Starting PulseAudio\n");
     // fall out if PA already started...
 
     vol->con = NULL;
@@ -404,7 +416,7 @@ static void start_pulseaudio (VolumeALSAPlugin * vol)
 
     // set up callback on SinkRemoved signal
     error = NULL;
-    vol->sub_id = g_dbus_connection_signal_subscribe (vol->con, NULL, "org.PulseAudio.Core1", NULL, NULL, NULL, G_DBUS_SIGNAL_FLAGS_NONE, signal_cb, vol, NULL);
+    vol->sub_id = g_dbus_connection_signal_subscribe (vol->con, NULL, "org.PulseAudio.Core1", NULL, NULL, NULL, G_DBUS_SIGNAL_FLAGS_NONE, cb_signal, vol, NULL);
     if (error) printf ("Subscribe error - %s\n", error->message);
 }
 
@@ -416,6 +428,7 @@ static void set_bt_card_event (GtkWidget * widget, GdkEventButton * event, Volum
     vol->bt_conname = g_malloc0 (strlen (widget->name) + 1);
     strcpy (vol->bt_conname, widget->name);
     printf ("Status = %d %s\n", vol->bt_used, vol->bt_conname);
+
     if (vol->bt_used) disconnect_device (vol);
     else
     {
@@ -1238,6 +1251,64 @@ static gboolean volumealsa_button_press_event(GtkWidget * widget, GdkEventButton
         //g_signal_connect (mi, "button-release-event", G_CALLBACK (set_bcm_output), (gpointer) vol);
         gtk_menu_shell_append (GTK_MENU_SHELL(vol->menu_popup), mi);
 
+        // add Bluetooth devices if PulseAudio is running...
+        if (vol->objmanager)
+        {
+            gboolean bt_dev = FALSE;
+            char *btdevice = NULL;
+            if (vol->con) get_bz_name_of_pa_sink (vol, &btdevice);
+
+            // iterate all the objects the manager knows about
+            GList *objects = g_dbus_object_manager_get_objects (vol->objmanager);
+            while (objects != NULL)
+            {
+                GDBusObject *object = (GDBusObject *) objects->data;
+                GList *interfaces = g_dbus_object_get_interfaces (object);
+                while (interfaces != NULL)
+                {
+                    // if an object has a Device1 interface, it is a Bluetooth device - add it to the list
+                    GDBusInterface *interface = G_DBUS_INTERFACE (interfaces->data);
+                    if (g_strcmp0 (g_dbus_proxy_get_interface_name (G_DBUS_PROXY (interface)), "org.bluez.Device1") == 0)
+                    {
+                        GVariant *name = g_dbus_proxy_get_cached_property (G_DBUS_PROXY (interface), "Alias");
+                        GVariant *paired = g_dbus_proxy_get_cached_property (G_DBUS_PROXY (interface), "Paired");
+                        GVariant *trusted = g_dbus_proxy_get_cached_property (G_DBUS_PROXY (interface), "Trusted");
+                        GVariant *icon = g_dbus_proxy_get_cached_property (G_DBUS_PROXY (interface), "Icon");
+                        if (name && icon && paired && trusted && !g_strcmp0 (g_variant_get_string (icon, NULL), "audio-card") && g_variant_get_boolean (paired) && g_variant_get_boolean (trusted))
+                        {
+                            if (!bt_dev)
+                            {
+                                mi = gtk_separator_menu_item_new ();
+                                gtk_menu_shell_append (GTK_MENU_SHELL(vol->menu_popup), mi);
+                                bt_dev = TRUE;
+                            }
+                            mi = gtk_image_menu_item_new_with_label (g_variant_get_string (name, NULL));
+
+                            const char *devname = g_dbus_object_get_object_path (object);
+                            printf ("Names = %s %s\n", devname, btdevice);
+                            if (btdevice)
+                            {
+                                printf ("Compare %s %s\n", btdevice + (strlen (btdevice) - 17), devname + (strlen (devname) - 17));
+                                if (!strncmp (btdevice + (strlen (btdevice) - 17), devname + (strlen (devname) - 17), 17))
+                                {
+                                    image = gtk_image_new_from_pixbuf(pixbuf);
+                                    gtk_image_menu_item_set_image (GTK_IMAGE_MENU_ITEM(mi), image);
+                                }
+                            }
+                            gtk_widget_set_name (mi, devname);  // use the widget name to store the card id
+                            g_signal_connect (mi, "button-press-event", G_CALLBACK (set_bt_card_event), (gpointer) vol);
+                            //g_signal_connect (mi, "button-release-event", G_CALLBACK (set_bt_card_event), (gpointer) vol);
+                            gtk_menu_shell_append (GTK_MENU_SHELL(vol->menu_popup), mi);
+                        }
+                        break;
+                    }
+                    interfaces = interfaces->next;
+                }
+                objects = objects->next;
+            }
+        }
+
+        // add USB devices...
         for (iter = mixers; iter != NULL; iter = g_list_next (iter))
         {
             if (!xfce_mixer_is_bcm_device (iter->data))
@@ -1264,60 +1335,6 @@ static gboolean volumealsa_button_press_event(GtkWidget * widget, GdkEventButton
                 gtk_menu_shell_append (GTK_MENU_SHELL(vol->menu_popup), mi);
                 ext_dev = TRUE;
             }
-        }
-
-        // add Bluetooth devices...
-        gboolean bt_dev = FALSE;
-        char *btdevice = NULL;
-        get_bt_default_dev (vol, &btdevice);
-
-        // iterate all the objects the manager knows about
-        GList *objects = g_dbus_object_manager_get_objects (vol->objmanager);
-        while (objects != NULL)
-        {
-            GDBusObject *object = (GDBusObject *) objects->data;
-            GList *interfaces = g_dbus_object_get_interfaces (object);
-            while (interfaces != NULL)
-            {
-                // if an object has a Device1 interface, it is a Bluetooth device - add it to the list
-                GDBusInterface *interface = G_DBUS_INTERFACE (interfaces->data);
-                if (g_strcmp0 (g_dbus_proxy_get_interface_name (G_DBUS_PROXY (interface)), "org.bluez.Device1") == 0)
-                {
-                    GVariant *name = g_dbus_proxy_get_cached_property (G_DBUS_PROXY (interface), "Alias");
-                    GVariant *paired = g_dbus_proxy_get_cached_property (G_DBUS_PROXY (interface), "Paired");
-                    GVariant *trusted = g_dbus_proxy_get_cached_property (G_DBUS_PROXY (interface), "Trusted");
-                    GVariant *icon = g_dbus_proxy_get_cached_property (G_DBUS_PROXY (interface), "Icon");
-                    if (name && icon && paired && trusted && !g_strcmp0 (g_variant_get_string (icon, NULL), "audio-card") && g_variant_get_boolean (paired) && g_variant_get_boolean (trusted))
-                    {
-                        if (!bt_dev)
-                        {
-                            mi = gtk_separator_menu_item_new ();
-                            gtk_menu_shell_append (GTK_MENU_SHELL(vol->menu_popup), mi);
-                            bt_dev = TRUE;
-                        }
-                        mi = gtk_image_menu_item_new_with_label (g_variant_get_string (name, NULL));
-
-                        const char *devname = g_dbus_object_get_object_path (object);
-                        printf ("Names = %s %s\n", devname, btdevice);
-                        if (btdevice)
-                        {
-                            printf ("Compare %s %s\n", btdevice + (strlen (btdevice) - 17), devname + (strlen (devname) - 17));
-                            if (!strncmp (btdevice + (strlen (btdevice) - 17), devname + (strlen (devname) - 17), 17))
-                            {
-                                image = gtk_image_new_from_pixbuf(pixbuf);
-                                gtk_image_menu_item_set_image (GTK_IMAGE_MENU_ITEM(mi), image);
-                            }
-                        }
-                        gtk_widget_set_name (mi, devname);  // use the widget name to store the card id
-                        g_signal_connect (mi, "button-press-event", G_CALLBACK (set_bt_card_event), (gpointer) vol);
-                        //g_signal_connect (mi, "button-release-event", G_CALLBACK (set_bt_card_event), (gpointer) vol);
-                        gtk_menu_shell_append (GTK_MENU_SHELL(vol->menu_popup), mi);
-                    }
-                    break;
-                }
-                interfaces = interfaces->next;
-            }
-            objects = objects->next;
         }
 
         if (ext_dev)
@@ -1700,7 +1717,11 @@ static GtkWidget *volumealsa_constructor(LXPanel *panel, config_setting_t *setti
     /* Get an object manager for BlueZ */
     GError *error = NULL;
     vol->objmanager = g_dbus_object_manager_client_new_for_bus_sync (G_BUS_TYPE_SYSTEM, 0, "org.bluez", "/", NULL, NULL, NULL, NULL, &error);
-    if (error) printf ("Error getting object manager - %s\n", error->message);
+    if (error)
+    {
+        printf ("Error getting object manager - %s\n", error->message);
+        vol->objmanager = NULL;
+    }
 
     /* Check whether a Bluetooth audio device is the current default - start PulseAudio if it is */
     sprintf (buffer, "%s/.config/bt", getenv ("HOME"));
