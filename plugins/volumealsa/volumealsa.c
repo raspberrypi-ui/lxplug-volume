@@ -202,7 +202,8 @@ int get_pa_sink (VolumeALSAPlugin *vol, const char *dev)
         res = g_variant_get_string (g_variant_get_child_value (g_variant_get_child_value (var2, 0), 0), NULL);
         if (!g_strcmp0 (dev + 20, res + 11))
         {
-            return (key[26] - '0');
+            if (sscanf (key, "/org/pulseaudio/core1/sink%d", &sink) != 1) return -1;
+            return sink;
         }
     }
     return -1;
@@ -214,6 +215,11 @@ static void set_default_sink (VolumeALSAPlugin *vol, int sink)
     GVariant *value, *var;
     char buffer[32];
 
+    if (sink < 0)
+    {
+        printf ("Cannot set default sink to invalid sink # %d\n", sink);
+        return;
+    }
     vol->sink = sink;
     sprintf (buffer, "/org/pulseaudio/core1/sink%d", vol->sink);
     value = g_variant_new ("o", buffer);
@@ -238,10 +244,10 @@ static int get_default_sink (VolumeALSAPlugin *vol)
         printf ("No default sink\n");
         return -1;
     }
+    int sink;
     const char *res = g_variant_get_string (g_variant_get_child_value (g_variant_get_child_value (var, 0), 0), NULL);
-    int sink = res[26] - '0';
-    if (sink >= 0 && sink <= 9) return sink;
-    else return -1;
+    if (sscanf (res, "/org/pulseaudio/core1/sink%d", &sink) != 1) return -1;
+    return sink;
 }
 
 static void cb_connected (GObject *source, GAsyncResult *res, gpointer user_data)
@@ -325,8 +331,9 @@ void signal_cb (GDBusConnection *connection, const gchar *sender_name, const gch
     printf ("Signal : %s %s %s %s %s\n", sender_name, object_path, interface_name, signal_name, g_variant_print (parameters, TRUE));
     if (!g_strcmp0 (signal_name, "SinkRemoved"))
     {
+        int sink;
         const char *sinkname = g_variant_get_string (g_variant_get_child_value (parameters, 0), NULL);
-        if (sinkname[26] - '0' == vol->sink)
+        if (sscanf (sinkname, "/org/pulseaudio/core1/sink%d", &sink) == 1 && sink == vol->sink)
         {
             printf ("Sink in use removed\n");
             system ("pulseaudio --kill");
