@@ -358,7 +358,7 @@ static void set_bt_card_event (GtkWidget * widget, GdkEventButton * event, Volum
 
     // listen for signals on PulseAudio
     GError *error = NULL;
-    var = g_dbus_connection_call_sync (vol->con, NULL, "/org/pulseaudio/core1", "org.PulseAudio.Core1", "ListenForSignal", g_variant_new ("(sao)", "", NULL), NULL, 0, -1, NULL, &error);
+    var = g_dbus_connection_call_sync (vol->con, NULL, "/org/pulseaudio/core1", "org.PulseAudio.Core1", "ListenForSignal", g_variant_new ("(sao)", "org.PulseAudio.Core1.SinkRemoved", NULL), NULL, 0, -1, NULL, &error);
     if (error) printf ("Method error %s\n", error->message);
     error = NULL;
     g_dbus_connection_signal_subscribe (vol->con, NULL, "org.PulseAudio.Core1", NULL, NULL, NULL, G_DBUS_SIGNAL_FLAGS_NONE, signal_cb, vol, NULL);
@@ -1694,28 +1694,8 @@ static GtkWidget *volumealsa_constructor(LXPanel *panel, config_setting_t *setti
         }
 
         /* Subscribe to signals to detect removal of devices */
-#if 0
         error = NULL;
         var = g_dbus_connection_call_sync (vol->con, NULL, "/org/pulseaudio/core1", "org.PulseAudio.Core1", "ListenForSignal", g_variant_new ("(sao)", "org.PulseAudio.Core1.SinkRemoved", NULL), NULL, 0, -1, NULL, &error);
-        if (error) printf ("Method error %s\n", error->message);
-        error = NULL;
-        var = g_dbus_connection_call_sync (vol->con, NULL, "/org/pulseaudio/core1", "org.PulseAudio.Core1", "ListenForSignal", g_variant_new ("(sao)", "org.PulseAudio.Core1.CardRemoved", NULL), NULL, 0, -1, NULL, &error);
-        if (error) printf ("Method error %s\n", error->message);
-        error = NULL;
-        var = g_dbus_connection_call_sync (vol->con, NULL, "/org/pulseaudio/core1", "org.PulseAudio.Core1", "ListenForSignal", g_variant_new ("(sao)", "org.PulseAudio.Core1.NewSink", NULL), NULL, 0, -1, NULL, &error);
-        if (error) printf ("Method error %s\n", error->message);
-        error = NULL;
-        var = g_dbus_connection_call_sync (vol->con, NULL, "/org/pulseaudio/core1", "org.PulseAudio.Core1", "ListenForSignal", g_variant_new ("(sao)", "org.PulseAudio.Core1.NewCard", NULL), NULL, 0, -1, NULL, &error);
-        if (error) printf ("Method error %s\n", error->message);
-        error = NULL;
-        var = g_dbus_connection_call_sync (vol->con, NULL, "/org/pulseaudio/core1", "org.PulseAudio.Core1", "ListenForSignal", g_variant_new ("(sao)", "org.PulseAudio.Core1.FallbackSinkUpdated", NULL), NULL, 0, -1, NULL, &error);
-        if (error) printf ("Method error %s\n", error->message);
-        error = NULL;
-        var = g_dbus_connection_call_sync (vol->con, NULL, "/org/pulseaudio/core1", "org.PulseAudio.Core1", "ListenForSignal", g_variant_new ("(sao)", "org.PulseAudio.Core1.FallbackSinkUnset", NULL), NULL, 0, -1, NULL, &error);
-        if (error) printf ("Method error %s\n", error->message);
-#endif
-        error = NULL;
-        var = g_dbus_connection_call_sync (vol->con, NULL, "/org/pulseaudio/core1", "org.PulseAudio.Core1", "ListenForSignal", g_variant_new ("(sao)", "", NULL), NULL, 0, -1, NULL, &error);
         if (error) printf ("Method error %s\n", error->message);
         error = NULL;
         g_dbus_connection_signal_subscribe (vol->con, NULL, "org.PulseAudio.Core1", NULL, NULL, NULL, G_DBUS_SIGNAL_FLAGS_NONE, signal_cb, vol, NULL);
