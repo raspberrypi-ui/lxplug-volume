@@ -121,7 +121,7 @@ static void cb_disconnected (GObject *source, GAsyncResult *res, gpointer user_d
 static void close_dialog (GtkButton *button, gpointer user_data);
 static void cb_signal (GDBusConnection *connection, const gchar *sender_name, const gchar *object_path, const gchar *interface_name,
     const gchar *signal_name, GVariant *parameters, gpointer user_data);
-static void set_bt_card_event (GtkWidget * widget, GdkEventButton * event, VolumeALSAPlugin * vol);
+static void set_bt_card_event (GtkWidget * widget, VolumeALSAPlugin * vol);
 
 /* Bluetooth via PulseAudio */
 
@@ -581,7 +581,7 @@ static void cb_signal (GDBusConnection *connection, const gchar *sender_name, co
     }
 }
 
-static void set_bt_card_event (GtkWidget * widget, GdkEventButton * event, VolumeALSAPlugin * vol)
+static void set_bt_card_event (GtkWidget * widget, VolumeALSAPlugin * vol)
 {
     start_pulseaudio (vol, FALSE);
 
@@ -1255,7 +1255,7 @@ static void send_message (void)
   id = g_bus_own_name (G_BUS_TYPE_SESSION, "org.lxde.volumealsa", 0, NULL, NULL, NULL, NULL, NULL);
 }
 
-static void set_default_card_event (GtkWidget * widget, GdkEventButton * event, VolumeALSAPlugin * vol)
+static void set_default_card_event (GtkWidget * widget, VolumeALSAPlugin * vol)
 {
     stop_pulseaudio (vol);
     asound_set_default_card (widget->name);
@@ -1265,7 +1265,7 @@ static void set_default_card_event (GtkWidget * widget, GdkEventButton * event, 
     send_message ();
 }
 
-static void set_bcm_output (GtkWidget * widget, GdkEventButton * event, VolumeALSAPlugin * vol)
+static void set_bcm_output (GtkWidget * widget, VolumeALSAPlugin *vol)
 {
     char cmdbuf[64];
     const char *bcm;
@@ -1295,7 +1295,7 @@ static void set_bcm_output (GtkWidget * widget, GdkEventButton * event, VolumeAL
     send_message ();
 }
 
-static void open_config_dialog (GtkWidget * widget, GdkEventButton * event, VolumeALSAPlugin * vol)
+static void open_config_dialog (GtkWidget * widget, VolumeALSAPlugin * vol)
 {
     volumealsa_configure (vol->panel, vol->plugin);
     gtk_menu_popdown (GTK_MENU(vol->menu_popup));
@@ -1396,8 +1396,7 @@ static gboolean volumealsa_button_press_event(GtkWidget * widget, GdkEventButton
             gtk_image_menu_item_set_image (GTK_IMAGE_MENU_ITEM(mi), image);
         }
         gtk_widget_set_name (mi, "1");
-        g_signal_connect (mi, "button-press-event", G_CALLBACK (set_bcm_output), (gpointer) vol);
-        g_signal_connect (mi, "button-release-event", G_CALLBACK (set_bcm_output), (gpointer) vol);
+        g_signal_connect (mi, "activate", G_CALLBACK (set_bcm_output), (gpointer) vol);
         gtk_menu_shell_append (GTK_MENU_SHELL(vol->menu_popup), mi);
 
         mi = gtk_image_menu_item_new_with_label (_("HDMI"));
@@ -1407,8 +1406,7 @@ static gboolean volumealsa_button_press_event(GtkWidget * widget, GdkEventButton
             gtk_image_menu_item_set_image (GTK_IMAGE_MENU_ITEM(mi), image);
         }
         gtk_widget_set_name (mi, "2");
-        g_signal_connect (mi, "button-press-event", G_CALLBACK (set_bcm_output), (gpointer) vol);
-        g_signal_connect (mi, "button-release-event", G_CALLBACK (set_bcm_output), (gpointer) vol);
+        g_signal_connect (mi, "activate", G_CALLBACK (set_bcm_output), (gpointer) vol);
         gtk_menu_shell_append (GTK_MENU_SHELL(vol->menu_popup), mi);
 
         // add Bluetooth devices if PulseAudio is running...
@@ -1454,8 +1452,7 @@ static gboolean volumealsa_button_press_event(GtkWidget * widget, GdkEventButton
                                 }
                             }
                             gtk_widget_set_name (mi, devname);  // use the widget name to store the card id
-                            g_signal_connect (mi, "button-press-event", G_CALLBACK (set_bt_card_event), (gpointer) vol);
-                            g_signal_connect (mi, "button-release-event", G_CALLBACK (set_bt_card_event), (gpointer) vol);
+                            g_signal_connect (mi, "activate", G_CALLBACK (set_bt_card_event), (gpointer) vol);
                             gtk_menu_shell_append (GTK_MENU_SHELL(vol->menu_popup), mi);
                         }
                         break;
@@ -1488,8 +1485,7 @@ static gboolean volumealsa_button_press_event(GtkWidget * widget, GdkEventButton
                     gtk_image_menu_item_set_image (GTK_IMAGE_MENU_ITEM(mi), image);
                 }
                 gtk_widget_set_name (mi, xfce_mixer_get_card_id (iter->data));  // use the widget name to store the card id
-                g_signal_connect (mi, "button-press-event", G_CALLBACK (set_default_card_event), (gpointer) vol);
-                g_signal_connect (mi, "button-release-event", G_CALLBACK (set_default_card_event), (gpointer) vol);
+                g_signal_connect (mi, "activate", G_CALLBACK (set_default_card_event), (gpointer) vol);
                 gtk_menu_shell_append (GTK_MENU_SHELL(vol->menu_popup), mi);
                 ext_dev = TRUE;
             }
@@ -1501,8 +1497,7 @@ static gboolean volumealsa_button_press_event(GtkWidget * widget, GdkEventButton
             gtk_menu_shell_append (GTK_MENU_SHELL(vol->menu_popup), mi);
 
             mi = gtk_image_menu_item_new_with_label (_("USB Device Settings..."));
-            g_signal_connect (mi, "button-press-event", G_CALLBACK (open_config_dialog), (gpointer) vol);
-            g_signal_connect (mi, "button-release-event", G_CALLBACK (open_config_dialog), (gpointer) vol);
+            g_signal_connect (mi, "activate", G_CALLBACK (open_config_dialog), (gpointer) vol);
             gtk_menu_shell_append (GTK_MENU_SHELL(vol->menu_popup), mi);
         }
 
