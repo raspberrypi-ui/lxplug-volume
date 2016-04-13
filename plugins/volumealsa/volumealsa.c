@@ -323,7 +323,9 @@ static int set_pa_sink_from_bz_name (VolumeALSAPlugin *vol, const char *dev)
 
 static void start_pulseaudio (VolumeALSAPlugin *vol, gboolean always)
 {
-    // !!!! NEED TO FREE THINGS IN HERE....
+    GDBusConnection *con;
+    GDBusProxy *prox;
+    GVariant *var;
     GError *error;
 
     DEBUG ("Starting PulseAudio\n");
@@ -338,7 +340,7 @@ static void start_pulseaudio (VolumeALSAPlugin *vol, gboolean always)
 
     // request the PulseAudio P2P address from the PulseAudio server
     error = NULL;
-    GDBusConnection *con = g_bus_get_sync (G_BUS_TYPE_SESSION, NULL, &error);
+    con = g_bus_get_sync (G_BUS_TYPE_SESSION, NULL, &error);
     if (error)
     {
         DEBUG ("Bus connection error - %s\n", error->message);
@@ -347,20 +349,22 @@ static void start_pulseaudio (VolumeALSAPlugin *vol, gboolean always)
     }
 
     error = NULL;
-    GDBusProxy *prox = g_dbus_proxy_new_sync (con, G_DBUS_PROXY_FLAGS_NONE, NULL, "org.PulseAudio1", "/org/pulseaudio/server_lookup1", "org.freedesktop.DBus.Properties", NULL, NULL);
+    prox = g_dbus_proxy_new_sync (con, G_DBUS_PROXY_FLAGS_NONE, NULL, "org.PulseAudio1", "/org/pulseaudio/server_lookup1", "org.freedesktop.DBus.Properties", NULL, NULL);
     if (error)
     {
         DEBUG ("Error requesting address - %s\n", error->message);
         g_error_free (error);
         return;
     }
+    g_object_unref (con);
 
-    GVariant *var = g_dbus_proxy_get_cached_property (prox, "Address");
+    var = g_dbus_proxy_get_cached_property (prox, "Address");
     if (!var)
     {
         DEBUG ("Null address\n");
         return;
     }
+    g_object_unref (prox);
 
     // create a P2P connection to PulseAudio at the returned address
     error = NULL;
@@ -372,6 +376,7 @@ static void start_pulseaudio (VolumeALSAPlugin *vol, gboolean always)
         g_error_free (error);
         return;
     }
+    g_variant_unref (var);
 
     // request SinkRemoved signals from PulseAudio
     error = NULL;
@@ -381,6 +386,7 @@ static void start_pulseaudio (VolumeALSAPlugin *vol, gboolean always)
         DEBUG ("Method error - %s\n", error->message);
         g_error_free (error);
     }
+    g_variant_unref (var);
 
     // set up callback on SinkRemoved signal
     error = NULL;
@@ -398,10 +404,12 @@ static void stop_pulseaudio (VolumeALSAPlugin *vol)
     if (!check_pulseaudio ()) return;
     
     g_dbus_connection_signal_unsubscribe (vol->con, vol->sub_id);
+    vol->sub_id = 0;
     system ("pulseaudio --kill");
     system ("rm ~/.config/bt");
-    vol->bt_used = FALSE;
+    g_object_unref (vol->con);
     vol->con = NULL;
+    vol->bt_used = FALSE;
     vol->sink = -1;
 }
 
