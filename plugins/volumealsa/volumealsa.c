@@ -463,7 +463,7 @@ static void cb_connected (GObject *source, GAsyncResult *res, gpointer user_data
         // show a warning dialog
         dlg = gtk_dialog_new_with_buttons (_("Connection Failure"), NULL, GTK_DIALOG_MODAL | GTK_DIALOG_DESTROY_WITH_PARENT, NULL);
         gtk_window_set_icon (GTK_WINDOW (dlg), gdk_pixbuf_new_from_file ("/usr/share/lxpanel/images/preferences-system-bluetooth.png", NULL));
-        gtk_window_set_position (GTK_WINDOW (dlg), GTK_WIN_POS_CENTER_ALWAYS);
+        gtk_window_set_position (GTK_WINDOW (dlg), GTK_WIN_POS_CENTER);
         gtk_container_set_border_width (GTK_CONTAINER (dlg), 10);
         sprintf (buffer, _("Failed to connect to device - %s. Try to connect again."), error->message);
         lbl = gtk_label_new (buffer);
