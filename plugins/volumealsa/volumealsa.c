@@ -127,7 +127,7 @@ static void set_bt_card_event (GtkWidget * widget, VolumeALSAPlugin * vol);
 static guint32 get_bt_vol (VolumeALSAPlugin *vol)
 {
     GError *error = NULL;
-    char buffer[32];
+    char buffer[64];
     guint32 res;
     sprintf (buffer, "/org/pulseaudio/core1/sink%d", vol->sink);
     GVariant *var = g_dbus_connection_call_sync (vol->con, NULL, buffer, "org.freedesktop.DBus.Properties", "Get", g_variant_new ("(ss)", "org.PulseAudio.Core1.Device", "Volume"), NULL, 0, -1, NULL, &error);
@@ -146,7 +146,7 @@ static guint32 get_bt_vol (VolumeALSAPlugin *vol)
 static gboolean get_bt_mute (VolumeALSAPlugin *vol)
 {
     GError *error = NULL;
-    char buffer[32];
+    char buffer[64];
     gboolean res;
     sprintf (buffer, "/org/pulseaudio/core1/sink%d", vol->sink);
     GVariant *var = g_dbus_connection_call_sync (vol->con, NULL, buffer, "org.freedesktop.DBus.Properties", "Get", g_variant_new ("(ss)", "org.PulseAudio.Core1.Device", "Mute"), NULL, 0, -1, NULL, &error);
@@ -167,7 +167,7 @@ static void set_bt_vol (VolumeALSAPlugin *vol, guint32 volume)
     GError *error = NULL;
     GVariantBuilder *builder;
     GVariant *var, *res;
-    char buffer[32];
+    char buffer[64];
 
     builder = g_variant_builder_new (G_VARIANT_TYPE ("au"));
     g_variant_builder_add (builder, "u", volume);
@@ -189,7 +189,7 @@ static void set_bt_mute (VolumeALSAPlugin *vol, gboolean mute)
 {
     GError *error = NULL;
     GVariant *var, *res;
-    char buffer[32];
+    char buffer[64];
 
     var = g_variant_new ("(ssv)", "org.PulseAudio.Core1.Device", "Mute", g_variant_new ("b", mute));
     g_variant_ref_sink (var);
@@ -514,10 +514,13 @@ static void disconnect_device (VolumeALSAPlugin *vol)
 {
     // get the name of the device with the current sink number
     GError *error = NULL;
-    char buffer[32];
+    GVariant *var;
+    char buffer[64];
+
     sprintf (buffer, "/org/pulseaudio/core1/sink%d", vol->sink);
     vol->sink = -1;
-    GVariant *var = g_dbus_connection_call_sync (vol->con, NULL, buffer, "org.freedesktop.DBus.Properties", "Get", g_variant_new ("(ss)", "org.PulseAudio.Core1.Device", "Name"), NULL, 0, -1, NULL, &error);
+
+    var = g_dbus_connection_call_sync (vol->con, NULL, buffer, "org.freedesktop.DBus.Properties", "Get", g_variant_new ("(ss)", "org.PulseAudio.Core1.Device", "Name"), NULL, 0, -1, NULL, &error);
     if (error)
     {
         DEBUG ("Could not read device name to disconnect - %s\n", error->message);
@@ -599,17 +602,21 @@ static void set_bt_card_event (GtkWidget * widget, VolumeALSAPlugin * vol)
 {
     start_pulseaudio (vol, FALSE);
 
-    // store the name of the BlueZ device to connect to for use in the callback
-    vol->bt_conname = g_malloc0 (strlen (widget->name) + 1);
-    strcpy (vol->bt_conname, widget->name);
-
-    if (vol->sink != -1) disconnect_device (vol);
-    else
+    if (vol->con)
     {
-        // call BlueZ over DBus to connect to the device
-        DEBUG ("Connecting...\n");
-        connect_device (vol);
+        // store the name of the BlueZ device to connect to for use in the callback
+        vol->bt_conname = g_malloc0 (strlen (widget->name) + 1);
+        strcpy (vol->bt_conname, widget->name);
+
+        if (vol->sink != -1) disconnect_device (vol);
+        else
+        {
+            // call BlueZ over DBus to connect to the device
+            DEBUG ("Connecting...\n");
+            connect_device (vol);
+        }
     }
+    else DEBUG ("No connection to PulseAudio\n");
 }
 
 /*** ALSA ***/
@@ -1895,26 +1902,22 @@ static GtkWidget *volumealsa_constructor(LXPanel *panel, config_setting_t *setti
     sprintf (buffer, "%s/.config/bt", getenv ("HOME"));
     if (fp = fopen (buffer, "rb"))
     {
-        fclose (fp);
         start_pulseaudio (vol, TRUE);
         if (vol->con)
         {
             /* Reconnect the current Bluetooth audio device */
-            sprintf (buffer, "%s/.config/bt", getenv ("HOME"));
-            if (fp = fopen (buffer, "rb"))
-            {
-                /* Get the BlueZ path of the audio device */
-                fgets (buffer, 128, fp);
-                fclose (fp);
-                buffer[strlen(buffer) - 1] = 0;
-                vol->bt_conname = g_malloc0 (strlen (buffer) + 1);
-                strcpy (vol->bt_conname, buffer);
+            vol->bt_conname = g_malloc0 (128);
+            fgets (vol->bt_conname, 127, fp);
+            *(vol->bt_conname + strlen (vol->bt_conname) - 1) = 0;
 
-                DEBUG ("Connecting...\n");
-                connect_device (vol);
-            }
+            DEBUG ("Connecting...\n");
+            connect_device (vol);
         }
+        else DEBUG ("No connection to PulseAudio\n");
+
+        fclose (fp);
     }
+    else stop_pulseaudio (vol);
 
     /* Update the display, show the widget, and return. */
     volumealsa_update_display(vol);
