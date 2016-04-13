@@ -103,6 +103,8 @@ static gboolean xfce_mixer_is_bcm_device (GstElement *card);
 static const gchar * xfce_mixer_get_bcm_device_id (void);
 static GtkWidget *volumealsa_configure(LXPanel *panel, GtkWidget *p);
 
+static void cb_name_owned (GDBusConnection *connection, const gchar *name, const gchar *owner, gpointer user_data);
+static void cb_name_unowned (GDBusConnection *connection, const gchar *name, gpointer user_data);
 static guint32 get_bt_vol (VolumeALSAPlugin *vol);
 static gboolean get_bt_mute (VolumeALSAPlugin *vol);
 static void set_bt_vol (VolumeALSAPlugin *vol, guint32 volume);
@@ -123,6 +125,61 @@ static void cb_signal (GDBusConnection *connection, const gchar *sender_name, co
 static void set_bt_card_event (GtkWidget * widget, VolumeALSAPlugin * vol);
 
 /* Bluetooth via PulseAudio */
+
+static void cb_name_owned (GDBusConnection *connection, const gchar *name, const gchar *owner, gpointer user_data)
+{
+    VolumeALSAPlugin *vol = (VolumeALSAPlugin *) user_data;
+    char buffer[128];
+    FILE *fp;
+    DEBUG ("Name %s owned on DBus\n", name);
+
+    /* BlueZ exists - get an object manager for it */
+    GError *error = NULL;
+    vol->objmanager = g_dbus_object_manager_client_new_for_bus_sync (G_BUS_TYPE_SYSTEM, 0, "org.bluez", "/", NULL, NULL, NULL, NULL, &error);
+    if (error)
+    {
+        DEBUG ("Error getting object manager - %s\n", error->message);
+        vol->objmanager = NULL;
+        g_error_free (error);
+    }
+
+    /* Check whether a Bluetooth audio device is the current default - start PulseAudio if it is */
+    sprintf (buffer, "%s/.config/bt", getenv ("HOME"));
+    if (fp = fopen (buffer, "rb"))
+    {
+        start_pulseaudio (vol, TRUE);
+        if (vol->con)
+        {
+            /* Reconnect the current Bluetooth audio device */
+            vol->bt_conname = g_malloc0 (128);
+            fgets (vol->bt_conname, 127, fp);
+            *(vol->bt_conname + strlen (vol->bt_conname) - 1) = 0;
+
+            DEBUG ("Connecting to %s...\n", vol->bt_conname);
+            connect_device (vol);
+        }
+        else
+        {
+            DEBUG ("No connection to PulseAudio\n");
+            stop_pulseaudio (vol);
+        }
+
+        fclose (fp);
+    }
+    else stop_pulseaudio (vol);
+}
+
+static void cb_name_unowned (GDBusConnection *connection, const gchar *name, gpointer user_data)
+{
+    VolumeALSAPlugin *vol = (VolumeALSAPlugin *) user_data;
+    DEBUG ("Name %s unowned on DBus\n", name);
+
+    if (vol->objmanager) g_object_unref (vol->objmanager);
+    vol->objmanager = NULL;
+
+    // kill PulseAudio - it's probably dead anyway...
+    stop_pulseaudio (vol);
+}
 
 static guint32 get_bt_vol (VolumeALSAPlugin *vol)
 {
@@ -402,7 +459,7 @@ static void stop_pulseaudio (VolumeALSAPlugin *vol)
     DEBUG ("Stopping PulseAudio\n");
     if (!check_pulseaudio ()) return;
     
-    g_dbus_connection_signal_unsubscribe (vol->con, vol->sub_id);
+    if (vol->sub_id) g_dbus_connection_signal_unsubscribe (vol->con, vol->sub_id);
     vol->sub_id = 0;
     system ("pulseaudio --kill");
     system ("rm ~/.config/bt");
@@ -429,10 +486,10 @@ static gboolean check_pulseaudio (void)
 
 static void connect_device (VolumeALSAPlugin *vol)
 {
-    // trust and connect
     GDBusInterface *interface = g_dbus_object_manager_get_interface (vol->objmanager, vol->bt_conname, "org.bluez.Device1");
     if (interface)
     {
+        // trust and connect
         g_dbus_proxy_call (G_DBUS_PROXY (interface), "org.freedesktop.DBus.Properties.Set", g_variant_new ("(ssv)",
             g_dbus_proxy_get_interface_name (G_DBUS_PROXY (interface)), "Trusted", g_variant_new_boolean (TRUE)), G_DBUS_CALL_FLAGS_NONE, -1, NULL, cb_trusted, vol);
         g_dbus_proxy_call (G_DBUS_PROXY (interface), "Connect", NULL, G_DBUS_CALL_FLAGS_NONE, -1, NULL, cb_connected, vol);
@@ -449,9 +506,11 @@ static void cb_connected (GObject *source, GAsyncResult *res, gpointer user_data
 {
     VolumeALSAPlugin *vol = (VolumeALSAPlugin *) user_data;
     GError *error = NULL;
-    GVariant *var = g_dbus_proxy_call_finish (G_DBUS_PROXY (source), res, &error);
     char buffer[256];
     GtkWidget *dlg, *lbl, *btn;
+
+    GVariant *var = g_dbus_proxy_call_finish (G_DBUS_PROXY (source), res, &error);
+    if (var) g_variant_unref (var);
 
     if (error)
     {
@@ -486,28 +545,30 @@ static void cb_connected (GObject *source, GAsyncResult *res, gpointer user_data
 
         // update the globals with connection details
         vol->sink = set_pa_sink_from_bz_name (vol, vol->bt_conname);
-        g_free (vol->bt_conname);
-        vol->bt_conname = NULL;
-
-        volumealsa_update_display (vol);
-        gtk_menu_popdown (GTK_MENU(vol->menu_popup));
-        send_message ();
     }
-    g_variant_unref (var);
+
+    // delete the connection information
+    g_free (vol->bt_conname);
+    vol->bt_conname = NULL;
+
+    // update the display whether we succeeded or not, as a failure will have caused a fallback to ALSA
+    volumealsa_update_display (vol);
+    gtk_menu_popdown (GTK_MENU(vol->menu_popup));
+    send_message ();
 }
 
 static void cb_trusted (GObject *source, GAsyncResult *res, gpointer user_data)
 {
     GError *error = NULL;
     GVariant *var = g_dbus_proxy_call_finish (G_DBUS_PROXY (source), res, &error);
+    if (var) g_variant_unref (var);
 
     if (error)
     {
         DEBUG ("Trusting error %s\n", error->message);
         g_error_free (error);
     }
-    else DEBUG ("Trusted\n");
-    g_variant_unref (var);
+    else DEBUG ("Trusted OK\n");
 }
 
 static void disconnect_device (VolumeALSAPlugin *vol)
@@ -520,7 +581,8 @@ static void disconnect_device (VolumeALSAPlugin *vol)
     sprintf (buffer, "/org/pulseaudio/core1/sink%d", vol->sink);
     vol->sink = -1;
 
-    var = g_dbus_connection_call_sync (vol->con, NULL, buffer, "org.freedesktop.DBus.Properties", "Get", g_variant_new ("(ss)", "org.PulseAudio.Core1.Device", "Name"), NULL, 0, -1, NULL, &error);
+    var = g_dbus_connection_call_sync (vol->con, NULL, buffer, "org.freedesktop.DBus.Properties", "Get",
+        g_variant_new ("(ss)", "org.PulseAudio.Core1.Device", "Name"), NULL, 0, -1, NULL, &error);
     if (error)
     {
         DEBUG ("Could not read device name to disconnect - %s\n", error->message);
@@ -552,7 +614,7 @@ static void disconnect_device (VolumeALSAPlugin *vol)
     }
 
     // if no connection found, just make the new connection
-    DEBUG ("Nothing to disconnect - connecting...\n");
+    DEBUG ("Nothing to disconnect - connecting to %s...\n", vol->bt_conname);
     connect_device (vol);
 }
 
@@ -561,6 +623,7 @@ static void cb_disconnected (GObject *source, GAsyncResult *res, gpointer user_d
     VolumeALSAPlugin *vol = (VolumeALSAPlugin *) user_data;
     GError *error = NULL;
     GVariant *var = g_dbus_proxy_call_finish (G_DBUS_PROXY (source), res, &error);
+    if (var) g_variant_unref (var);
 
     if (error)
     {
@@ -570,9 +633,8 @@ static void cb_disconnected (GObject *source, GAsyncResult *res, gpointer user_d
     else DEBUG ("Disconnected OK\n");
 
     // call BlueZ over DBus to connect to the device
-    DEBUG ("Connecting...\n");
+    DEBUG ("Connecting to %s...\n", vol->bt_conname);
     connect_device (vol);
-    g_variant_unref (var);
 }
 
 static void close_dialog (GtkButton *button, gpointer user_data)
@@ -608,15 +670,24 @@ static void set_bt_card_event (GtkWidget * widget, VolumeALSAPlugin * vol)
         vol->bt_conname = g_malloc0 (strlen (widget->name) + 1);
         strcpy (vol->bt_conname, widget->name);
 
-        if (vol->sink != -1) disconnect_device (vol);
+        if (vol->sink != -1)
+        {
+            // already connected to a Bluetooth device - disconnect it
+            DEBUG ("Disconnecting existing Bluetooth audio device\n");
+            disconnect_device (vol);
+        }
         else
         {
             // call BlueZ over DBus to connect to the device
-            DEBUG ("Connecting...\n");
+            DEBUG ("Connecting to %s...\n", vol->bt_conname);
             connect_device (vol);
         }
     }
-    else DEBUG ("No connection to PulseAudio\n");
+    else
+    {
+        DEBUG ("No connection to PulseAudio\n");
+        stop_pulseaudio (vol);
+    }
 }
 
 /*** ALSA ***/
@@ -1887,37 +1958,12 @@ static GtkWidget *volumealsa_constructor(LXPanel *panel, config_setting_t *setti
     g_signal_connect(G_OBJECT(p), "scroll-event", G_CALLBACK(volumealsa_popup_scale_scrolled), vol );
     g_signal_connect(panel_get_icon_theme(panel), "changed", G_CALLBACK(volumealsa_theme_change), vol );
 
-    /* Get an object manager for BlueZ */
-    GError *error = NULL;
-    vol->objmanager = g_dbus_object_manager_client_new_for_bus_sync (G_BUS_TYPE_SYSTEM, 0, "org.bluez", "/", NULL, NULL, NULL, NULL, &error);
-    if (error)
-    {
-        DEBUG ("Error getting object manager - %s\n", error->message);
-        vol->objmanager = NULL;
-        g_error_free (error);
-    }
-
-    /* Check whether a Bluetooth audio device is the current default - start PulseAudio if it is */
+    // fall back to ALSA until we can establish if Bluetooth is available
     vol->sink = -1;
-    sprintf (buffer, "%s/.config/bt", getenv ("HOME"));
-    if (fp = fopen (buffer, "rb"))
-    {
-        start_pulseaudio (vol, TRUE);
-        if (vol->con)
-        {
-            /* Reconnect the current Bluetooth audio device */
-            vol->bt_conname = g_malloc0 (128);
-            fgets (vol->bt_conname, 127, fp);
-            *(vol->bt_conname + strlen (vol->bt_conname) - 1) = 0;
+    system ("pulseaudio --kill");
 
-            DEBUG ("Connecting...\n");
-            connect_device (vol);
-        }
-        else DEBUG ("No connection to PulseAudio\n");
-
-        fclose (fp);
-    }
-    else stop_pulseaudio (vol);
+    // set up callbacks to see if BlueZ is on DBus
+    g_bus_watch_name (G_BUS_TYPE_SYSTEM, "org.bluez", 0, cb_name_owned, cb_name_unowned, vol, NULL);
 
     /* Update the display, show the widget, and return. */
     volumealsa_update_display(vol);
