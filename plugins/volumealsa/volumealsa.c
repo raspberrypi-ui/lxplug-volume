@@ -87,8 +87,7 @@ typedef struct {
     char *bt_conname;                       /* BlueZ name of device - just used during connection */
     GDBusConnection *con;                   /* DBus P2P connection to PulseAudio server */
     guint sub_id;                           /* subscription ID for signal notifications on PA server */
-    gboolean bt_used;                       /* flag to show if the current device is Bluetooth */
-    int sink;                               /* sink number of current Bluetooth device */
+    int sink;                               /* sink number of current Bluetooth device - -1 if no device*/
 } VolumeALSAPlugin;
 
 static void send_message (void);
@@ -409,7 +408,6 @@ static void stop_pulseaudio (VolumeALSAPlugin *vol)
     system ("rm ~/.config/bt");
     g_object_unref (vol->con);
     vol->con = NULL;
-    vol->bt_used = FALSE;
     vol->sink = -1;
 }
 
@@ -487,7 +485,6 @@ static void cb_connected (GObject *source, GAsyncResult *res, gpointer user_data
         system (buffer);
 
         // update the globals with connection details
-        vol->bt_used = TRUE;
         vol->sink = set_pa_sink_from_bz_name (vol, vol->bt_conname);
         g_free (vol->bt_conname);
         vol->bt_conname = NULL;
@@ -605,9 +602,8 @@ static void set_bt_card_event (GtkWidget * widget, VolumeALSAPlugin * vol)
     // store the name of the BlueZ device to connect to for use in the callback
     vol->bt_conname = g_malloc0 (strlen (widget->name) + 1);
     strcpy (vol->bt_conname, widget->name);
-    DEBUG ("Status = %d %s\n", vol->bt_used, vol->bt_conname);
 
-    if (vol->bt_used) disconnect_device (vol);
+    if (vol->sink != -1) disconnect_device (vol);
     else
     {
         // call BlueZ over DBus to connect to the device
@@ -1035,7 +1031,7 @@ static void volumealsa_update_current_icon(VolumeALSAPlugin * vol)
     gboolean mute;
     int level;
     /* Mute status. */
-    if (!vol->bt_used)
+    if (vol->sink == -1)
     {
         mute = asound_is_muted(vol);
         level = asound_get_volume(vol);
@@ -1108,7 +1104,7 @@ static void volumealsa_update_display(VolumeALSAPlugin * vol)
     gboolean mute;
     int level;
     /* Mute status. */
-    if (!vol->bt_used)
+    if (vol->sink == -1)
     {
         mute = asound_is_muted(vol);
         level = asound_get_volume(vol);
@@ -1133,7 +1129,7 @@ static void volumealsa_update_display(VolumeALSAPlugin * vol)
 
     g_signal_handler_block(vol->mute_check, vol->mute_check_handler);
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(vol->mute_check), mute);
-    if (!vol->bt_used)
+    if (vol->sink == -1)
         gtk_widget_set_sensitive(vol->mute_check, asound_has_mute(vol));
     else
         gtk_widget_set_sensitive(vol->mute_check, TRUE);
@@ -1496,7 +1492,7 @@ static gboolean volumealsa_button_press_event(GtkWidget * widget, GdkEventButton
                 namebuf[strlen(namebuf) - 13] = 0;
                 mi = gtk_image_menu_item_new_with_label (namebuf);
 
-                if (!vol->bt_used && xfce_mixer_is_default_card (iter->data))
+                if (vol->sink == -1 && xfce_mixer_is_default_card (iter->data))
                 {
                     image = gtk_image_new_from_pixbuf(pixbuf);
                     gtk_image_menu_item_set_image (GTK_IMAGE_MENU_ITEM(mi), image);
@@ -1543,7 +1539,7 @@ static void volumealsa_theme_change(GtkWidget * widget, VolumeALSAPlugin * vol)
 static void volumealsa_popup_scale_changed(GtkRange * range, VolumeALSAPlugin * vol)
 {
     /* Reflect the value of the control to the sound system. */
-    if (!vol->bt_used)
+    if (vol->sink == -1)
     {
         if (!asound_is_muted (vol))
             asound_set_volume(vol, gtk_range_get_value(range));
@@ -1580,7 +1576,7 @@ static void volumealsa_popup_mute_toggled(GtkWidget * widget, VolumeALSAPlugin *
     /* Get the state of the mute toggle. */
     gboolean active = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(widget));
 
-    if (!vol->bt_used)
+    if (vol->sink == -1)
     {
         /* Reflect the mute toggle to the sound system. */
         if (vol->master_element != NULL)
@@ -1895,6 +1891,7 @@ static GtkWidget *volumealsa_constructor(LXPanel *panel, config_setting_t *setti
     }
 
     /* Check whether a Bluetooth audio device is the current default - start PulseAudio if it is */
+    vol->sink = -1;
     sprintf (buffer, "%s/.config/bt", getenv ("HOME"));
     if (fp = fopen (buffer, "rb"))
     {
