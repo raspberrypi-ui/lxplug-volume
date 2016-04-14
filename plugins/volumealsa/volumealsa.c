@@ -477,6 +477,7 @@ static gboolean check_pulseaudio (void)
     if (fp == NULL) return FALSE;
     if (fgets (buf, sizeof (buf) - 1, fp) != NULL)
     {
+        fclose (fp);
         sscanf (buf, "%d", &res);
         if (res) return FALSE;
         else return TRUE;
@@ -2070,6 +2071,17 @@ static GtkWidget *volumealsa_configure(LXPanel *panel, GtkWidget *p)
 static void volumealsa_panel_configuration_changed(LXPanel *panel, GtkWidget *p)
 {
     VolumeALSAPlugin * vol = lxpanel_plugin_get_data(p);
+
+    // the pulseaudio server might have been killed under us...
+    if (!check_pulseaudio () && vol->sink != -1)
+    {
+        if (vol->sub_id) g_dbus_connection_signal_unsubscribe (vol->con, vol->sub_id);
+        vol->sub_id = 0;
+        system ("rm ~/.config/bt");
+        g_object_unref (vol->con);
+        vol->con = NULL;
+        vol->sink = -1;
+    }
 
     asound_restart(vol);
     volumealsa_build_popup_window (vol->plugin);
