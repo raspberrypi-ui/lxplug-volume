@@ -530,7 +530,7 @@ static void cb_connected (GObject *source, GAsyncResult *res, gpointer user_data
         gtk_label_set_justify (GTK_LABEL (lbl), GTK_JUSTIFY_LEFT);
         gtk_misc_set_alignment (GTK_MISC (lbl), 0.0, 0.0);
         gtk_box_pack_start (GTK_BOX (gtk_dialog_get_content_area (GTK_DIALOG (dlg))), lbl, TRUE, TRUE, 0);
-        btn = gtk_dialog_add_button (GTK_DIALOG (dlg), _("OK"), 1);
+        btn = gtk_dialog_add_button (GTK_DIALOG (dlg), _("_OK"), 1);
         g_signal_connect (btn, "clicked", G_CALLBACK (close_dialog), dlg);
         gtk_widget_show_all (dlg);
         g_error_free (error);
