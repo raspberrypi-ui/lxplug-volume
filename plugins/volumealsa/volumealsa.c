@@ -392,7 +392,7 @@ static void start_pulseaudio (VolumeALSAPlugin *vol, gboolean always)
     vol->con = NULL;
 
     // start the PulseAudio server if it isn't running
-    system ("pulseaudio --start");
+    system ("pulseaudio -D --load=module-dbus-protocol");
 
     // request the PulseAudio P2P address from the PulseAudio server
     error = NULL;
