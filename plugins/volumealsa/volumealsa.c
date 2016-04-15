@@ -88,6 +88,7 @@ typedef struct {
     GDBusConnection *con;                   /* DBus P2P connection to PulseAudio server */
     guint sub_id;                           /* subscription ID for signal notifications on PA server */
     int sink;                               /* sink number of current Bluetooth device - -1 if no device*/
+    GtkWidget *conn_dialog, *conn_label, *conn_ok;
 } VolumeALSAPlugin;
 
 static void send_message (void);
@@ -119,10 +120,12 @@ static void cb_connected (GObject *source, GAsyncResult *res, gpointer user_data
 static void cb_trusted (GObject *source, GAsyncResult *res, gpointer user_data);
 static void disconnect_device (VolumeALSAPlugin *vol);
 static void cb_disconnected (GObject *source, GAsyncResult *res, gpointer user_data);
-static void close_dialog (GtkButton *button, gpointer user_data);
 static void cb_signal (GDBusConnection *connection, const gchar *sender_name, const gchar *object_path, const gchar *interface_name,
     const gchar *signal_name, GVariant *parameters, gpointer user_data);
 static void set_bt_card_event (GtkWidget * widget, VolumeALSAPlugin * vol);
+static void show_connect_dialog (VolumeALSAPlugin *vol, gboolean failed, const gchar *param);
+static void handle_close_connect_dialog (GtkButton *button, gpointer user_data);
+static gint delete_conn (GtkWidget *widget, GdkEvent *event, gpointer user_data);
 
 /* Bluetooth via PulseAudio */
 
@@ -500,6 +503,7 @@ static void connect_device (VolumeALSAPlugin *vol)
     {
         DEBUG ("Couldn't get device interface from object manager\n");
         stop_pulseaudio (vol);
+        if (vol->conn_dialog) show_connect_dialog (vol, TRUE, _("Could not get BlueZ interface"));
     }
 }
 
@@ -520,21 +524,8 @@ static void cb_connected (GObject *source, GAsyncResult *res, gpointer user_data
         // kill PulseAudio and fall back to an internal device
         stop_pulseaudio (vol);
 
-        // show a warning dialog
-        dlg = gtk_dialog_new_with_buttons (_("Connection Failure"), NULL, GTK_DIALOG_MODAL | GTK_DIALOG_DESTROY_WITH_PARENT, NULL);
-        gtk_window_set_icon (GTK_WINDOW (dlg), gdk_pixbuf_new_from_file ("/usr/share/lxpanel/images/preferences-system-bluetooth.png", NULL));
-        gtk_window_set_position (GTK_WINDOW (dlg), GTK_WIN_POS_CENTER);
-        gtk_container_set_border_width (GTK_CONTAINER (dlg), 10);
-        sprintf (buffer, _("Failed to connect to device - %s. Try to connect again."), error->message);
-        lbl = gtk_label_new (buffer);
-        gtk_label_set_line_wrap (GTK_LABEL (lbl), TRUE);
-        gtk_label_set_justify (GTK_LABEL (lbl), GTK_JUSTIFY_LEFT);
-        gtk_misc_set_alignment (GTK_MISC (lbl), 0.0, 0.0);
-        gtk_box_pack_start (GTK_BOX (gtk_dialog_get_content_area (GTK_DIALOG (dlg))), lbl, TRUE, TRUE, 0);
-        btn = gtk_dialog_add_button (GTK_DIALOG (dlg), _("_OK"), 1);
-        g_signal_connect (btn, "clicked", G_CALLBACK (close_dialog), dlg);
-        gtk_widget_show_all (dlg);
-        g_error_free (error);
+        // update dialog to show a warning
+        if (vol->conn_dialog) show_connect_dialog (vol, TRUE, error->message);
     }
     else
     {
@@ -546,6 +537,9 @@ static void cb_connected (GObject *source, GAsyncResult *res, gpointer user_data
 
         // update the globals with connection details
         vol->sink = set_pa_sink_from_bz_name (vol, vol->bt_conname);
+
+        // close the connection dialog
+        handle_close_connect_dialog (NULL, vol);
     }
 
     // delete the connection information
@@ -638,11 +632,6 @@ static void cb_disconnected (GObject *source, GAsyncResult *res, gpointer user_d
     connect_device (vol);
 }
 
-static void close_dialog (GtkButton *button, gpointer user_data)
-{
-    gtk_widget_destroy (GTK_WIDGET (user_data));
-}
-
 static void cb_signal (GDBusConnection *connection, const gchar *sender_name, const gchar *object_path, const gchar *interface_name,
     const gchar *signal_name, GVariant *parameters, gpointer user_data)
 {
@@ -664,6 +653,9 @@ static void cb_signal (GDBusConnection *connection, const gchar *sender_name, co
 static void set_bt_card_event (GtkWidget * widget, VolumeALSAPlugin * vol)
 {
     start_pulseaudio (vol, FALSE);
+
+    // show the connection dialog
+    show_connect_dialog (vol, FALSE, gtk_menu_item_get_label (GTK_MENU_ITEM (widget)));
 
     if (vol->con)
     {
@@ -688,7 +680,60 @@ static void set_bt_card_event (GtkWidget * widget, VolumeALSAPlugin * vol)
     {
         DEBUG ("No connection to PulseAudio\n");
         stop_pulseaudio (vol);
+        if (vol->conn_dialog) show_connect_dialog (vol, TRUE, _("Could not connect to PulseAudio"));
     }
+}
+
+static void show_connect_dialog (VolumeALSAPlugin *vol, gboolean failed, const gchar *param)
+{
+    char buffer[256];
+
+    if (!failed)
+    {
+        vol->conn_dialog = gtk_dialog_new_with_buttons (_("Connecting Audio Device"), NULL, GTK_DIALOG_MODAL | GTK_DIALOG_DESTROY_WITH_PARENT, NULL);
+        gtk_window_set_icon (GTK_WINDOW (vol->conn_dialog), gdk_pixbuf_new_from_file ("/usr/share/lxpanel/images/preferences-system-bluetooth.png", NULL));
+        gtk_window_set_position (GTK_WINDOW (vol->conn_dialog), GTK_WIN_POS_CENTER);
+        gtk_container_set_border_width (GTK_CONTAINER (vol->conn_dialog), 10);
+        sprintf (buffer, _("Connecting to Bluetooth audio device '%s'..."), param);
+        vol->conn_label = gtk_label_new (buffer);
+        gtk_label_set_line_wrap (GTK_LABEL (vol->conn_label), TRUE);
+        gtk_label_set_justify (GTK_LABEL (vol->conn_label), GTK_JUSTIFY_LEFT);
+        gtk_misc_set_alignment (GTK_MISC (vol->conn_label), 0.0, 0.0);
+        gtk_box_pack_start (GTK_BOX (gtk_dialog_get_content_area (GTK_DIALOG (vol->conn_dialog))), vol->conn_label, TRUE, TRUE, 0);
+        g_signal_connect (GTK_OBJECT (vol->conn_dialog), "delete_event", G_CALLBACK (delete_conn), vol);
+        gtk_widget_show_all (vol->conn_dialog);
+    }
+    else
+    {
+        sprintf (buffer, "Failed to connect to device - %s. Try to connect again.", param);
+        gtk_label_set_text (GTK_LABEL (vol->conn_label), buffer);
+        vol->conn_ok = gtk_dialog_add_button (GTK_DIALOG (vol->conn_dialog), _("_OK"), 1);
+        g_signal_connect (vol->conn_ok, "clicked", G_CALLBACK (handle_close_connect_dialog), vol);
+        gtk_widget_show (vol->conn_ok);
+    }
+
+    gtk_widget_queue_draw (vol->conn_dialog);
+}
+
+static void handle_close_connect_dialog (GtkButton *button, gpointer user_data)
+{
+    VolumeALSAPlugin *vol = (VolumeALSAPlugin *) user_data;
+    if (vol->conn_dialog)
+    {
+        gtk_widget_destroy (vol->conn_dialog);
+        vol->conn_dialog = NULL;
+    }
+}
+
+static gint delete_conn (GtkWidget *widget, GdkEvent *event, gpointer user_data)
+{
+    VolumeALSAPlugin *vol = (VolumeALSAPlugin *) user_data;
+    if (vol->conn_dialog)
+    {
+        gtk_widget_destroy (vol->conn_dialog);
+        vol->conn_dialog = NULL;
+    }
+    return TRUE;
 }
 
 /*** ALSA ***/
