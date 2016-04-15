@@ -708,7 +708,7 @@ static void show_connect_dialog (VolumeALSAPlugin *vol, gboolean failed, const g
     }
     else
     {
-        sprintf (buffer, "Failed to connect to device - %s. Try to connect again.", param);
+        sprintf (buffer, _("Failed to connect to device - %s. Try to connect again."), param);
         gtk_label_set_text (GTK_LABEL (vol->conn_label), buffer);
         vol->conn_ok = gtk_dialog_add_button (GTK_DIALOG (vol->conn_dialog), _("_OK"), 1);
         g_signal_connect (vol->conn_ok, "clicked", G_CALLBACK (handle_close_connect_dialog), vol);
