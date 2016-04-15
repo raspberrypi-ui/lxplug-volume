@@ -51,6 +51,12 @@
 
 #define CUSTOM_MENU
 
+typedef enum {
+    DEV_HID,
+    DEV_AUDIO_SINK,
+    DEV_OTHER
+} DEVICE_TYPE;
+
 typedef struct {
 
     /* Graphics. */
@@ -127,6 +133,7 @@ static void show_connect_dialog (VolumeALSAPlugin *vol, gboolean failed, const g
 static void handle_close_connect_dialog (GtkButton *button, gpointer user_data);
 static gint delete_conn (GtkWidget *widget, GdkEvent *event, gpointer user_data);
 static void configure_pa (void);
+static DEVICE_TYPE check_uuids (VolumeALSAPlugin *vol, const gchar *path);
 
 /* Bluetooth via PulseAudio */
 
@@ -714,8 +721,6 @@ static void show_connect_dialog (VolumeALSAPlugin *vol, gboolean failed, const g
         g_signal_connect (vol->conn_ok, "clicked", G_CALLBACK (handle_close_connect_dialog), vol);
         gtk_widget_show (vol->conn_ok);
     }
-
-    gtk_widget_queue_draw (vol->conn_dialog);
 }
 
 static void handle_close_connect_dialog (GtkButton *button, gpointer user_data)
@@ -767,6 +772,24 @@ static void configure_pa (void)
         system ("echo \"autospawn = no\ndaemon-binary = /bin/true\n\" > ~/.config/pulse/client.conf");
     }
     g_free (config_file);
+}
+
+static DEVICE_TYPE check_uuids (VolumeALSAPlugin *vol, const gchar *path)
+{
+    GDBusInterface *interface = g_dbus_object_manager_get_interface (vol->objmanager, path, "org.bluez.Device1");
+    GVariant *elem, *var = g_dbus_proxy_get_cached_property (G_DBUS_PROXY (interface), "UUIDs");
+    GVariantIter iter;
+    g_variant_iter_init (&iter, var);
+    while (elem = g_variant_iter_next_value (&iter))
+    {
+        const char *uuid = g_variant_get_string (elem, NULL);
+        if (!strncasecmp (uuid, "00001124", 8)) return DEV_HID;
+        if (!strncasecmp (uuid, "0000110B", 8)) return DEV_AUDIO_SINK;
+        g_variant_unref (elem);
+    }
+    g_variant_unref (var);
+    g_object_unref (interface);
+    return DEV_OTHER;
 }
 
 /*** ALSA ***/
@@ -1603,7 +1626,8 @@ static gboolean volumealsa_button_press_event(GtkWidget * widget, GdkEventButton
                         GVariant *paired = g_dbus_proxy_get_cached_property (G_DBUS_PROXY (interface), "Paired");
                         GVariant *trusted = g_dbus_proxy_get_cached_property (G_DBUS_PROXY (interface), "Trusted");
                         GVariant *icon = g_dbus_proxy_get_cached_property (G_DBUS_PROXY (interface), "Icon");
-                        if (name && icon && paired && trusted && !g_strcmp0 (g_variant_get_string (icon, NULL), "audio-card") && g_variant_get_boolean (paired) && g_variant_get_boolean (trusted))
+                        DEVICE_TYPE dev = check_uuids (vol, g_dbus_proxy_get_object_path (G_DBUS_PROXY (interface)));
+                        if (name && icon && paired && trusted && dev == DEV_AUDIO_SINK && g_variant_get_boolean (paired) && g_variant_get_boolean (trusted))
                         {
                             if (!bt_dev)
                             {
@@ -1626,6 +1650,9 @@ static gboolean volumealsa_button_press_event(GtkWidget * widget, GdkEventButton
                             g_signal_connect (mi, "activate", G_CALLBACK (set_bt_card_event), (gpointer) vol);
                             gtk_menu_shell_append (GTK_MENU_SHELL(vol->menu_popup), mi);
                         }
+                        g_variant_unref (name);
+                        g_variant_unref (paired);
+                        g_variant_unref (trusted);
                         break;
                     }
                     interfaces = interfaces->next;
