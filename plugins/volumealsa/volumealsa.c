@@ -126,13 +126,28 @@ static void set_bt_card_event (GtkWidget * widget, VolumeALSAPlugin * vol);
 static void show_connect_dialog (VolumeALSAPlugin *vol, gboolean failed, const gchar *param);
 static void handle_close_connect_dialog (GtkButton *button, gpointer user_data);
 static gint delete_conn (GtkWidget *widget, GdkEvent *event, gpointer user_data);
+static void configure_pa (void);
 
 /* Bluetooth via PulseAudio */
+
+static int get_status (char *cmd)
+{
+    FILE *fp = popen (cmd, "r");
+    char buf[64];
+    int res;
+
+    if (fp && fgets (buf, sizeof (buf) - 1, fp) != NULL)
+    {
+        sscanf (buf, "%d", &res);
+        return res;
+    }
+    return 0;
+}
 
 static void cb_name_owned (GDBusConnection *connection, const gchar *name, const gchar *owner, gpointer user_data)
 {
     VolumeALSAPlugin *vol = (VolumeALSAPlugin *) user_data;
-    char buffer[128];
+    char *config_file;
     FILE *fp;
     DEBUG ("Name %s owned on DBus\n", name);
 
@@ -147,8 +162,8 @@ static void cb_name_owned (GDBusConnection *connection, const gchar *name, const
     }
 
     /* Check whether a Bluetooth audio device is the current default - start PulseAudio if it is */
-    sprintf (buffer, "%s/.config/bt", getenv ("HOME"));
-    if (fp = fopen (buffer, "rb"))
+    config_file = g_build_filename (g_get_home_dir (), ".config", "bt", NULL);
+    if (fp = fopen (config_file, "rb"))
     {
         start_pulseaudio (vol, TRUE);
         if (vol->con)
@@ -473,19 +488,7 @@ static void stop_pulseaudio (VolumeALSAPlugin *vol)
 
 static gboolean check_pulseaudio (void)
 {
-    FILE *fp = popen ("pulseaudio --check ; echo $?", "r");
-    char buf[8];
-    int res;
-
-    if (fp == NULL) return FALSE;
-    if (fgets (buf, sizeof (buf) - 1, fp) != NULL)
-    {
-        fclose (fp);
-        sscanf (buf, "%d", &res);
-        if (res) return FALSE;
-        else return TRUE;
-    }
-    return FALSE;
+    return get_status ("! pulseaudio --check ; echo $?");
 }
 
 static void connect_device (VolumeALSAPlugin *vol)
@@ -736,6 +739,36 @@ static gint delete_conn (GtkWidget *widget, GdkEvent *event, gpointer user_data)
     return TRUE;
 }
 
+static void configure_pa (void)
+{
+    // check the local configuration file
+    FILE *fp;
+    char *config_file;
+    config_file = g_build_filename (g_get_home_dir (), ".config", "pulse", "client.conf", NULL);
+    if (fp = fopen (config_file, "rb"))
+    {
+        fclose (fp);
+
+        // check and update relevant strings in file
+        if (get_status ("! grep -E -q \"autospawn\" ~/.config/pulse/client.conf ; echo $?"))
+        {
+            system ("sed -i 's/.*autospawn.*/autospawn = no/g' ~/.config/pulse/client.conf");
+        }
+        else system ("echo \"autospawn = no\n\" >> ~/.config/pulse/client.conf");
+        if (get_status ("! grep -E -q \"daemon-binary\" ~/.config/pulse/client.conf ; echo $?"))
+        {
+            system ("sed -i 's|.*daemon-binary.*|daemon-binary = /bin/true|g' ~/.config/pulse/client.conf");
+        }
+        else system ("echo \"daemon-binary = /bin/true\n\" >> ~/.config/pulse/client.conf");
+    }
+    else
+    {
+        // create file with default contents
+        system ("echo \"autospawn = no\ndaemon-binary = /bin/true\n\" > ~/.config/pulse/client.conf");
+    }
+    g_free (config_file);
+}
+
 /*** ALSA ***/
 
 static gboolean asound_find_elements(VolumeALSAPlugin * vol)
@@ -907,6 +940,7 @@ static void asound_get_default_card (char *id)
   }
   if (cid[0] && type[0]) sprintf (id, "%s:%s", type, cid);
   else sprintf (id, "hw:0");
+  g_free (user_config_file);
 }
 
 static void asound_set_default_card (const char *id)
@@ -2007,6 +2041,7 @@ static GtkWidget *volumealsa_constructor(LXPanel *panel, config_setting_t *setti
     // fall back to ALSA until we can establish if Bluetooth is available
     vol->sink = -1;
     system ("pulseaudio --kill");
+    configure_pa ();
 
     // set up callbacks to see if BlueZ is on DBus
     g_bus_watch_name (G_BUS_TYPE_SYSTEM, "org.bluez", 0, cb_name_owned, cb_name_unowned, vol, NULL);
