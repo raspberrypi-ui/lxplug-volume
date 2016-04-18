@@ -696,12 +696,13 @@ static void set_bt_card_event (GtkWidget * widget, VolumeALSAPlugin * vol)
 
 static void show_connect_dialog (VolumeALSAPlugin *vol, gboolean failed, const gchar *param)
 {
-    char buffer[256];
+    char buffer[256], path[128];
 
     if (!failed)
     {
         vol->conn_dialog = gtk_dialog_new_with_buttons (_("Connecting Audio Device"), NULL, GTK_DIALOG_MODAL | GTK_DIALOG_DESTROY_WITH_PARENT, NULL);
-        gtk_window_set_icon (GTK_WINDOW (vol->conn_dialog), gdk_pixbuf_new_from_file ("/usr/share/lxpanel/images/preferences-system-bluetooth.png", NULL));
+        sprintf (path, "%s/images/preferences-system-bluetooth.png", PACKAGE_DATA_DIR);
+        gtk_window_set_icon (GTK_WINDOW (vol->conn_dialog), gdk_pixbuf_new_from_file (path, NULL));
         gtk_window_set_position (GTK_WINDOW (vol->conn_dialog), GTK_WIN_POS_CENTER);
         gtk_container_set_border_width (GTK_CONTAINER (vol->conn_dialog), 10);
         sprintf (buffer, _("Connecting to Bluetooth audio device '%s'..."), param);
