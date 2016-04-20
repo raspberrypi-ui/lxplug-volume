@@ -1702,6 +1702,18 @@ static gboolean volumealsa_button_press_event(GtkWidget * widget, GdkEventButton
 
         if (pixbuf != NULL) g_object_unref(pixbuf);
 
+        // lock menu if a dialog is open
+        if (vol->conn_dialog)
+        {
+            GList *items = gtk_container_get_children (GTK_CONTAINER (vol>menu_popup));
+            while (items)
+            {
+                gtk_widget_set_sensitive (GTK_WIDGET (items->data), FALSE);
+                items = items->next;
+            }
+            g_list_free (items);
+        }
+    
         gtk_widget_show_all (vol->menu_popup);
         gtk_menu_popup (GTK_MENU(vol->menu_popup), NULL, NULL, (GtkMenuPositionFunc) volumealsa_popup_set_position, (gpointer) vol,
             event->button, event->time);
