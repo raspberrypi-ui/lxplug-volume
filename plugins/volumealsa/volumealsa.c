@@ -1705,7 +1705,7 @@ static gboolean volumealsa_button_press_event(GtkWidget * widget, GdkEventButton
         // lock menu if a dialog is open
         if (vol->conn_dialog)
         {
-            GList *items = gtk_container_get_children (GTK_CONTAINER (vol>menu_popup));
+            GList *items = gtk_container_get_children (GTK_CONTAINER (vol->menu_popup));
             while (items)
             {
                 gtk_widget_set_sensitive (GTK_WIDGET (items->data), FALSE);
