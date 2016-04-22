@@ -807,13 +807,13 @@ static gboolean asound_find_elements(VolumeALSAPlugin * vol)
         if ((snd_mixer_selem_is_active(vol->master_element)))
         {
             name = snd_mixer_selem_id_get_name(vol->sid);
-            if (!strcmp(name, "Master")) return TRUE;
-            if (!strcmp(name, "Front")) return TRUE;
-            if (!strcmp(name, "PCM")) return TRUE;
-            if (!strcmp(name, "LineOut")) return TRUE;
-            if (!strcmp(name, "Digital")) return TRUE;
-            if (!strcmp(name, "Headphone")) return TRUE;
-            if (!strcmp(name, "Speaker")) return TRUE;
+            if (!strncmp (name, "Master", 6)) return TRUE;
+            if (!strncmp (name, "Front", 5)) return TRUE;
+            if (!strncmp (name, "PCM", 3)) return TRUE;
+            if (!strncmp (name, "LineOut", 7)) return TRUE;
+            if (!strncmp (name, "Digital", 7)) return TRUE;
+            if (!strncmp (name, "Headphone", 9)) return TRUE;
+            if (!strncmp (name, "Speaker", 7)) return TRUE;
         }
     }
     return FALSE;
