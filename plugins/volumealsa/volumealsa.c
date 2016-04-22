@@ -1911,6 +1911,28 @@ static void volumealsa_build_popup_window(GtkWidget *p)
     vol->mute_check_handler = g_signal_connect(vol->mute_check, "toggled", G_CALLBACK(volumealsa_popup_mute_toggled), vol);
     gtk_widget_set_can_focus (vol->mute_check, FALSE);
 
+    /* Lock the controls if there is nothing to control... */
+    if (vol->sink == -1)
+    {
+        gint counter = 0;
+        GList *iter, *mixers = gst_audio_default_registry_mixer_filter (_xfce_mixer_filter_mixer, FALSE, &counter);
+
+        gboolean def_good = FALSE;
+        for (iter = mixers; iter != NULL; iter = g_list_next (iter))
+        {
+            if (xfce_mixer_is_default_card (iter->data))
+            {
+                def_good = TRUE;
+                break;
+            }
+        }
+        if (!def_good)
+        {
+            gtk_widget_set_sensitive (vol->volume_scale, FALSE);
+            gtk_widget_set_sensitive (vol->mute_check, FALSE);
+        }
+    }
+
     /* Set background to default. */
     //gtk_widget_set_style(viewport, panel_get_defstyle(vol->panel));
 }
@@ -1948,13 +1970,6 @@ static GtkWidget *volumealsa_constructor(LXPanel *panel, config_setting_t *setti
     vol->tray_icon = gtk_image_new();
     gtk_container_add(GTK_CONTAINER(p), vol->tray_icon);
 
-    /* Initialize window to appear when icon clicked. */
-    volumealsa_build_popup_window(p);
-
-    /* Connect signals. */
-    g_signal_connect(G_OBJECT(p), "scroll-event", G_CALLBACK(volumealsa_popup_scale_scrolled), vol );
-    g_signal_connect(panel_get_icon_theme(panel), "changed", G_CALLBACK(volumealsa_theme_change), vol );
-
     // fall back to ALSA until we can establish if Bluetooth is available
     vol->sink = -1;
     system ("pulseaudio --kill");
@@ -1962,6 +1977,13 @@ static GtkWidget *volumealsa_constructor(LXPanel *panel, config_setting_t *setti
 
     // set up callbacks to see if BlueZ is on DBus
     g_bus_watch_name (G_BUS_TYPE_SYSTEM, "org.bluez", 0, cb_name_owned, cb_name_unowned, vol, NULL);
+
+    /* Initialize window to appear when icon clicked. */
+    volumealsa_build_popup_window(p);
+
+    /* Connect signals. */
+    g_signal_connect(G_OBJECT(p), "scroll-event", G_CALLBACK(volumealsa_popup_scale_scrolled), vol );
+    g_signal_connect(panel_get_icon_theme(panel), "changed", G_CALLBACK(volumealsa_theme_change), vol );
 
     /* Update the display, show the widget, and return. */
     volumealsa_update_display(vol);
