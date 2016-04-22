@@ -49,8 +49,6 @@
 #define DEBUG
 #endif
 
-#define CUSTOM_MENU
-
 typedef enum {
     DEV_HID,
     DEV_AUDIO_SINK,
@@ -106,9 +104,12 @@ static void volumealsa_destructor(gpointer user_data);
 static void volumealsa_build_popup_window(GtkWidget *p);
 static guint xfce_mixer_is_default_card (GstElement *card);
 static const gchar *xfce_mixer_get_card_display_name (GstElement *card);
+static const gchar *xfce_mixer_get_card_id (GstElement *card);
 static gboolean xfce_mixer_is_bcm_device (GstElement *card);
 static const gchar * xfce_mixer_get_bcm_device_id (void);
 static GtkWidget *volumealsa_configure(LXPanel *panel, GtkWidget *p);
+static gboolean _xfce_mixer_filter_mixer (GstMixer *mixer, gpointer user_data);
+
 
 static void cb_name_owned (GDBusConnection *connection, const gchar *name, const gchar *owner, gpointer user_data);
 static void cb_name_unowned (GDBusConnection *connection, const gchar *name, gpointer user_data);
@@ -213,11 +214,11 @@ static guint32 get_bt_vol (VolumeALSAPlugin *vol)
     guint32 res;
     sprintf (buffer, "/org/pulseaudio/core1/sink%d", vol->sink);
     GVariant *var = g_dbus_connection_call_sync (vol->con, NULL, buffer, "org.freedesktop.DBus.Properties", "Get", g_variant_new ("(ss)", "org.PulseAudio.Core1.Device", "Volume"), NULL, 0, -1, NULL, &error);
-    if (error)
+    if (error || !var)
     {
-        DEBUG ("Cannot get volume - %s\n", error->message);
+        DEBUG ("Cannot get volume - %s\n", error ? error->message : "no variant");
         if (var) g_variant_unref (var);
-        g_error_free (error);
+        if (error) g_error_free (error);
         return 0;
     }
     res = g_variant_get_uint32 (g_variant_get_child_value (g_variant_get_child_value (g_variant_get_child_value (var, 0), 0), 0));
@@ -232,11 +233,11 @@ static gboolean get_bt_mute (VolumeALSAPlugin *vol)
     gboolean res;
     sprintf (buffer, "/org/pulseaudio/core1/sink%d", vol->sink);
     GVariant *var = g_dbus_connection_call_sync (vol->con, NULL, buffer, "org.freedesktop.DBus.Properties", "Get", g_variant_new ("(ss)", "org.PulseAudio.Core1.Device", "Mute"), NULL, 0, -1, NULL, &error);
-    if (error)
+    if (error || !var)
     {
-        DEBUG ("Cannot get mute - %s\n", error->message);
+        DEBUG ("Cannot get mute - %s\n", error ? error->message : "no variant");
         if (var) g_variant_unref (var);
-        g_error_free (error);
+        if (error) g_error_free (error);
         return FALSE;
     }
     res = g_variant_get_boolean (g_variant_get_child_value (g_variant_get_child_value (var, 0), 0));
@@ -891,6 +892,7 @@ static gboolean asound_restart(gpointer vol_gpointer)
 {
     VolumeALSAPlugin * vol = vol_gpointer;
 
+    if (!g_main_current_source()) return TRUE;
     if (g_source_is_destroyed(g_main_current_source()))
         return FALSE;
 
@@ -1052,10 +1054,15 @@ static void asound_set_default_card (const char *id)
   g_free (user_config_file);
 }
 
-static void asound_set_bcm_card (void)
+static gboolean asound_set_bcm_card (void)
 {
     const char *bcm = xfce_mixer_get_bcm_device_id ();
-    if (bcm) asound_set_default_card (bcm);
+    if (bcm)
+    {
+        asound_set_default_card (bcm);
+        return TRUE;
+    }
+    return FALSE;
 }
 
 static int asound_get_bcm_output (void)
@@ -1079,6 +1086,31 @@ static int asound_get_bcm_output (void)
     return val;
 }
 
+static void asound_find_valid_device (void)
+{
+    // call this if the current ALSA device is invalid - it tries to find an alternative
+    g_warning ("volumealsa: Default ALSA device not valid - resetting to internal");
+    if (!asound_set_bcm_card ())
+    {
+        GList *mixers;
+        gint counter = 0;
+
+        g_warning ("volumealsa: Internal device not available - looking for first valid ALSA device...");
+        mixers = gst_audio_default_registry_mixer_filter (_xfce_mixer_filter_mixer, FALSE, &counter);
+        if (mixers)
+        {
+            const char *card = xfce_mixer_get_card_id (mixers->data);
+            if (card)
+            {
+                g_warning ("volumealsa: Valid ALSA device %s found", card);
+                asound_set_default_card (card);
+                return;
+            }
+        }
+        g_warning ("volumealsa: No ALSA devices found");
+    }
+}
+
 /* Initialize the ALSA interface. */
 static gboolean asound_initialize(VolumeALSAPlugin * vol)
 {
@@ -1090,8 +1122,7 @@ static gboolean asound_initialize(VolumeALSAPlugin * vol)
     snd_mixer_open(&vol->mixer, 0);
     if (snd_mixer_attach(vol->mixer, device))
     {
-        g_warning ("volumealsa: Default ALSA device not valid - resetting to internal");
-        asound_set_bcm_card ();
+        asound_find_valid_device ();
         asound_get_default_card (device);
         snd_mixer_attach(vol->mixer, device);
     }
@@ -1103,10 +1134,10 @@ static gboolean asound_initialize(VolumeALSAPlugin * vol)
     if (!asound_find_elements (vol))
     {
         // this is a belt-and-braces check in case a driver has become corrupt...
-        g_warning ("volumealsa: Can't find elements - resetting to internal");
+        g_warning ("volumealsa: Can't find elements - trying to reset to internal");
         snd_mixer_detach (vol->mixer, device);
         snd_mixer_free (vol->mixer);
-        asound_set_bcm_card ();
+        asound_find_valid_device ();
         asound_get_default_card (device);
         snd_mixer_open (&vol->mixer, 0);
         snd_mixer_attach (vol->mixer, device);
@@ -1430,8 +1461,6 @@ static const gchar * xfce_mixer_get_bcm_device_id (void)
     return NULL;
 }
 
-#ifdef CUSTOM_MENU
-
 static void volumealsa_popup_set_position(GtkWidget * menu, gint * px, gint * py, gboolean * push_in, gpointer data)
 {
     VolumeALSAPlugin * vol= (VolumeALSAPlugin *) data;
@@ -1469,7 +1498,7 @@ static void set_bcm_output (GtkWidget * widget, VolumeALSAPlugin *vol)
     stop_pulseaudio (vol);
     bcm = xfce_mixer_get_bcm_device_id ();
     asound_get_default_card (cmdbuf);
-    if (strcmp (cmdbuf, bcm))
+    if (cmdbuf && bcm && strcmp (cmdbuf, bcm))
     {
         /* ... and set it to default if not */
         asound_set_default_card (bcm);
@@ -1490,13 +1519,39 @@ static void set_bcm_output (GtkWidget * widget, VolumeALSAPlugin *vol)
     send_message ();
 }
 
+static gboolean validate_devices (VolumeALSAPlugin *vol)
+{
+    char device[32];
+    snd_hctl_t *hctl;
+    gint counter = 0;
+    GList *iter, *mixers = gst_audio_default_registry_mixer_filter (_xfce_mixer_filter_mixer, FALSE, &counter);
+
+    /* Get the current setting - find cards, and which one is default */
+    gboolean def_good = FALSE;
+    for (iter = mixers; iter != NULL; iter = g_list_next (iter))
+    {
+        if (xfce_mixer_is_default_card (iter->data))
+        {
+            /* Check if we are still connected to the device */
+            asound_get_default_card (device);
+            if (snd_mixer_get_hctl (vol->mixer, device, &hctl))
+            {
+                asound_restart (vol);
+                return FALSE;
+            }
+            else return TRUE;
+        }
+    }
+    asound_find_valid_device ();
+    asound_restart (vol);
+    return FALSE;
+}
+
 static void open_config_dialog (GtkWidget * widget, VolumeALSAPlugin * vol)
 {
     volumealsa_configure (vol->panel, vol->plugin);
     gtk_menu_popdown (GTK_MENU(vol->menu_popup));
 }
-
-#endif
 
 /* Handler for "focus-out" signal on popup window. */
 static gboolean volumealsa_popup_focus_out(GtkWidget * widget, GdkEvent * event, VolumeALSAPlugin * vol)
@@ -1512,6 +1567,8 @@ static gboolean volumealsa_popup_focus_out(GtkWidget * widget, GdkEvent * event,
 static gboolean volumealsa_button_press_event(GtkWidget * widget, GdkEventButton * event, LXPanel * panel)
 {
     VolumeALSAPlugin * vol = lxpanel_plugin_get_data(widget);
+
+    if (!validate_devices (vol)) volumealsa_update_display (vol);
 
     /* Left-click.  Show or hide the popup window. */
     if (event->button == 1)
@@ -1541,14 +1598,13 @@ static gboolean volumealsa_button_press_event(GtkWidget * widget, GdkEventButton
     {
         gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(vol->mute_check), ! gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(vol->mute_check)));
     }
-#ifdef CUSTOM_MENU
     else if (event->button == 3)
     {
-        gint counter = 0, val = -1;
+        gint counter, devices;
         GList *iter, *mixers = gst_audio_default_registry_mixer_filter (_xfce_mixer_filter_mixer, FALSE, &counter);
         GtkWidget *image, *mi;
         GdkPixbuf *pixbuf = NULL;
-        gboolean def_good = FALSE, ext_dev = FALSE;
+        gboolean ext_dev = FALSE, bt_dev = TRUE;
 
         if (gtk_icon_theme_has_icon (panel_get_icon_theme (vol->panel), "dialog-ok-apply"))
             pixbuf = gtk_icon_theme_load_icon (panel_get_icon_theme (vol->panel), "dialog-ok-apply", 16, 0, NULL);
@@ -1557,57 +1613,47 @@ static gboolean volumealsa_button_press_event(GtkWidget * widget, GdkEventButton
 
         vol->menu_popup = gtk_menu_new ();
 
-        counter = 2;
-        for (iter = mixers; iter != NULL; iter = g_list_next (iter))
+        if (xfce_mixer_get_bcm_device_id ())
         {
-            if (!xfce_mixer_is_bcm_device (iter->data)) counter++;
-
-            if (xfce_mixer_is_default_card (iter->data))
+            /* if the onboard card is default, find currently-set output */
+            counter = -1;
+            for (iter = mixers; iter != NULL; iter = g_list_next (iter))
             {
-                def_good = TRUE;
-                if (xfce_mixer_is_bcm_device (iter->data))
+                if (xfce_mixer_is_default_card (iter->data) && xfce_mixer_is_bcm_device (iter->data))
                 {
-                    /* if the onboard card is default, find currently-set output */
-                    val = asound_get_bcm_output ();
+                    counter = asound_get_bcm_output ();
                     break;
                 }
             }
-        }
 
-        if (!def_good)
-        {
-            /* The default device is not present - fall back... */
-            g_warning ("volumealsa: Default ALSA device not valid - resetting to internal");
-            asound_set_bcm_card ();
-            asound_restart (vol);
-            volumealsa_update_display (vol);
-            val = asound_get_bcm_output ();
-        }
+            mi = gtk_image_menu_item_new_with_label (_("Analog"));
+            if (counter == 1)
+            {
+                image = gtk_image_new_from_pixbuf(pixbuf);
+                gtk_image_menu_item_set_image (GTK_IMAGE_MENU_ITEM(mi), image);
+            }
+            gtk_widget_set_name (mi, "1");
+            g_signal_connect (mi, "activate", G_CALLBACK (set_bcm_output), (gpointer) vol);
+            gtk_menu_shell_append (GTK_MENU_SHELL(vol->menu_popup), mi);
 
-        mi = gtk_image_menu_item_new_with_label (_("Analog"));
-        if (val == 1)
-        {
-            image = gtk_image_new_from_pixbuf(pixbuf);
-            gtk_image_menu_item_set_image (GTK_IMAGE_MENU_ITEM(mi), image);
-        }
-        gtk_widget_set_name (mi, "1");
-        g_signal_connect (mi, "activate", G_CALLBACK (set_bcm_output), (gpointer) vol);
-        gtk_menu_shell_append (GTK_MENU_SHELL(vol->menu_popup), mi);
+            mi = gtk_image_menu_item_new_with_label (_("HDMI"));
+            if (counter == 2)
+            {
+                image = gtk_image_new_from_pixbuf(pixbuf);
+                gtk_image_menu_item_set_image (GTK_IMAGE_MENU_ITEM(mi), image);
+            }
+            gtk_widget_set_name (mi, "2");
+            g_signal_connect (mi, "activate", G_CALLBACK (set_bcm_output), (gpointer) vol);
+            gtk_menu_shell_append (GTK_MENU_SHELL(vol->menu_popup), mi);
 
-        mi = gtk_image_menu_item_new_with_label (_("HDMI"));
-        if (val == 2)
-        {
-            image = gtk_image_new_from_pixbuf(pixbuf);
-            gtk_image_menu_item_set_image (GTK_IMAGE_MENU_ITEM(mi), image);
+            bt_dev = FALSE;
+            devices = 2;
         }
-        gtk_widget_set_name (mi, "2");
-        g_signal_connect (mi, "activate", G_CALLBACK (set_bcm_output), (gpointer) vol);
-        gtk_menu_shell_append (GTK_MENU_SHELL(vol->menu_popup), mi);
+        else devices = 0;
 
         // add Bluetooth devices if PulseAudio is running...
         if (vol->objmanager)
         {
-            gboolean bt_dev = FALSE;
             char *btdevice = NULL;
             if (vol->con) get_bz_name_of_pa_sink (vol, &btdevice);
 
@@ -1650,6 +1696,7 @@ static gboolean volumealsa_button_press_event(GtkWidget * widget, GdkEventButton
                             gtk_widget_set_name (mi, devname);  // use the widget name to store the card id
                             g_signal_connect (mi, "activate", G_CALLBACK (set_bt_card_event), (gpointer) vol);
                             gtk_menu_shell_append (GTK_MENU_SHELL(vol->menu_popup), mi);
+                            devices++;
                         }
                         g_variant_unref (name);
                         g_variant_unref (paired);
@@ -1662,12 +1709,12 @@ static gboolean volumealsa_button_press_event(GtkWidget * widget, GdkEventButton
             }
         }
 
-        // add USB devices...
+        // add external devices...
         for (iter = mixers; iter != NULL; iter = g_list_next (iter))
         {
             if (!xfce_mixer_is_bcm_device (iter->data))
             {
-                if (!ext_dev)
+                if (!ext_dev && devices)
                 {
                     mi = gtk_separator_menu_item_new ();
                     gtk_menu_shell_append (GTK_MENU_SHELL(vol->menu_popup), mi);
@@ -1687,6 +1734,7 @@ static gboolean volumealsa_button_press_event(GtkWidget * widget, GdkEventButton
                 g_signal_connect (mi, "activate", G_CALLBACK (set_default_card_event), (gpointer) vol);
                 gtk_menu_shell_append (GTK_MENU_SHELL(vol->menu_popup), mi);
                 ext_dev = TRUE;
+                devices++;
             }
         }
 
@@ -1697,6 +1745,13 @@ static gboolean volumealsa_button_press_event(GtkWidget * widget, GdkEventButton
 
             mi = gtk_image_menu_item_new_with_label (_("USB Device Settings..."));
             g_signal_connect (mi, "activate", G_CALLBACK (open_config_dialog), (gpointer) vol);
+            gtk_menu_shell_append (GTK_MENU_SHELL(vol->menu_popup), mi);
+        }
+
+        if (!devices)
+        {
+            mi = gtk_image_menu_item_new_with_label (_("No audio devices found"));
+            gtk_widget_set_sensitive (GTK_WIDGET (mi), FALSE);
             gtk_menu_shell_append (GTK_MENU_SHELL(vol->menu_popup), mi);
         }
 
@@ -1718,7 +1773,6 @@ static gboolean volumealsa_button_press_event(GtkWidget * widget, GdkEventButton
         gtk_menu_popup (GTK_MENU(vol->menu_popup), NULL, NULL, (GtkMenuPositionFunc) volumealsa_popup_set_position, (gpointer) vol,
             event->button, event->time);
     }
-#endif
     return TRUE;
 }
 
@@ -1793,91 +1847,10 @@ static void volumealsa_popup_mute_toggled(GtkWidget * widget, VolumeALSAPlugin *
     volumealsa_update_display(vol);
 }
 
-#ifndef CUSTOM_MENU
-
-static void default_card_toggled (GtkWidget * widget, VolumeALSAPlugin * vol)
-{
-    if (gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON (widget)))
-    {
-        /* set the new default card */
-        asound_set_default_card (widget->name);
-        asound_restart (vol);
-
-        volumealsa_update_display (vol);
-    }
-}
-
-static void bcm_output_toggled (GtkWidget *widget, VolumeALSAPlugin * vol)
-{
-    char cmdbuf[64];
-    const char *bcm;
-
-    if (gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON (widget)))
-    {
-        /* check that the BCM device is default... */
-        bcm = xfce_mixer_get_bcm_device_id ();
-        asound_get_default_card (cmdbuf);
-        if (strcmp (cmdbuf, bcm))
-        {
-            /* ... and set it to default if not */
-            asound_set_default_card (bcm);
-            asound_restart (vol);
-
-            /* set the output channel on the BCM device */
-            sprintf (cmdbuf, "amixer cset numid=3 %s", widget->name);
-            system (cmdbuf);
-
-            volumealsa_update_display (vol);
-        }
-        else
-        {
-            /* set the output channel on the BCM device */
-            sprintf (cmdbuf, "amixer cset numid=3 %s", widget->name);
-            system (cmdbuf);
-        }
-    }
-}
-
-#endif
-
 /* Build the window that appears when the top level widget is clicked. */
 static void volumealsa_build_popup_window(GtkWidget *p)
 {
     VolumeALSAPlugin * vol = lxpanel_plugin_get_data(p);
-
-    gboolean def_good = FALSE;
-    gint counter = 0, val = -1;
-    GList *iter, *mixers = gst_audio_default_registry_mixer_filter (_xfce_mixer_filter_mixer, FALSE, &counter);
-
-    /* Get the current setting - find cards, and which one is default */
-    counter = 2;
-    for (iter = mixers; iter != NULL; iter = g_list_next (iter))
-    {
-        if (!xfce_mixer_is_bcm_device (iter->data)) counter++;
-
-        if (xfce_mixer_is_default_card (iter->data))
-        {
-            def_good = TRUE;
-            if (xfce_mixer_is_bcm_device (iter->data))
-            {
-                /* if the onboard card is default, find currently-set output */
-                val = asound_get_bcm_output ();
-                break;
-            }
-            else val = counter;
-        }
-    }
-
-    /* Reset the default device if it is invalid */
-    if (!def_good)
-    {
-        /* The default device is not present - fall back... */
-        g_warning ("volumealsa: Default ALSA device not valid - resetting to internal");
-        asound_set_bcm_card ();
-        asound_restart (vol);
-        volumealsa_update_display (vol);
-        val = asound_get_bcm_output ();
-    }
 
     if (vol->popup_window)
     {
@@ -1890,9 +1863,6 @@ static void volumealsa_build_popup_window(GtkWidget *p)
     gtk_widget_set_name (vol->popup_window, "volals");
     gtk_window_set_decorated(GTK_WINDOW(vol->popup_window), FALSE);
     gtk_container_set_border_width(GTK_CONTAINER(vol->popup_window), 5);
-#ifndef CUSTOM_MENU
-    gtk_window_set_default_size (GTK_WINDOW(vol->popup_window), 100, 140);
-#endif
     gtk_window_set_skip_taskbar_hint(GTK_WINDOW(vol->popup_window), TRUE);
     gtk_window_set_skip_pager_hint(GTK_WINDOW(vol->popup_window), TRUE);
     gtk_window_set_type_hint(GTK_WINDOW(vol->popup_window), GDK_WINDOW_TYPE_HINT_UTILITY);
@@ -1916,27 +1886,11 @@ static void volumealsa_build_popup_window(GtkWidget *p)
     gtk_viewport_set_shadow_type(GTK_VIEWPORT(viewport), GTK_SHADOW_NONE);
     gtk_widget_show(viewport);
 
-#ifdef CUSTOM_MENU
     gtk_container_set_border_width(GTK_CONTAINER(vol->popup_window), 0);
     gtk_scrolled_window_set_shadow_type(GTK_SCROLLED_WINDOW(scrolledwindow), GTK_SHADOW_IN);
     /* Create a vertical box as the child of the viewport. */
     GtkWidget * box = gtk_vbox_new (FALSE, 0);
     gtk_container_add(GTK_CONTAINER(viewport), box);
-#else
-    /* Create a vertical box as the child of the viewport. */
-    GtkWidget *bvbox = gtk_vbox_new (FALSE, 0);
-    gtk_container_add(GTK_CONTAINER(viewport), bvbox);
-    gtk_widget_show (bvbox);
-
-    /* Create a frame as the child of the vbox. */
-    GtkWidget * frame = gtk_frame_new(_("Volume"));
-    //gtk_frame_set_shadow_type(GTK_FRAME(frame), GTK_SHADOW_IN);
-    gtk_box_pack_start(GTK_BOX(bvbox), frame, TRUE, TRUE, 0);
-
-    /* Create a vertical box as the child of the frame. */
-    GtkWidget * box = gtk_vbox_new(FALSE, 0);
-    gtk_container_add(GTK_CONTAINER(frame), box);
-#endif
 
     /* Create a vertical scale as the child of the vertical box. */
     vol->volume_scale = gtk_vscale_new(GTK_ADJUSTMENT(gtk_adjustment_new(100, 0, 100, 0, 0, 0)));
@@ -1957,57 +1911,6 @@ static void volumealsa_build_popup_window(GtkWidget *p)
     vol->mute_check_handler = g_signal_connect(vol->mute_check, "toggled", G_CALLBACK(volumealsa_popup_mute_toggled), vol);
     gtk_widget_set_can_focus (vol->mute_check, FALSE);
 
-#ifndef CUSTOM_MENU
-    /* Create a frame as the child of the vbox. */
-    GtkWidget * frame2 = gtk_frame_new (_("Output"));
-    gtk_box_pack_end (GTK_BOX(bvbox), frame2, FALSE, FALSE, 0);
-
-    /* Create a vertical box as the child of the frame. */
-    GtkWidget * box2 = gtk_vbox_new (FALSE, 0);
-    gtk_container_add (GTK_CONTAINER(frame2), box2);
-
-    /* Add radio buttons for the BCM device outputs */
-    GtkWidget *rb, *last, *sep;
-    last = rb = gtk_radio_button_new_with_label (NULL, _("Auto"));
-    gtk_radio_button_group (GTK_RADIO_BUTTON (rb));
-    gtk_widget_set_name (rb, "0");
-    gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (rb), val == 0);
-    g_signal_connect (rb, "toggled", G_CALLBACK (bcm_output_toggled), (gpointer) vol);
-    gtk_box_pack_start (GTK_BOX (box2), rb, FALSE, FALSE, 0);
-
-    rb = gtk_radio_button_new_with_label (gtk_radio_button_group (GTK_RADIO_BUTTON (last)), _("Analog"));
-    gtk_widget_set_name (rb, "1");
-    gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (rb), val == 1);
-    g_signal_connect (rb, "toggled", G_CALLBACK (bcm_output_toggled), (gpointer) vol);
-    gtk_box_pack_start (GTK_BOX (box2), rb, FALSE, FALSE, 0);
-
-    rb = gtk_radio_button_new_with_label (gtk_radio_button_group (GTK_RADIO_BUTTON (last)), _("HDMI"));
-    gtk_widget_set_name (rb, "2");
-    gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (rb), val == 2);
-    g_signal_connect (rb, "toggled", G_CALLBACK (bcm_output_toggled), (gpointer) vol);
-    gtk_box_pack_start (GTK_BOX (box2), rb, FALSE, FALSE, 0);
-
-    /* Add separators and radio buttons for other devices */
-    counter = 3;
-    for (iter = mixers; iter != NULL; iter = g_list_next (iter))
-    {
-        if (!xfce_mixer_is_bcm_device (iter->data))
-        {
-            sep = gtk_hseparator_new ();
-            gtk_box_pack_start (GTK_BOX (box2), sep, FALSE, FALSE, 0);
-
-            char namebuf[128];
-            strcpy (namebuf, xfce_mixer_get_card_display_name (iter->data));
-            namebuf[strlen(namebuf) - 13] = 0;
-            rb = gtk_radio_button_new_with_label (gtk_radio_button_group (GTK_RADIO_BUTTON (last)), namebuf);
-            gtk_widget_set_name (rb, xfce_mixer_get_card_id (iter->data));
-            gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (rb), val == counter);
-            g_signal_connect (rb, "toggled", G_CALLBACK (default_card_toggled), (gpointer) vol);
-            gtk_box_pack_start (GTK_BOX (box2), rb, FALSE, FALSE, 0);
-            counter++;
-        }
-    }
-#endif
     /* Set background to default. */
     //gtk_widget_set_style(viewport, panel_get_defstyle(vol->panel));
 }
@@ -2024,44 +1927,18 @@ static GtkWidget *volumealsa_constructor(LXPanel *panel, config_setting_t *setti
     /* Initialise Gstreamer */
     gst_init (NULL, NULL);
 
-    /* Initialize ALSA.  If that fails, present nothing. */
-    if ( ! asound_initialize(vol))
-    {
-        volumealsa_destructor(vol);
-        return NULL;
-    }
+    /* Initialize ALSA */
+    asound_initialize (vol);
 
     /* Check the default device is valid and reset if not */
-    gint counter = 0;
-    GList *iter, *mixers = gst_audio_default_registry_mixer_filter (_xfce_mixer_filter_mixer, FALSE, &counter);
-
-    /* Get the current setting - find cards, and which one is default */
-    gboolean def_good = FALSE;
-    for (iter = mixers; iter != NULL; iter = g_list_next (iter))
-    {
-        if (xfce_mixer_is_default_card (iter->data))
-        {
-            def_good = TRUE;
-            break;
-        }
-    }
-
-    if (!def_good)
-    {
-        /* The default device is not present - fall back... */
-        g_warning ("volumealsa: Default ALSA device not valid - resetting to internal");
-        asound_set_bcm_card ();
-        asound_restart (vol);
-    }
+    validate_devices (vol);
 
     /* Allocate top level widget and set into Plugin widget pointer. */
     vol->panel = panel;
     vol->plugin = p = gtk_button_new();
     gtk_button_set_relief (GTK_BUTTON (vol->plugin), GTK_RELIEF_NONE);
     //vol->plugin = p = gtk_event_box_new();
-#ifdef CUSTOM_MENU
     g_signal_connect(vol->plugin, "button-press-event", G_CALLBACK(volumealsa_button_press_event), vol->panel);
-#endif
     vol->settings = settings;
     lxpanel_plugin_set_data(p, vol, volumealsa_destructor);
     gtk_widget_add_events(p, GDK_BUTTON_PRESS_MASK);
@@ -2221,10 +2098,6 @@ LXPanelPluginInit fm_module_init_lxpanel_gtk = {
     .new_instance = volumealsa_constructor,
     .config = volumealsa_configure,
     .reconfigure = volumealsa_panel_configuration_changed
-#ifndef CUSTOM_MENU
-    ,
-    .button_press_event = volumealsa_button_press_event
-#endif
 };
 
 /* vim: set sw=4 et sts=4 : */
