@@ -1554,11 +1554,12 @@ static void open_config_dialog (GtkWidget * widget, VolumeALSAPlugin * vol)
 }
 
 /* Handler for "focus-out" signal on popup window. */
-static gboolean volumealsa_popup_focus_out(GtkWidget * widget, GdkEvent * event, VolumeALSAPlugin * vol)
+static gboolean volumealsa_mouse_out (GtkWidget * widget, GdkEventButton * event, VolumeALSAPlugin * vol)
 {
     /* Hide the widget. */
     gtk_widget_hide(vol->popup_window);
     vol->show_popup = FALSE;
+    gdk_pointer_ungrab (GDK_CURRENT_TIME);
     return FALSE;
 }
 
@@ -1584,11 +1585,15 @@ static gboolean volumealsa_button_press_event(GtkWidget * widget, GdkEventButton
             volumealsa_update_display (vol);
 
             gint x, y;
-            gtk_window_iconify (GTK_WINDOW (vol->popup_window));
+            gtk_window_set_position (GTK_WINDOW (vol->popup_window), GTK_WIN_POS_MOUSE);
+            // need to draw the window in order to allow the plugin position helper to get its size
             gtk_widget_show_all (vol->popup_window);
+            gtk_widget_hide (vol->popup_window);
             lxpanel_plugin_popup_set_position_helper (panel, widget, vol->popup_window, &x, &y);
             gdk_window_move (gtk_widget_get_window (vol->popup_window), x, y);
             gtk_window_present (GTK_WINDOW (vol->popup_window));
+            gdk_pointer_grab (gtk_widget_get_window (vol->popup_window), TRUE, GDK_BUTTON_PRESS_MASK, NULL, NULL, GDK_CURRENT_TIME);
+            g_signal_connect (G_OBJECT(vol->popup_window), "button-press-event", G_CALLBACK (volumealsa_mouse_out), vol);
             vol->show_popup = TRUE;
         }
     }
@@ -1859,16 +1864,13 @@ static void volumealsa_build_popup_window(GtkWidget *p)
     }
 
     /* Create a new window. */
-    vol->popup_window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
+    vol->popup_window = gtk_window_new (GTK_WINDOW_POPUP);
     gtk_widget_set_name (vol->popup_window, "volals");
     gtk_window_set_decorated(GTK_WINDOW(vol->popup_window), FALSE);
     gtk_container_set_border_width(GTK_CONTAINER(vol->popup_window), 5);
     gtk_window_set_skip_taskbar_hint(GTK_WINDOW(vol->popup_window), TRUE);
     gtk_window_set_skip_pager_hint(GTK_WINDOW(vol->popup_window), TRUE);
     gtk_window_set_type_hint(GTK_WINDOW(vol->popup_window), GDK_WINDOW_TYPE_HINT_UTILITY);
-
-    /* Connect signals. */
-    g_signal_connect(G_OBJECT(vol->popup_window), "focus-out-event", G_CALLBACK(volumealsa_popup_focus_out), vol);
 
     /* Create a scrolled window as the child of the top level window. */
     GtkWidget * scrolledwindow = gtk_scrolled_window_new(NULL, NULL);
