@@ -2131,6 +2131,23 @@ static void volumealsa_panel_configuration_changed(LXPanel *panel, GtkWidget *p)
 
 }
 
+static void volumealsa_control_msg (GtkWidget *plugin, const char *cmd)
+{
+    VolumeALSAPlugin *vol = lxpanel_plugin_get_data (plugin);
+
+    if (!strcmp (cmd, "Start"))
+    {
+        asound_initialize (vol);
+        g_warning("volumealsa: Restarted ALSA interface...");
+    }
+
+    if (!strcmp (cmd, "Stop"))
+    {
+        asound_deinitialize (vol);
+        g_warning("volumealsa: Stopped ALSA interface...");
+    }
+}
+
 FM_DEFINE_MODULE(lxpanel_gtk, volumealsa)
 
 /* Plugin descriptor. */
@@ -2140,7 +2157,8 @@ LXPanelPluginInit fm_module_init_lxpanel_gtk = {
 
     .new_instance = volumealsa_constructor,
     .config = volumealsa_configure,
-    .reconfigure = volumealsa_panel_configuration_changed
+    .reconfigure = volumealsa_panel_configuration_changed,
+    .control = volumealsa_control_msg
 };
 
 /* vim: set sw=4 et sts=4 : */
