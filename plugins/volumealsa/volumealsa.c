@@ -75,6 +75,7 @@ typedef struct {
     snd_mixer_elem_t * master_element;      /* The Master element */
     guint mixer_evt_idle;           /* Timer to handle restarting poll */
     guint restart_idle;
+    gboolean stopped;
 
     /* unloading and error handling */
     GIOChannel **channels;                      /* Channels that we listen to */
@@ -1586,6 +1587,8 @@ static gboolean volumealsa_button_press_event(GtkWidget * widget, GdkEventButton
 {
     VolumeALSAPlugin * vol = lxpanel_plugin_get_data(widget);
 
+    if (vol->stopped) return TRUE;
+
     if (!validate_devices (vol)) volumealsa_update_display (vol);
 
     /* Left-click.  Show or hide the popup window. */
@@ -2009,6 +2012,8 @@ static GtkWidget *volumealsa_constructor(LXPanel *panel, config_setting_t *setti
     /* Update the display, show the widget, and return. */
     volumealsa_update_display(vol);
     gtk_widget_show_all(p);
+
+    vol->stopped = FALSE;
     return p;
 }
 
@@ -2131,21 +2136,30 @@ static void volumealsa_panel_configuration_changed(LXPanel *panel, GtkWidget *p)
 
 }
 
-static void volumealsa_control_msg (GtkWidget *plugin, const char *cmd)
+static gboolean volumealsa_control_msg (GtkWidget *plugin, const char *cmd)
 {
     VolumeALSAPlugin *vol = lxpanel_plugin_get_data (plugin);
 
     if (!strcmp (cmd, "Start"))
     {
         asound_initialize (vol);
-        g_warning("volumealsa: Restarted ALSA interface...");
+        g_warning ("volumealsa: Restarted ALSA interface...");
+        volumealsa_update_display (vol);
+        gtk_menu_popdown (GTK_MENU (vol->menu_popup));
+        vol->stopped = FALSE;
+        return TRUE;
     }
 
     if (!strcmp (cmd, "Stop"))
     {
         asound_deinitialize (vol);
-        g_warning("volumealsa: Stopped ALSA interface...");
-    }
+        g_warning ("volumealsa: Stopped ALSA interface...");
+        volumealsa_update_display (vol);
+        gtk_menu_popdown (GTK_MENU (vol->menu_popup));
+        vol->stopped = TRUE;
+        return TRUE;
+   }
+   return FALSE;
 }
 
 FM_DEFINE_MODULE(lxpanel_gtk, volumealsa)
