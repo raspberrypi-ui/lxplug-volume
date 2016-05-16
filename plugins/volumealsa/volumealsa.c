@@ -44,7 +44,7 @@
 
 #define DEBUG_ON
 #ifdef DEBUG_ON
-#define DEBUG(fmt,args...) printf(fmt,##args)
+#define DEBUG(fmt,args...) g_message(fmt,##args)
 #else
 #define DEBUG
 #endif
