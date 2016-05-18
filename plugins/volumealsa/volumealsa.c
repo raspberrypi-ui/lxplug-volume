@@ -158,14 +158,14 @@ static void cb_name_owned (GDBusConnection *connection, const gchar *name, const
     VolumeALSAPlugin *vol = (VolumeALSAPlugin *) user_data;
     char *config_file;
     FILE *fp;
-    DEBUG ("Name %s owned on DBus\n", name);
+    DEBUG ("Name %s owned on DBus", name);
 
     /* BlueZ exists - get an object manager for it */
     GError *error = NULL;
     vol->objmanager = g_dbus_object_manager_client_new_for_bus_sync (G_BUS_TYPE_SYSTEM, 0, "org.bluez", "/", NULL, NULL, NULL, NULL, &error);
     if (error)
     {
-        DEBUG ("Error getting object manager - %s\n", error->message);
+        DEBUG ("Error getting object manager - %s", error->message);
         vol->objmanager = NULL;
         g_error_free (error);
     }
@@ -182,12 +182,12 @@ static void cb_name_owned (GDBusConnection *connection, const gchar *name, const
             fgets (vol->bt_conname, 127, fp);
             *(vol->bt_conname + strlen (vol->bt_conname) - 1) = 0;
 
-            DEBUG ("Connecting to %s...\n", vol->bt_conname);
+            DEBUG ("Connecting to %s...", vol->bt_conname);
             connect_device (vol);
         }
         else
         {
-            DEBUG ("No connection to PulseAudio\n");
+            DEBUG ("No connection to PulseAudio");
             stop_pulseaudio (vol);
         }
 
@@ -199,7 +199,7 @@ static void cb_name_owned (GDBusConnection *connection, const gchar *name, const
 static void cb_name_unowned (GDBusConnection *connection, const gchar *name, gpointer user_data)
 {
     VolumeALSAPlugin *vol = (VolumeALSAPlugin *) user_data;
-    DEBUG ("Name %s unowned on DBus\n", name);
+    DEBUG ("Name %s unowned on DBus", name);
 
     if (vol->objmanager) g_object_unref (vol->objmanager);
     vol->objmanager = NULL;
@@ -217,7 +217,7 @@ static guint32 get_bt_vol (VolumeALSAPlugin *vol)
     GVariant *var = g_dbus_connection_call_sync (vol->con, NULL, buffer, "org.freedesktop.DBus.Properties", "Get", g_variant_new ("(ss)", "org.PulseAudio.Core1.Device", "Volume"), NULL, 0, -1, NULL, &error);
     if (error || !var)
     {
-        DEBUG ("Cannot get volume - %s\n", error ? error->message : "no variant");
+        DEBUG ("Cannot get volume - %s", error ? error->message : "no variant");
         if (var) g_variant_unref (var);
         if (error) g_error_free (error);
         return 0;
@@ -236,7 +236,7 @@ static gboolean get_bt_mute (VolumeALSAPlugin *vol)
     GVariant *var = g_dbus_connection_call_sync (vol->con, NULL, buffer, "org.freedesktop.DBus.Properties", "Get", g_variant_new ("(ss)", "org.PulseAudio.Core1.Device", "Mute"), NULL, 0, -1, NULL, &error);
     if (error || !var)
     {
-        DEBUG ("Cannot get mute - %s\n", error ? error->message : "no variant");
+        DEBUG ("Cannot get mute - %s", error ? error->message : "no variant");
         if (var) g_variant_unref (var);
         if (error) g_error_free (error);
         return FALSE;
@@ -261,7 +261,7 @@ static void set_bt_vol (VolumeALSAPlugin *vol, guint32 volume)
     res = g_dbus_connection_call_sync (vol->con, NULL, buffer, "org.freedesktop.DBus.Properties", "Set", var, NULL, 0, -1, NULL, &error);
     if (error)
     {
-        DEBUG ("Cannot set volume - %s\n", error->message);
+        DEBUG ("Cannot set volume - %s", error->message);
         g_error_free (error);
     }
     g_variant_unref (res);
@@ -281,7 +281,7 @@ static void set_bt_mute (VolumeALSAPlugin *vol, gboolean mute)
     res = g_dbus_connection_call_sync (vol->con, NULL, buffer, "org.freedesktop.DBus.Properties", "Set", var, NULL, 0, -1, NULL, &error);
     if (error)
     {
-        DEBUG ("Cannot set mute - %s\n", error->message);
+        DEBUG ("Cannot set mute - %s", error->message);
         g_error_free (error);
     }
     g_variant_unref (res);
@@ -299,14 +299,14 @@ static gboolean get_bz_name_of_pa_sink (VolumeALSAPlugin *vol, char **dev)
     var1 = g_dbus_connection_call_sync (vol->con, NULL, "/org/pulseaudio/core1", "org.freedesktop.DBus.Properties", "Get", g_variant_new ("(ss)", "org.PulseAudio.Core1", "FallbackSink"), NULL, 0, -1, NULL, &error);
     if (error)
     {
-        DEBUG ("Cannot get path for default device - %s\n", error->message);
+        DEBUG ("Cannot get path for default device - %s", error->message);
         if (var1) g_variant_unref (var1);
         g_error_free (error);
         return FALSE;
     }
     if (!var1)
     {
-        DEBUG ("Default device not set\n");
+        DEBUG ("Default device not set");
         return FALSE;
     }
 
@@ -316,7 +316,7 @@ static gboolean get_bz_name_of_pa_sink (VolumeALSAPlugin *vol, char **dev)
     var2 = g_dbus_connection_call_sync (vol->con, NULL, key, "org.freedesktop.DBus.Properties", "Get", g_variant_new ("(ss)", "org.PulseAudio.Core1.Device", "Name"), NULL, 0, -1, NULL, &error);
     if (error)
     {
-        DEBUG ("Cannot get name of default device - %s\n", error->message);
+        DEBUG ("Cannot get name of default device - %s", error->message);
         g_variant_unref (var1);
         if (var2) g_variant_unref (var2);
         g_error_free (error);
@@ -324,7 +324,7 @@ static gboolean get_bz_name_of_pa_sink (VolumeALSAPlugin *vol, char **dev)
     }
     if (!var2)
     {
-        DEBUG ("Default device has null name\n");
+        DEBUG ("Default device has null name");
         g_variant_unref (var1);
         return FALSE;
     }
@@ -348,14 +348,14 @@ static int set_pa_sink_from_bz_name (VolumeALSAPlugin *vol, const char *dev)
     var1 = g_dbus_connection_call_sync (vol->con, NULL, "/org/pulseaudio/core1", "org.freedesktop.DBus.Properties", "Get", g_variant_new ("(ss)", "org.PulseAudio.Core1", "Sinks"), NULL, 0, -1, NULL, &error);
     if (error)
     {
-        DEBUG ("Could not read sink list - %s\n", error->message);
+        DEBUG ("Could not read sink list - %s", error->message);
         if (var1) g_variant_unref (var1);
         g_error_free (error);
         return -1;
     }
     if (!var1)
     {
-        DEBUG ("Sink list null\n");
+        DEBUG ("Sink list null");
         return -1;
     }
 
@@ -368,7 +368,7 @@ static int set_pa_sink_from_bz_name (VolumeALSAPlugin *vol, const char *dev)
         var2 = g_dbus_connection_call_sync (vol->con, NULL, key, "org.freedesktop.DBus.Properties", "Get", g_variant_new ("(ss)", "org.PulseAudio.Core1.Device", "Name"), NULL, 0, -1, NULL, &error);
         if (error)
         {
-            DEBUG ("Cannot get name of device - %s\n", error->message);
+            DEBUG ("Cannot get name of device - %s", error->message);
             g_variant_unref (var1);
             if (var2) g_variant_unref (var2);
             g_error_free (error);
@@ -376,7 +376,7 @@ static int set_pa_sink_from_bz_name (VolumeALSAPlugin *vol, const char *dev)
         }
         if (!var2)
         {
-            DEBUG ("Default device has null name\n");
+            DEBUG ("Default device has null name");
             g_variant_unref (var1);
             return -1;
         }
@@ -392,7 +392,7 @@ static int set_pa_sink_from_bz_name (VolumeALSAPlugin *vol, const char *dev)
                 g_variant_new ("(ssv)", "org.PulseAudio.Core1", "FallbackSink", g_variant_new ("o", key)), NULL, 0, -1, NULL, &error);
             if (error)
             {
-                DEBUG ("Cannot set sink - %s\n", error->message);
+                DEBUG ("Cannot set sink - %s", error->message);
                 g_error_free (error);
             }
             if (res) g_variant_unref (res);
@@ -411,7 +411,7 @@ static void start_pulseaudio (VolumeALSAPlugin *vol, gboolean always)
     GVariant *var;
     GError *error;
 
-    DEBUG ("Starting PulseAudio\n");
+    DEBUG ("Starting PulseAudio");
 
     // fall out if PA already started...
     if (!always && check_pulseaudio ()) return;
@@ -426,7 +426,7 @@ static void start_pulseaudio (VolumeALSAPlugin *vol, gboolean always)
     con = g_bus_get_sync (G_BUS_TYPE_SESSION, NULL, &error);
     if (error)
     {
-        DEBUG ("Bus connection error - %s\n", error->message);
+        DEBUG ("Bus connection error - %s", error->message);
         g_error_free (error);
         return;
     }
@@ -435,7 +435,7 @@ static void start_pulseaudio (VolumeALSAPlugin *vol, gboolean always)
     prox = g_dbus_proxy_new_sync (con, G_DBUS_PROXY_FLAGS_NONE, NULL, "org.PulseAudio1", "/org/pulseaudio/server_lookup1", "org.freedesktop.DBus.Properties", NULL, NULL);
     if (error)
     {
-        DEBUG ("Error requesting address - %s\n", error->message);
+        DEBUG ("Error requesting address - %s", error->message);
         g_error_free (error);
         return;
     }
@@ -444,7 +444,7 @@ static void start_pulseaudio (VolumeALSAPlugin *vol, gboolean always)
     var = g_dbus_proxy_get_cached_property (prox, "Address");
     if (!var)
     {
-        DEBUG ("Null address\n");
+        DEBUG ("Null address");
         return;
     }
     g_object_unref (prox);
@@ -454,7 +454,7 @@ static void start_pulseaudio (VolumeALSAPlugin *vol, gboolean always)
     vol->con = g_dbus_connection_new_for_address_sync (g_variant_get_string (var, NULL), G_DBUS_CONNECTION_FLAGS_AUTHENTICATION_CLIENT, NULL, NULL, &error);
     if (error)
     {
-        DEBUG ("Connection error - %s\n", error->message);
+        DEBUG ("Connection error - %s", error->message);
         vol->con = NULL;
         g_error_free (error);
         return;
@@ -466,7 +466,7 @@ static void start_pulseaudio (VolumeALSAPlugin *vol, gboolean always)
     var = g_dbus_connection_call_sync (vol->con, NULL, "/org/pulseaudio/core1", "org.PulseAudio.Core1", "ListenForSignal", g_variant_new ("(sao)", "org.PulseAudio.Core1.SinkRemoved", NULL), NULL, 0, -1, NULL, &error);
     if (error)
     {
-        DEBUG ("Method error - %s\n", error->message);
+        DEBUG ("Method error - %s", error->message);
         g_error_free (error);
     }
     g_variant_unref (var);
@@ -476,14 +476,14 @@ static void start_pulseaudio (VolumeALSAPlugin *vol, gboolean always)
     vol->sub_id = g_dbus_connection_signal_subscribe (vol->con, NULL, "org.PulseAudio.Core1", NULL, NULL, NULL, G_DBUS_SIGNAL_FLAGS_NONE, cb_signal, vol, NULL);
     if (error)
     {
-        DEBUG ("Subscribe error - %s\n", error->message);
+        DEBUG ("Subscribe error - %s", error->message);
         g_error_free (error);
     }
 }
 
 static void stop_pulseaudio (VolumeALSAPlugin *vol)
 {
-    DEBUG ("Stopping PulseAudio\n");
+    DEBUG ("Stopping PulseAudio");
     if (!check_pulseaudio ()) return;
     
     if (vol->sub_id) g_dbus_connection_signal_unsubscribe (vol->con, vol->sub_id);
@@ -513,7 +513,7 @@ static void connect_device (VolumeALSAPlugin *vol)
     }
     else
     {
-        DEBUG ("Couldn't get device interface from object manager\n");
+        DEBUG ("Couldn't get device interface from object manager");
         stop_pulseaudio (vol);
         if (vol->conn_dialog) show_connect_dialog (vol, TRUE, _("Could not get BlueZ interface"));
     }
@@ -531,7 +531,7 @@ static void cb_connected (GObject *source, GAsyncResult *res, gpointer user_data
 
     if (error)
     {
-        DEBUG ("Connect error %s\n", error->message);
+        DEBUG ("Connect error %s", error->message);
 
         // kill PulseAudio and fall back to an internal device
         stop_pulseaudio (vol);
@@ -541,7 +541,7 @@ static void cb_connected (GObject *source, GAsyncResult *res, gpointer user_data
     }
     else
     {
-        DEBUG ("Connected OK\n");
+        DEBUG ("Connected OK");
 
         // save the connection data to a file for use after reboot
         sprintf (buffer, "echo %s > ~/.config/bt", vol->bt_conname);
@@ -572,10 +572,10 @@ static void cb_trusted (GObject *source, GAsyncResult *res, gpointer user_data)
 
     if (error)
     {
-        DEBUG ("Trusting error %s\n", error->message);
+        DEBUG ("Trusting error %s", error->message);
         g_error_free (error);
     }
-    else DEBUG ("Trusted OK\n");
+    else DEBUG ("Trusted OK");
 }
 
 static void disconnect_device (VolumeALSAPlugin *vol)
@@ -592,17 +592,17 @@ static void disconnect_device (VolumeALSAPlugin *vol)
         g_variant_new ("(ss)", "org.PulseAudio.Core1.Device", "Name"), NULL, 0, -1, NULL, &error);
     if (error)
     {
-        DEBUG ("Could not read device name to disconnect - %s\n", error->message);
+        DEBUG ("Could not read device name to disconnect - %s", error->message);
         if (var) g_variant_unref (var);
         g_error_free (error);
     }
     else if (!var)
     {
-        DEBUG ("Device name to disconnect null\n");
+        DEBUG ("Device name to disconnect null");
     }
     else
     {
-        DEBUG ("Device to disconnect = %s\n", g_variant_print (var, TRUE));
+        DEBUG ("Device to disconnect = %s", g_variant_print (var, TRUE));
         // convert into a BlueZ device path
         const gchar *res = g_variant_get_string (g_variant_get_child_value (g_variant_get_child_value (var, 0), 0), NULL);
         sprintf (buffer, "/org/bluez/hci0/dev_%s", res + 11);
@@ -611,7 +611,7 @@ static void disconnect_device (VolumeALSAPlugin *vol)
         GDBusInterface *interface = g_dbus_object_manager_get_interface (vol->objmanager, buffer, "org.bluez.Device1");
         if (interface)
         {
-            DEBUG ("Disconnecting...\n");
+            DEBUG ("Disconnecting...");
             g_dbus_proxy_call (G_DBUS_PROXY (interface), "Disconnect", NULL, G_DBUS_CALL_FLAGS_NONE, -1, NULL, cb_disconnected, vol);
             g_variant_unref (var);
             g_object_unref (interface);
@@ -621,7 +621,7 @@ static void disconnect_device (VolumeALSAPlugin *vol)
     }
 
     // if no connection found, just make the new connection
-    DEBUG ("Nothing to disconnect - connecting to %s...\n", vol->bt_conname);
+    DEBUG ("Nothing to disconnect - connecting to %s...", vol->bt_conname);
     connect_device (vol);
 }
 
@@ -634,13 +634,13 @@ static void cb_disconnected (GObject *source, GAsyncResult *res, gpointer user_d
 
     if (error)
     {
-        DEBUG ("Disconnect error %s\n", error->message);
+        DEBUG ("Disconnect error %s", error->message);
         g_error_free (error);
     }
-    else DEBUG ("Disconnected OK\n");
+    else DEBUG ("Disconnected OK");
 
     // call BlueZ over DBus to connect to the device
-    DEBUG ("Connecting to %s...\n", vol->bt_conname);
+    DEBUG ("Connecting to %s...", vol->bt_conname);
     connect_device (vol);
 }
 
@@ -648,14 +648,14 @@ static void cb_signal (GDBusConnection *connection, const gchar *sender_name, co
     const gchar *signal_name, GVariant *parameters, gpointer user_data)
 {
     VolumeALSAPlugin *vol = (VolumeALSAPlugin *) user_data;
-    DEBUG ("Signal : %s %s %s %s %s\n", sender_name, object_path, interface_name, signal_name, g_variant_print (parameters, TRUE));
+    DEBUG ("Signal : %s %s %s %s %s", sender_name, object_path, interface_name, signal_name, g_variant_print (parameters, TRUE));
     if (!g_strcmp0 (signal_name, "SinkRemoved"))
     {
         int sink;
         const char *sinkname = g_variant_get_string (g_variant_get_child_value (parameters, 0), NULL);
         if (sscanf (sinkname, "/org/pulseaudio/core1/sink%d", &sink) == 1 && sink == vol->sink)
         {
-            DEBUG ("Sink in use removed\n");
+            DEBUG ("Sink in use removed");
             stop_pulseaudio (vol);
             volumealsa_update_display (vol);
         }
@@ -678,19 +678,19 @@ static void set_bt_card_event (GtkWidget * widget, VolumeALSAPlugin * vol)
         if (vol->sink != -1)
         {
             // already connected to a Bluetooth device - disconnect it
-            DEBUG ("Disconnecting existing Bluetooth audio device\n");
+            DEBUG ("Disconnecting existing Bluetooth audio device");
             disconnect_device (vol);
         }
         else
         {
             // call BlueZ over DBus to connect to the device
-            DEBUG ("Connecting to %s...\n", vol->bt_conname);
+            DEBUG ("Connecting to %s...", vol->bt_conname);
             connect_device (vol);
         }
     }
     else
     {
-        DEBUG ("No connection to PulseAudio\n");
+        DEBUG ("No connection to PulseAudio");
         stop_pulseaudio (vol);
         if (vol->conn_dialog) show_connect_dialog (vol, TRUE, _("Could not connect to PulseAudio"));
     }
