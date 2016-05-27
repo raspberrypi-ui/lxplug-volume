@@ -147,9 +147,11 @@ static int get_status (char *cmd)
 
     if (fp && fgets (buf, sizeof (buf) - 1, fp) != NULL)
     {
+        pclose (fp);
         sscanf (buf, "%d", &res);
         return res;
     }
+    if (fp) pclose (fp);
     return 0;
 }
 
@@ -1075,7 +1077,7 @@ static int asound_get_bcm_output (void)
         fgets (buf, 128, res);
         if (sscanf (buf, "  : values=%d", &tmp)) val = tmp;
     }
-    fclose (res);
+    pclose (res);
 
     if (val == 0)
     {
