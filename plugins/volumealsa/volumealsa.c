@@ -34,10 +34,6 @@
 
 #include "plugin.h"
 
-#define ICONS_VOLUME_HIGH   PACKAGE_DATA_DIR "/images/volume-high.png"
-#define ICONS_VOLUME_MEDIUM PACKAGE_DATA_DIR "/images/volume-medium.png"
-#define ICONS_VOLUME_LOW    PACKAGE_DATA_DIR "/images/volume-low.png"
-#define ICONS_MUTE          PACKAGE_DATA_DIR "/images/mute.png"
 #define ICONS_TICK          PACKAGE_DATA_DIR "/images/dialog-ok-apply.png"
 
 #define ICON_BUTTON_TRIM 4
@@ -84,8 +80,6 @@ typedef struct {
 
     /* Icons */
     const char* icon;
-    const char* icon_panel;
-    const char* icon_fallback;
 
     GDBusObjectManager *objmanager;         /* BlueZ object manager */
     char *bt_conname;                       /* BlueZ name of device - just used during connection */
@@ -1264,58 +1258,53 @@ static void volumealsa_update_current_icon(VolumeALSAPlugin * vol)
 
     /* Change icon according to mute / volume */
     const char* icon="audio-volume-muted";
-    const char* icon_panel="audio-volume-muted-panel";
-    const char* icon_fallback=ICONS_MUTE;
     if (mute)
     {
-         icon_panel = "audio-volume-muted-panel";
          icon="audio-volume-muted";
-         icon_fallback=ICONS_MUTE;
     }
     else if (level >= 75)
     {
-         icon_panel = "audio-volume-high-panel";
          icon="audio-volume-high";
-         icon_fallback=ICONS_VOLUME_HIGH;
     }
     else if (level >= 50)
     {
-         icon_panel = "audio-volume-medium-panel";
          icon="audio-volume-medium";
-         icon_fallback=ICONS_VOLUME_MEDIUM;
     }
     else if (level > 0)
     {
-         icon_panel = "audio-volume-low-panel";
          icon="audio-volume-low";
-         icon_fallback=ICONS_VOLUME_LOW;
     }
 
-    vol->icon_panel = icon_panel;
     vol->icon = icon;
-    vol->icon_fallback= icon_fallback;
 }
 
-void image_set_from_file(LXPanel * p, GtkWidget * image, const char * file)
+void set_icon (LXPanel *p, GtkWidget *image, const char *icon, int size)
 {
-    GdkPixbuf * pixbuf = gdk_pixbuf_new_from_file_at_scale(file, panel_get_icon_size (p) - ICON_BUTTON_TRIM, panel_get_icon_size (p) - ICON_BUTTON_TRIM, TRUE, NULL);
-    if (pixbuf != NULL)
+    GdkPixbuf *pixbuf;
+    if (size == 0) size = panel_get_icon_size (p) - ICON_BUTTON_TRIM;
+    if (gtk_icon_theme_has_icon (panel_get_icon_theme (p), icon))
     {
-        gtk_image_set_from_pixbuf(GTK_IMAGE(image), pixbuf);
-        g_object_unref(pixbuf);
+        GtkIconInfo *info = gtk_icon_theme_lookup_icon (panel_get_icon_theme (p), icon, size, GTK_ICON_LOOKUP_FORCE_SIZE);
+        pixbuf = gtk_icon_info_load_icon (info, NULL);
+        gtk_icon_info_free (info);
+        if (pixbuf != NULL)
+        {
+            gtk_image_set_from_pixbuf (GTK_IMAGE (image), pixbuf);
+            g_object_unref (pixbuf);
+            return;
+        }
     }
-}
-
-gboolean image_set_icon_theme(LXPanel * p, GtkWidget * image, const gchar * icon)
-{
-    if (gtk_icon_theme_has_icon(panel_get_icon_theme (p), icon))
+    else
     {
-        GdkPixbuf * pixbuf = gtk_icon_theme_load_icon(panel_get_icon_theme (p), icon, panel_get_icon_size (p) - ICON_BUTTON_TRIM, 0, NULL);
-        gtk_image_set_from_pixbuf(GTK_IMAGE(image), pixbuf);
-        g_object_unref(pixbuf);
-        return TRUE;
+        char path[256];
+        sprintf (path, "%s/images/%s.png", PACKAGE_DATA_DIR, icon);
+        pixbuf = gdk_pixbuf_new_from_file_at_scale (path, size, size, TRUE, NULL);
+        if (pixbuf != NULL)
+        {
+            gtk_image_set_from_pixbuf (GTK_IMAGE (image), pixbuf);
+            g_object_unref (pixbuf);
+        }
     }
-    return FALSE;
 }
 
 /* Do a full redraw of the display. */
@@ -1339,13 +1328,7 @@ static void volumealsa_update_display(VolumeALSAPlugin * vol)
     volumealsa_update_current_icon(vol);
 
     /* Change icon, fallback to default icon if theme doesn't exsit */
-    if ( ! image_set_icon_theme(vol->panel, vol->tray_icon, vol->icon_panel))
-    {
-        if ( ! image_set_icon_theme(vol->panel, vol->tray_icon, vol->icon))
-        {
-            image_set_from_file(vol->panel, vol->tray_icon, vol->icon_fallback);
-        }
-    }
+    set_icon (vol->panel, vol->tray_icon, vol->icon, 0);
 
     g_signal_handler_block(vol->mute_check, vol->mute_check_handler);
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(vol->mute_check), mute);
@@ -1806,13 +1789,7 @@ static gboolean volumealsa_button_press_event(GtkWidget * widget, GdkEventButton
 
 static void volumealsa_theme_change(GtkWidget * widget, VolumeALSAPlugin * vol)
 {
-    if ( ! image_set_icon_theme(vol->panel, vol->tray_icon, vol->icon_panel))
-    {
-        if ( ! image_set_icon_theme(vol->panel, vol->tray_icon, vol->icon))
-        {
-            image_set_from_file(vol->panel, vol->tray_icon, vol->icon_fallback);
-        }
-    }
+    set_icon (vol->panel, vol->tray_icon, vol->icon, 0);
 }
 
 /* Handler for "value_changed" signal on popup window vertical scale. */
