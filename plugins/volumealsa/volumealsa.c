@@ -1613,13 +1613,10 @@ static gboolean volumealsa_button_press_event(GtkWidget * widget, GdkEventButton
         gint counter, devices;
         GList *iter, *mixers = gst_audio_default_registry_mixer_filter (_xfce_mixer_filter_mixer, FALSE, &counter);
         GtkWidget *image, *mi;
-        GdkPixbuf *pixbuf = NULL;
         gboolean ext_dev = FALSE, bt_dev = TRUE;
 
-        if (gtk_icon_theme_has_icon (panel_get_icon_theme (vol->panel), "dialog-ok-apply"))
-            pixbuf = gtk_icon_theme_load_icon (panel_get_icon_theme (vol->panel), "dialog-ok-apply", 16, 0, NULL);
-        if (pixbuf == NULL)
-            pixbuf = gdk_pixbuf_new_from_file_at_scale (ICONS_TICK, 16, 16, TRUE, NULL);
+        image = gtk_image_new ();
+        set_icon (vol->panel, image, "dialog-ok-apply", 16);
 
         vol->menu_popup = gtk_menu_new ();
 
@@ -1639,7 +1636,6 @@ static gboolean volumealsa_button_press_event(GtkWidget * widget, GdkEventButton
             mi = gtk_image_menu_item_new_with_label (_("Analog"));
             if (counter == 1)
             {
-                image = gtk_image_new_from_pixbuf(pixbuf);
                 gtk_image_menu_item_set_image (GTK_IMAGE_MENU_ITEM(mi), image);
             }
             gtk_widget_set_name (mi, "1");
@@ -1649,7 +1645,6 @@ static gboolean volumealsa_button_press_event(GtkWidget * widget, GdkEventButton
             mi = gtk_image_menu_item_new_with_label (_("HDMI"));
             if (counter == 2)
             {
-                image = gtk_image_new_from_pixbuf(pixbuf);
                 gtk_image_menu_item_set_image (GTK_IMAGE_MENU_ITEM(mi), image);
             }
             gtk_widget_set_name (mi, "2");
@@ -1699,7 +1694,6 @@ static gboolean volumealsa_button_press_event(GtkWidget * widget, GdkEventButton
                             {
                                 if (!strncmp (btdevice + (strlen (btdevice) - 17), devname + (strlen (devname) - 17), 17))
                                 {
-                                    image = gtk_image_new_from_pixbuf(pixbuf);
                                     gtk_image_menu_item_set_image (GTK_IMAGE_MENU_ITEM(mi), image);
                                 }
                             }
@@ -1737,7 +1731,6 @@ static gboolean volumealsa_button_press_event(GtkWidget * widget, GdkEventButton
 
                 if (vol->sink == -1 && xfce_mixer_is_default_card (iter->data))
                 {
-                    image = gtk_image_new_from_pixbuf(pixbuf);
                     gtk_image_menu_item_set_image (GTK_IMAGE_MENU_ITEM(mi), image);
                 }
                 gtk_widget_set_name (mi, xfce_mixer_get_card_id (iter->data));  // use the widget name to store the card id
@@ -1764,8 +1757,6 @@ static gboolean volumealsa_button_press_event(GtkWidget * widget, GdkEventButton
             gtk_widget_set_sensitive (GTK_WIDGET (mi), FALSE);
             gtk_menu_shell_append (GTK_MENU_SHELL(vol->menu_popup), mi);
         }
-
-        if (pixbuf != NULL) g_object_unref(pixbuf);
 
         // lock menu if a dialog is open
         if (vol->conn_dialog)
