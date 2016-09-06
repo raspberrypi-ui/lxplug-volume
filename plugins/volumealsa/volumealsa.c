@@ -1634,6 +1634,7 @@ static gboolean volumealsa_button_press_event(GtkWidget * widget, GdkEventButton
             }
 
             mi = gtk_image_menu_item_new_with_label (_("Analog"));
+            gtk_image_menu_item_set_always_show_image (GTK_IMAGE_MENU_ITEM (mi), TRUE);
             if (counter == 1)
             {
                 gtk_image_menu_item_set_image (GTK_IMAGE_MENU_ITEM(mi), image);
@@ -1643,6 +1644,7 @@ static gboolean volumealsa_button_press_event(GtkWidget * widget, GdkEventButton
             gtk_menu_shell_append (GTK_MENU_SHELL(vol->menu_popup), mi);
 
             mi = gtk_image_menu_item_new_with_label (_("HDMI"));
+            gtk_image_menu_item_set_always_show_image (GTK_IMAGE_MENU_ITEM (mi), TRUE);
             if (counter == 2)
             {
                 gtk_image_menu_item_set_image (GTK_IMAGE_MENU_ITEM(mi), image);
@@ -1688,6 +1690,7 @@ static gboolean volumealsa_button_press_event(GtkWidget * widget, GdkEventButton
                                 bt_dev = TRUE;
                             }
                             mi = gtk_image_menu_item_new_with_label (g_variant_get_string (name, NULL));
+                            gtk_image_menu_item_set_always_show_image (GTK_IMAGE_MENU_ITEM (mi), TRUE);
 
                             const char *devname = g_dbus_object_get_object_path (object);
                             if (btdevice)
@@ -1728,6 +1731,7 @@ static gboolean volumealsa_button_press_event(GtkWidget * widget, GdkEventButton
                 strcpy (namebuf, xfce_mixer_get_card_display_name (iter->data));
                 namebuf[strlen(namebuf) - 13] = 0;
                 mi = gtk_image_menu_item_new_with_label (namebuf);
+                gtk_image_menu_item_set_always_show_image (GTK_IMAGE_MENU_ITEM (mi), TRUE);
 
                 if (vol->sink == -1 && xfce_mixer_is_default_card (iter->data))
                 {
