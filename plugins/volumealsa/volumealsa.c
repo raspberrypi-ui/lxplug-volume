@@ -912,10 +912,10 @@ static void asound_get_default_card (char *id)
   int inchar, count;
   char *user_config_file = g_build_filename (g_get_home_dir (), "/.asoundrc", NULL);
   FILE *fp = fopen (user_config_file, "rb");
+  type[0] = 0;
+  cid[0] = 0;
   if (fp)
   {
-    type[0] = 0;
-    cid[0] = 0;
     count = 0;
     while ((inchar = fgetc (fp)) != EOF)
     {
