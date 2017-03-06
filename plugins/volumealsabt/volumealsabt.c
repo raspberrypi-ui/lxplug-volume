@@ -2146,7 +2146,7 @@ static gboolean volumealsa_control_msg (GtkWidget *plugin, const char *cmd)
    return FALSE;
 }
 
-FM_DEFINE_MODULE(lxpanel_gtk, volumealsa)
+FM_DEFINE_MODULE(lxpanel_gtk, volumealsabt)
 
 /* Plugin descriptor. */
 LXPanelPluginInit fm_module_init_lxpanel_gtk = {
