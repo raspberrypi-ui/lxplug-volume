@@ -1,0 +1,5 @@
+lxplug-volume (0.1) jessie; urgency=medium
+
+  * Initial release.
+
+ -- Simon Long <simon@raspberrypi.org>  Mon, 06 Mar 2017 10:25:54 +0000

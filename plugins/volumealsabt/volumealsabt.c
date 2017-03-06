@@ -1,3 +1,6 @@
+#ifdef HAVE_CONFIG_H
+#include <config.h>
+#endif
 /**
  * Copyright (c) 2008-2014 LxDE Developers, see the file AUTHORS for details.
  *
@@ -1944,6 +1947,13 @@ static GtkWidget *volumealsa_constructor(LXPanel *panel, config_setting_t *setti
     char buffer[128];
     FILE *fp;
 
+#ifdef ENABLE_NLS
+    setlocale (LC_ALL, "");
+    bindtextdomain ( GETTEXT_PACKAGE, PACKAGE_LOCALE_DIR );
+    bind_textdomain_codeset ( GETTEXT_PACKAGE, "UTF-8" );
+    textdomain ( GETTEXT_PACKAGE );
+#endif
+
     /* Initialise Gstreamer */
     gst_init (NULL, NULL);
 
@@ -2140,8 +2150,8 @@ FM_DEFINE_MODULE(lxpanel_gtk, volumealsa)
 
 /* Plugin descriptor. */
 LXPanelPluginInit fm_module_init_lxpanel_gtk = {
-    .name = N_("Volume Control (ALSA)"),
-    .description = N_("Display and control volume for ALSA"),
+    .name = N_("Volume Control (ALSA/BT)"),
+    .description = N_("Display and control volume for ALSA and Bluetooth devices"),
 
     .new_instance = volumealsa_constructor,
     .config = volumealsa_configure,
