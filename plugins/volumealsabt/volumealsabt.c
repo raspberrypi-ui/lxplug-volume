@@ -2101,49 +2101,55 @@ static void volumealsa_panel_configuration_changed(LXPanel *panel, GtkWidget *p)
 {
     VolumeALSAPlugin * vol = lxpanel_plugin_get_data(p);
 
-    // the pulseaudio server might have been killed under us...
-    if (!check_pulseaudio () && vol->sink != -1)
-    {
-        if (vol->sub_id) g_dbus_connection_signal_unsubscribe (vol->con, vol->sub_id);
-        vol->sub_id = 0;
-        system ("rm ~/.config/bt");
-        g_object_unref (vol->con);
-        vol->con = NULL;
-        vol->sink = -1;
-    }
-
-    asound_restart(vol);
     volumealsa_build_popup_window (vol->plugin);
     /* Do a full redraw. */
     volumealsa_update_display(vol);
     if (vol->show_popup) gtk_widget_show_all (vol->popup_window);
-
 }
 
 static gboolean volumealsa_control_msg (GtkWidget *plugin, const char *cmd)
 {
     VolumeALSAPlugin *vol = lxpanel_plugin_get_data (plugin);
 
-    if (!strcmp (cmd, "Start"))
+    if (!strncmp (cmd, "star", 4))
     {
         asound_initialize (vol);
         g_warning ("volumealsa: Restarted ALSA interface...");
         volumealsa_update_display (vol);
-        gtk_menu_popdown (GTK_MENU (vol->menu_popup));
+        if (vol->menu_popup) gtk_menu_popdown (GTK_MENU (vol->menu_popup));
         vol->stopped = FALSE;
         return TRUE;
     }
 
-    if (!strcmp (cmd, "Stop"))
+    if (!strncmp (cmd, "stop", 4))
     {
         asound_deinitialize (vol);
         g_warning ("volumealsa: Stopped ALSA interface...");
         volumealsa_update_display (vol);
-        gtk_menu_popdown (GTK_MENU (vol->menu_popup));
+        if (vol->menu_popup) gtk_menu_popdown (GTK_MENU (vol->menu_popup));
         vol->stopped = TRUE;
         return TRUE;
-   }
-   return FALSE;
+    }
+
+    if (!strncmp (cmd, "reco", 4))
+    {
+        if (!check_pulseaudio () && vol->sink != -1)
+        {
+            if (vol->sub_id) g_dbus_connection_signal_unsubscribe (vol->con, vol->sub_id);
+            vol->sub_id = 0;
+            system ("rm ~/.config/bt");
+            g_object_unref (vol->con);
+            vol->con = NULL;
+            vol->sink = -1;
+        }
+
+        asound_restart(vol);
+        volumealsa_build_popup_window (vol->plugin);
+        volumealsa_update_display(vol);
+        if (vol->show_popup) gtk_widget_show_all (vol->popup_window);
+        return TRUE;
+    }
+    return FALSE;
 }
 
 FM_DEFINE_MODULE(lxpanel_gtk, volumealsabt)
