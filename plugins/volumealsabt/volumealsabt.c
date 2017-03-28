@@ -19,9 +19,13 @@
  * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
+#define _ISOC99_SOURCE /* lrint() */
+#define _GNU_SOURCE /* exp10() */
+
 #include <gtk/gtk.h>
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
 #include <fcntl.h>
 #include <unistd.h>
 #include <glib.h>
@@ -47,6 +51,13 @@
 #else
 #define DEBUG
 #endif
+
+#ifdef __UCLIBC__
+/* 10^x = 10^(log e^x) = (e^x)^log10 = e^(x * log 10) */
+#define exp10(x) (exp((x) * log(10)))
+#endif /* __UCLIBC__ */
+
+#define MAX_LINEAR_DB_SCALE	24
 
 typedef enum {
     DEV_HID,
@@ -133,6 +144,11 @@ static void handle_close_connect_dialog (GtkButton *button, gpointer user_data);
 static gint delete_conn (GtkWidget *widget, GdkEvent *event, gpointer user_data);
 static void configure_pa (void);
 static DEVICE_TYPE check_uuids (VolumeALSAPlugin *vol, const gchar *path);
+
+static long lrint_dir(double x, int dir);
+static inline gboolean use_linear_dB_scale(long dBmin, long dBmax);
+static double get_normalized_volume(snd_mixer_elem_t *elem, snd_mixer_selem_channel_id_t channel);
+static int set_normalized_volume(snd_mixer_elem_t *elem, snd_mixer_selem_channel_id_t channel, double volume, int dir);
 
 /* Bluetooth via PulseAudio */
 
@@ -796,6 +812,89 @@ static DEVICE_TYPE check_uuids (VolumeALSAPlugin *vol, const gchar *path)
 
 /*** ALSA ***/
 
+static long lrint_dir(double x, int dir)
+{
+	if (dir > 0)
+		return lrint(ceil(x));
+	else if (dir < 0)
+		return lrint(floor(x));
+	else
+		return lrint(x);
+}
+
+static inline gboolean use_linear_dB_scale(long dBmin, long dBmax)
+{
+	return dBmax - dBmin <= MAX_LINEAR_DB_SCALE * 100;
+}
+
+static double get_normalized_volume(snd_mixer_elem_t *elem,
+				    snd_mixer_selem_channel_id_t channel)
+{
+	long min, max, value;
+	double normalized, min_norm;
+	int err;
+
+	err = snd_mixer_selem_get_playback_dB_range(elem, &min, &max);
+	if (err < 0 || min >= max) {
+		err = snd_mixer_selem_get_playback_volume_range(elem, &min, &max);
+		if (err < 0 || min == max)
+			return 0;
+
+		err = snd_mixer_selem_get_playback_volume(elem, channel, &value);
+		if (err < 0)
+			return 0;
+
+		return (value - min) / (double)(max - min);
+	}
+
+	err = snd_mixer_selem_get_playback_dB(elem, channel, &value);
+	if (err < 0)
+		return 0;
+
+	if (use_linear_dB_scale(min, max))
+		return (value - min) / (double)(max - min);
+
+	normalized = exp10((value - max) / 6000.0);
+	if (min != SND_CTL_TLV_DB_GAIN_MUTE) {
+		min_norm = exp10((min - max) / 6000.0);
+		normalized = (normalized - min_norm) / (1 - min_norm);
+	}
+
+	return normalized;
+}
+
+static int set_normalized_volume(snd_mixer_elem_t *elem,
+				 snd_mixer_selem_channel_id_t channel,
+				 double volume,
+				 int dir)
+{
+	long min, max, value;
+	double min_norm;
+	int err;
+
+	err = snd_mixer_selem_get_playback_dB_range(elem, &min, &max);
+	if (err < 0 || min >= max) {
+		err = snd_mixer_selem_get_playback_volume_range(elem, &min, &max);
+		if (err < 0)
+			return err;
+
+		value = lrint_dir(volume * (max - min), dir) + min;
+		return snd_mixer_selem_set_playback_volume(elem, channel, value);
+	}
+
+	if (use_linear_dB_scale(min, max)) {
+		value = lrint_dir(volume * (max - min), dir) + min;
+		return snd_mixer_selem_set_playback_dB(elem, channel, value, dir);
+	}
+
+	if (min != SND_CTL_TLV_DB_GAIN_MUTE) {
+		min_norm = exp10((min - max) / 6000.0);
+		volume = volume * (1 - min_norm) + min_norm;
+	}
+	value = lrint_dir(6000.0 * log10(volume), dir) + max;
+	return snd_mixer_selem_set_playback_dB(elem, channel, value, dir);
+}
+
 static gboolean asound_find_elements(VolumeALSAPlugin * vol)
 {
     const char *name;
@@ -1147,9 +1246,6 @@ static gboolean asound_initialize(VolumeALSAPlugin * vol)
         if (!asound_find_elements (vol)) return FALSE;
    }
 
-    /* Set the playback volume range as we wish it. */
-    snd_mixer_selem_set_playback_volume_range(vol->master_element, 0, 100);
-
     /* Listen to events from ALSA. */
     int n_fds = snd_mixer_poll_descriptors_count(vol->mixer);
     struct pollfd * fds = g_new0(struct pollfd, n_fds);
@@ -1219,24 +1315,27 @@ static gboolean asound_is_muted(VolumeALSAPlugin * vol)
  * This implementation returns the average of the Front Left and Front Right channels. */
 static int asound_get_volume(VolumeALSAPlugin * vol)
 {
-    long aleft = 0;
-    long aright = 0;
+    double aleft = 0;
+    double aright = 0;
     if (vol->master_element != NULL)
     {
-        snd_mixer_selem_get_playback_volume(vol->master_element, SND_MIXER_SCHN_FRONT_LEFT, &aleft);
-        snd_mixer_selem_get_playback_volume(vol->master_element, SND_MIXER_SCHN_FRONT_RIGHT, &aright);
+        aleft = get_normalized_volume(vol->master_element, SND_MIXER_SCHN_FRONT_LEFT);
+        aright = get_normalized_volume(vol->master_element, SND_MIXER_SCHN_FRONT_RIGHT);
     }
-    return (aleft + aright) >> 1;
+    return (int)round((aleft + aright) * 50);
 }
 
 /* Set the volume to the sound system.
  * This implementation sets the Front Left and Front Right channels to the specified value. */
 static void asound_set_volume(VolumeALSAPlugin * vol, int volume)
 {
+    int dir = volume - asound_get_volume(vol);
+    double vol_perc = (double)volume / 100;
+
     if (vol->master_element != NULL)
     {
-        snd_mixer_selem_set_playback_volume(vol->master_element, SND_MIXER_SCHN_FRONT_LEFT, volume);
-        snd_mixer_selem_set_playback_volume(vol->master_element, SND_MIXER_SCHN_FRONT_RIGHT, volume);
+        set_normalized_volume(vol->master_element, SND_MIXER_SCHN_FRONT_LEFT, vol_perc, dir);
+        set_normalized_volume(vol->master_element, SND_MIXER_SCHN_FRONT_RIGHT, vol_perc, dir);
     }
 }
 
@@ -1265,11 +1364,11 @@ static void volumealsa_update_current_icon(VolumeALSAPlugin * vol)
     {
          icon="audio-volume-muted";
     }
-    else if (level >= 75)
+    else if (level >= 66)
     {
          icon="audio-volume-high";
     }
-    else if (level >= 50)
+    else if (level >= 33)
     {
          icon="audio-volume-medium";
     }
