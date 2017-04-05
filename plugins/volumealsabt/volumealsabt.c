@@ -1786,7 +1786,6 @@ static void volumealsa_panel_configuration_changed(LXPanel *panel, GtkWidget *p)
 {
     VolumeALSAPlugin * vol = lxpanel_plugin_get_data(p);
 
-    asound_restart(vol);
     volumealsa_build_popup_window (vol->plugin);
     /* Do a full redraw. */
     volumealsa_update_display(vol);
@@ -1819,7 +1818,7 @@ static gboolean volumealsa_control_msg (GtkWidget *plugin, const char *cmd)
 
     if (!strncmp (cmd, "reco", 4))
     {
-        asound_restart(vol); //?????
+        asound_restart(vol);
         volumealsa_build_popup_window (vol->plugin);
         volumealsa_update_display(vol);
         if (vol->show_popup) gtk_widget_show_all (vol->popup_window);
