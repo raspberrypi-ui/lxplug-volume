@@ -155,30 +155,52 @@ static void set_bt_alsa_device (VolumeALSAPlugin *vol, char *devname)
     g_free (user_config_file);
 }
 
-static int get_bt_device_id (char *id, int size)
+static int get_bt_device_id (char *id)
 {
-    // TIDY ME UP - I'M A HACK!!!!
+    char *user_config_file, *ptr, buffer[64];
     FILE *fp;
-    int len;
+    int count;
 
-    id[0] = 0;
+    user_config_file = g_build_filename (g_get_home_dir (), "/.asoundrc", NULL);
+    fp = fopen (user_config_file, "rb");
+    g_free (user_config_file);
 
-    fp = popen ("grep -o 'device \\\"[^\\\"]*\\\"' ~/.asoundrc | cut -d '\"' -f 2 | tr : _", "r");
-    fgets (id, size - 1, fp);
-    pclose (fp);
+    if (!fp) return 0;
 
-    if (len = strlen (id))
+    while (fgets (buffer, sizeof (buffer), fp))
     {
-        id[len - 1] = 0;
-        return 1;
+        ptr = strstr (buffer, "device");
+        if (ptr)
+        {
+            // find the opening quote
+            while (*ptr && *ptr != '"') ptr++;
+            if (*ptr == '"')
+            {
+                // there should be another quote at the end, 18 chars later
+                if (*(ptr + 18) == '"')
+                {
+                    // replace : with _
+                    for (count = 1; count < 6; count++) *(ptr + (count * 3)) = '_';
+
+                    // copy and terminate
+                    strncpy (id, ptr + 1, 17);
+                    id[17] = 0;
+
+                    fclose (fp);
+                    return 1;
+                }
+            }
+        }
     }
-    else return 0;
+
+    fclose (fp);
+    return 0;
 }
 
 static void cb_name_owned (GDBusConnection *connection, const gchar *name, const gchar *owner, gpointer user_data)
 {
     VolumeALSAPlugin *vol = (VolumeALSAPlugin *) user_data;
-    char buffer[64];
+    char device[20];
     FILE *fp;
     DEBUG ("Name %s owned on DBus", name);
 
@@ -193,11 +215,11 @@ static void cb_name_owned (GDBusConnection *connection, const gchar *name, const
     }
 
     /* Check whether a Bluetooth audio device is the current default - connect to it if it is */
-    if (get_bt_device_id (buffer, 64))
+    if (get_bt_device_id (device))
     {
         /* Reconnect the current Bluetooth audio device */
         if (vol->bt_conname) g_free (vol->bt_conname);
-        vol->bt_conname = g_strdup_printf ("/org/bluez/hci0/dev_%s", buffer);
+        vol->bt_conname = g_strdup_printf ("/org/bluez/hci0/dev_%s", device);
 
         DEBUG ("Connecting to %s...", vol->bt_conname);
         connect_device (vol);
@@ -291,9 +313,9 @@ static void disconnect_device (VolumeALSAPlugin *vol)
     // get the name of the device with the current sink number
     GError *error = NULL;
     GVariant *var;
-    char buffer[64], device[64];
+    char buffer[64], device[20];
 
-    if (get_bt_device_id (device, 64))
+    if (get_bt_device_id (device))
     {
         sprintf (buffer, "/org/bluez/hci0/dev_%s", device);
         DEBUG ("Device to disconnect = %s", buffer);
@@ -1365,8 +1387,8 @@ static gboolean volumealsa_button_press_event(GtkWidget * widget, GdkEventButton
         // add Bluetooth devices...
         if (vol->objmanager)
         {
-            char btdevice[256];
-            get_bt_device_id (btdevice, 256);
+            char device[20];
+            int btd = get_bt_device_id (device);
             // iterate all the objects the manager knows about
             GList *objects = g_dbus_object_manager_get_objects (vol->objmanager);
             while (objects != NULL)
@@ -1396,9 +1418,9 @@ static gboolean volumealsa_button_press_event(GtkWidget * widget, GdkEventButton
                             gtk_image_menu_item_set_always_show_image (GTK_IMAGE_MENU_ITEM (mi), TRUE);
 
                             const char *devname = g_dbus_object_get_object_path (object);
-                            if (btdevice[0])
+                            if (btd)
                             {
-                                if (!strncasecmp (btdevice + (strlen (btdevice) - 17), devname + (strlen (devname) - 17), 17))
+                                if (!strncasecmp (device, devname + (strlen (devname) - 17), 17))
                                 {
                                     gtk_image_menu_item_set_image (GTK_IMAGE_MENU_ITEM(mi), image);
                                 }
