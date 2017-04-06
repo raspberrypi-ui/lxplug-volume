@@ -117,7 +117,8 @@ static GtkWidget *volumealsa_configure(LXPanel *panel, GtkWidget *p);
 static gboolean _xfce_mixer_filter_mixer (GstMixer *mixer, gpointer user_data);
 static void _xfce_mixer_destroy_mixer (GstMixer *mixer);
 
-
+static void set_bt_device (char *devname);
+static int get_bt_device_id (char *id);
 static void cb_name_owned (GDBusConnection *connection, const gchar *name, const gchar *owner, gpointer user_data);
 static void cb_name_unowned (GDBusConnection *connection, const gchar *name, gpointer user_data);
 static void connect_device (VolumeALSAPlugin *vol);
@@ -138,21 +139,27 @@ static int set_normalized_volume(snd_mixer_elem_t *elem, snd_mixer_selem_channel
 
 /* Bluetooth */
 
-static void set_bt_alsa_device (VolumeALSAPlugin *vol, char *devname)
+static void set_bt_device (char *devname)
 {
-    // TIDY ME UP - I'M A HACK!!!!
-    char *user_config_file = g_build_filename (g_get_home_dir (), "/.asoundrc", NULL);
+    char *user_config_file;
+    FILE *fp;
     int b1, b2, b3, b4, b5, b6;
 
-    sscanf (devname, "/org/bluez/hci0/dev_%x_%x_%x_%x_%x_%x", &b1, &b2, &b3, &b4, &b5, &b6);
+    if (sscanf (devname, "/org/bluez/hci0/dev_%x_%x_%x_%x_%x_%x", &b1, &b2, &b3, &b4, &b5, &b6) != 6)
+    {
+        DEBUG ("Failed to set device - name %s invalid", devname);
+        return;
+    }
 
-    FILE *fp = fopen (user_config_file, "wb");
+    user_config_file= g_build_filename (g_get_home_dir (), "/.asoundrc", NULL);
+    fp = fopen (user_config_file, "wb");
+    g_free (user_config_file);
+
     if (fp)
     {
         fprintf (fp, "pcm.!default {\n\ttype plug\n\tslave.pcm {\n\t\ttype bluealsa\n\t\tdevice \"%02X:%02X:%02X:%02X:%02X:%02X\"\n\t\tprofile \"a2dp\"\n\t}\n}\n\nctl.!default {\n\ttype bluealsa\n}\n", b1, b2, b3, b4, b5, b6);
         fclose (fp);
     }
-    g_free (user_config_file);
 }
 
 static int get_bt_device_id (char *id)
@@ -275,7 +282,7 @@ static void cb_connected (GObject *source, GAsyncResult *res, gpointer user_data
         DEBUG ("Connected OK");
 
         // update the globals with connection details
-        set_bt_alsa_device (vol, vol->bt_conname);
+        set_bt_device (vol->bt_conname);
 
         // reinit alsa to configure mixer
         asound_initialize (vol);
