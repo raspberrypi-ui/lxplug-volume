@@ -1271,7 +1271,6 @@ static gboolean validate_devices (VolumeALSAPlugin *vol)
     GList *iter, *mixers = gst_audio_default_registry_mixer_filter (_xfce_mixer_filter_mixer, FALSE, &counter);
 
     /* Get the current setting - find cards, and which one is default */
-    gboolean def_good = FALSE;
     for (iter = mixers; iter != NULL; iter = g_list_next (iter))
     {
         if (xfce_mixer_is_default_card (iter->data))
@@ -1475,7 +1474,6 @@ static gboolean volumealsa_button_press_event(GtkWidget * widget, GdkEventButton
                 mi = gtk_image_menu_item_new_with_label (namebuf);
                 gtk_image_menu_item_set_always_show_image (GTK_IMAGE_MENU_ITEM (mi), TRUE);
 
-                //if (vol->sink == -1 && xfce_mixer_is_default_card (iter->data))
                 if (xfce_mixer_is_default_card (iter->data))
                 {
                     gtk_image_menu_item_set_image (GTK_IMAGE_MENU_ITEM(mi), image);
@@ -1637,12 +1635,15 @@ static void volumealsa_build_popup_window(GtkWidget *p)
     gtk_widget_set_can_focus (vol->mute_check, FALSE);
 
     /* Lock the controls if there is nothing to control... */
-    //if (vol->sink == -1)
-    //{
-        gint counter = 0;
-        GList *iter, *mixers = gst_audio_default_registry_mixer_filter (_xfce_mixer_filter_mixer, FALSE, &counter);
+    gint counter = 0;
+    gboolean def_good = FALSE;
+    char device[32];
 
-        gboolean def_good = FALSE;
+    asound_get_default_card (device);
+    if (!g_strcmp0 (device, "bluealsa")) def_good = TRUE;
+    else
+    {
+        GList *iter, *mixers = gst_audio_default_registry_mixer_filter (_xfce_mixer_filter_mixer, FALSE, &counter);
         for (iter = mixers; iter != NULL; iter = g_list_next (iter))
         {
             if (xfce_mixer_is_default_card (iter->data))
@@ -1651,13 +1652,13 @@ static void volumealsa_build_popup_window(GtkWidget *p)
                 break;
             }
         }
-        if (!def_good)
-        {
-            //gtk_widget_set_sensitive (vol->volume_scale, FALSE);
-            //gtk_widget_set_sensitive (vol->mute_check, FALSE);
-        }
-        if (mixers) g_list_free_full (mixers, (GDestroyNotify) _xfce_mixer_destroy_mixer);
-    //}
+		if (mixers) g_list_free_full (mixers, (GDestroyNotify) _xfce_mixer_destroy_mixer);
+    }
+    if (!def_good)
+    {
+        gtk_widget_set_sensitive (vol->volume_scale, FALSE);
+        gtk_widget_set_sensitive (vol->mute_check, FALSE);
+    }
 
     /* Set background to default. */
     //gtk_widget_set_style(viewport, panel_get_defstyle(vol->panel));
