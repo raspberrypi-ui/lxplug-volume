@@ -47,7 +47,7 @@
 
 #define DEBUG_ON
 #ifdef DEBUG_ON
-//#define DEBUG(fmt,args...) {FILE *flp = fopen ("/home/pi/vlog.txt", "ab+"); fprintf (flp, fmt,##args); fclose (flp);}
+//#define DEBUG(fmt,args...) {FILE *flp = fopen ("/home/pi/vlog.txt", "ab+"); fprintf (flp, fmt,##args); fprintf (flp, "\n"); fclose (flp);}
 #define DEBUG(fmt,args...) g_message("va: " fmt,##args)
 #else
 #define DEBUG
@@ -136,6 +136,10 @@ static long lrint_dir(double x, int dir);
 static inline gboolean use_linear_dB_scale(long dBmin, long dBmax);
 static double get_normalized_volume(snd_mixer_elem_t *elem, snd_mixer_selem_channel_id_t channel);
 static int set_normalized_volume(snd_mixer_elem_t *elem, snd_mixer_selem_channel_id_t channel, double volume, int dir);
+
+static gboolean asound_initialize(VolumeALSAPlugin * vol);
+static void asound_get_default_card (char *id);
+static void asound_find_valid_device (void);
 
 /* Bluetooth */
 
@@ -276,6 +280,10 @@ static void cb_connected (GObject *source, GAsyncResult *res, gpointer user_data
 
         // update dialog to show a warning
         if (vol->conn_dialog) show_connect_dialog (vol, TRUE, error->message);
+
+        // call initialize to fall back to a non-BT device here if on initial startup
+        asound_get_default_card (buffer);
+        if (!strcmp (buffer, "bluealsa")) asound_initialize (vol);
     }
     else
     {
@@ -919,7 +927,6 @@ static void asound_deinitialize(VolumeALSAPlugin * vol)
         g_source_remove(vol->mixer_evt_idle);
         vol->mixer_evt_idle = 0;
     }
-
     for (i = 0; i < vol->num_channels; i++) {
         g_source_remove(vol->watches[i]);
         g_io_channel_shutdown(vol->channels[i], FALSE, NULL);
@@ -931,10 +938,13 @@ static void asound_deinitialize(VolumeALSAPlugin * vol)
     vol->watches = NULL;
     vol->num_channels = 0;
 
-    char device[32];
-    asound_get_default_card (device);
-    if (device) snd_mixer_detach (vol->mixer, device);
-    snd_mixer_close(vol->mixer);
+	if (vol->mixer)
+	{
+		char device[32];
+		asound_get_default_card (device);
+		if (*device) snd_mixer_detach (vol->mixer, device);
+		snd_mixer_close(vol->mixer);
+	}
     vol->master_element = NULL;
     vol->mixer = NULL;
 }
