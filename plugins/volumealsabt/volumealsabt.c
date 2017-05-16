@@ -208,6 +208,18 @@ static int get_bt_device_id (char *id)
     return 0;
 }
 
+static void cb_object_removed (GDBusObjectManager *manager, GDBusObject *object, gpointer user_data)
+{
+    VolumeALSAPlugin *vol = (VolumeALSAPlugin *) user_data;
+    char device[20];
+    char *obj = g_dbus_object_get_object_path (object);
+    if (get_bt_device_id (device) && strstr (obj, device))
+    {
+        DEBUG ("Selected Bluetooth audio device has disconnected");
+        asound_initialize (vol);
+    }
+}
+
 static void cb_name_owned (GDBusConnection *connection, const gchar *name, const gchar *owner, gpointer user_data)
 {
     VolumeALSAPlugin *vol = (VolumeALSAPlugin *) user_data;
@@ -223,6 +235,11 @@ static void cb_name_owned (GDBusConnection *connection, const gchar *name, const
         DEBUG ("Error getting object manager - %s", error->message);
         vol->objmanager = NULL;
         g_error_free (error);
+    }
+    else
+    {
+        /* register a callback for devices being removed */
+        g_signal_connect (vol->objmanager, "object-removed", G_CALLBACK (cb_object_removed), vol);
     }
 
     /* Check whether a Bluetooth audio device is the current default - connect to it if it is */
