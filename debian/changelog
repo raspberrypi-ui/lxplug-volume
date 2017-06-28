@@ -1,3 +1,9 @@
+lxplug-volume (0.3) stretch; urgency=medium
+
+  * Add bluealsa as dependency instead of pulseaudio.
+
+ -- Simon Long <simon@raspberrypi.org>  Wed, 28 Jun 2017 12:34:12 +0100
+
 lxplug-volume (0.2) stretch; urgency=medium
 
   * Use bluealsa instead of pulseaudio.

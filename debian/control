@@ -13,6 +13,6 @@ Package: lxplug-volume
 Architecture: any
 Depends: ${misc:Depends}, ${shlibs:Depends}, lxmenu-data,
  lxpanel, lxpanel-data, libfm-modules, gstreamer0.10-alsa
-Recommends: pulseaudio-module-bluetooth, pi-bluetooth
+Recommends: bluealsa, pi-bluetooth
 Description: Volume plugin for lxpanel
  Plugin for lxpanel to control volume for ALSA and Bluetooth devices for Raspberry Pi.
