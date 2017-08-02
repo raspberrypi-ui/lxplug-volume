@@ -35,10 +35,6 @@
 #include <poll.h>
 #include <libfm/fm-gtk.h>
 
-#include <gst/gst.h>
-#include <gst/audio/mixerutils.h>
-#include <gst/interfaces/mixer.h>
-
 #include "plugin.h"
 
 #define ICONS_TICK          PACKAGE_DATA_DIR "/images/dialog-ok-apply.png"
@@ -108,14 +104,10 @@ static void asound_deinitialize(VolumeALSAPlugin * vol);
 static void volumealsa_update_display(VolumeALSAPlugin * vol);
 static void volumealsa_destructor(gpointer user_data);
 static void volumealsa_build_popup_window(GtkWidget *p);
-static guint xfce_mixer_is_default_card (GstElement *card);
-static const gchar *xfce_mixer_get_card_display_name (GstElement *card);
-static const gchar *xfce_mixer_get_card_id (GstElement *card);
-static gboolean xfce_mixer_is_bcm_device (GstElement *card);
-static gboolean xfce_mixer_get_bcm_device_id (gchar *id);
+static gboolean volumealsa_is_default_card (char *card_id);
+static gboolean volumealsa_is_bcm_device (const char *card_name);
+static gboolean volumealsa_get_bcm_device_id (gchar *id);
 static GtkWidget *volumealsa_configure(LXPanel *panel, GtkWidget *p);
-static gboolean _xfce_mixer_filter_mixer (GstMixer *mixer, gpointer user_data);
-static void _xfce_mixer_destroy_mixer (GstMixer *mixer);
 
 static void set_bt_device (char *devname);
 static int get_bt_device_id (char *id);
@@ -824,7 +816,7 @@ static void asound_set_default_card (const char *id)
 static gboolean asound_set_bcm_card (void)
 {
     char bcmdev[64];
-    if (xfce_mixer_get_bcm_device_id (bcmdev))
+    if (volumealsa_get_bcm_device_id (bcmdev))
     {
         asound_set_default_card (bcmdev);
         return TRUE;
@@ -859,22 +851,22 @@ static void asound_find_valid_device (void)
     g_warning ("volumealsa: Default ALSA device not valid - resetting to internal");
     if (!asound_set_bcm_card ())
     {
-        GList *mixers;
-        gint counter = 0;
+        int num;
+        snd_ctl_t *ctl;
+        snd_ctl_card_info_t *info;
+        char buf[16];
 
         g_warning ("volumealsa: Internal device not available - looking for first valid ALSA device...");
-        mixers = gst_audio_default_registry_mixer_filter (_xfce_mixer_filter_mixer, FALSE, &counter);
-        if (mixers)
+        snd_ctl_card_info_alloca (&info);
+        num = -1;
+        while (1)
         {
-            const char *card = xfce_mixer_get_card_id (mixers->data);
-            if (card)
-            {
-                g_warning ("volumealsa: Valid ALSA device %s found", card);
-                asound_set_default_card (card);
-                g_list_free_full (mixers, (GDestroyNotify) _xfce_mixer_destroy_mixer);
-                return;
-            }
-            g_list_free_full (mixers, (GDestroyNotify) _xfce_mixer_destroy_mixer);
+            snd_card_next (&num);
+            if (num == -1) break;
+
+            g_warning ("volumealsa: Valid ALSA device %s found", buf);
+            asound_set_default_card (buf);
+            return;
         }
         g_warning ("volumealsa: No ALSA devices found");
     }
@@ -955,13 +947,13 @@ static void asound_deinitialize(VolumeALSAPlugin * vol)
     vol->watches = NULL;
     vol->num_channels = 0;
 
-	if (vol->mixer)
-	{
-		char device[32];
-		asound_get_default_card (device);
-		if (*device) snd_mixer_detach (vol->mixer, device);
-		snd_mixer_close(vol->mixer);
-	}
+    if (vol->mixer)
+    {
+        char device[32];
+        asound_get_default_card (device);
+        if (*device) snd_mixer_detach (vol->mixer, device);
+        snd_mixer_close(vol->mixer);
+    }
     vol->master_element = NULL;
     vol->mixer = NULL;
 }
@@ -1108,115 +1100,46 @@ static void volumealsa_update_display(VolumeALSAPlugin * vol)
     g_free(tooltip);
 }
 
-/*** Gstreamer access functions copied from xfce_mixer ***/
+/* ALSA device ID helper functions */
 
-static void
-_xfce_mixer_destroy_mixer (GstMixer *mixer)
+static gboolean volumealsa_is_default_card (char *card_id)
 {
-  gst_element_set_state (GST_ELEMENT (mixer), GST_STATE_NULL);
-  gst_object_unref (GST_OBJECT (mixer));
-}
-
-static gboolean
-_xfce_mixer_filter_mixer (GstMixer *mixer,
-                          gpointer  user_data)
-{
-  GstElementFactory *factory;
-  const gchar       *long_name;
-  gchar             *device_name = NULL;
-  gchar             *internal_name;
-  gchar             *name;
-  gchar             *p;
-  gint               length;
-  gint              *counter = user_data;
-  gchar *device;
-
-  /* Get long name of the mixer element */
-  factory = gst_element_get_factory (GST_ELEMENT (mixer));
-  long_name = gst_element_factory_get_longname (factory);
-
-  /* Get the device name of the mixer element */
-  if (g_object_class_find_property (G_OBJECT_GET_CLASS (G_OBJECT (mixer)), "device-name"))
-    g_object_get (mixer, "device-name", &device_name, NULL);
-
-  if (g_object_class_find_property (G_OBJECT_GET_CLASS (G_OBJECT (mixer)), "device"))
-    g_object_get (mixer, "device", &device, NULL);
-
-  /* Fall back to default name if neccessary */
-  if (G_UNLIKELY (device_name == NULL))
-    device_name = g_strdup_printf (_("Unknown Volume Control %d"), (*counter)++);
-
-  /* Build display name */
-  name = g_strdup_printf ("%s (%s)", device_name, long_name);
-
-  /* Free device name */
-  g_free (device_name);
-
-  /* Set name to be used by xfce4-mixer */
-  g_object_set_data_full (G_OBJECT (mixer), "xfce-mixer-name", name, (GDestroyNotify) g_free);
-  g_object_set_data_full (G_OBJECT (mixer), "xfce-mixer-id", device, (GDestroyNotify) g_free);
-
-  /* Count alpha-numeric characters in the name */
-  for (length = 0, p = name; *p != '\0'; ++p)
-    if (g_ascii_isalnum (*p))
-      ++length;
-
-  /* Generate internal name */
-  internal_name = g_new0 (gchar, length+1);
-  for (length = 0, p = name; *p != '\0'; ++p)
-    if (g_ascii_isalnum (*p))
-      internal_name[length++] = *p;
-  internal_name[length] = '\0';
-
-  /* Remember name for use by xfce4-mixer */
-  g_object_set_data_full (G_OBJECT (mixer), "xfce-mixer-internal-name", internal_name, (GDestroyNotify) g_free);
-  /* Keep the mixer (we want all devices to be visible) */
-  return TRUE;
-}
-
-static const gchar *xfce_mixer_get_card_id (GstElement *card)
-{
-  g_return_val_if_fail (GST_IS_MIXER (card), NULL);
-  return g_object_get_data (G_OBJECT (card), "xfce-mixer-id");
-}
-
-static guint xfce_mixer_is_default_card (GstElement *card)
-{
-  g_return_val_if_fail (GST_IS_MIXER (card), NULL);
-
   char cid[16];
   asound_get_default_card (cid);
-  if (!strcmp (cid, xfce_mixer_get_card_id (card))) return 1;
-  return 0;
-}
-
-static const gchar *xfce_mixer_get_card_display_name (GstElement *card)
-{
-  g_return_val_if_fail (GST_IS_MIXER (card), NULL);
-  return g_object_get_data (G_OBJECT (card), "xfce-mixer-name");
-}
-
-static gboolean xfce_mixer_is_bcm_device (GstElement *card)
-{
-  g_return_val_if_fail (GST_IS_MIXER (card), FALSE);
-  if (strncmp (xfce_mixer_get_card_display_name (card), "bcm2835", 7) == 0) return TRUE;
+  if (!strcmp (cid, card_id)) return TRUE;
   return FALSE;
 }
 
-static gboolean xfce_mixer_get_bcm_device_id (gchar *id)
+static gboolean volumealsa_is_bcm_device (const char *card_name)
 {
-    gint counter = 0;
-    GList *iter, *mixers = gst_audio_default_registry_mixer_filter (_xfce_mixer_filter_mixer, FALSE, &counter);
-    for (iter = mixers; iter != NULL; iter = g_list_next (iter))
+  if (strncmp (card_name, "bcm2835", 7) == 0) return TRUE;
+  return FALSE;
+}
+
+static gboolean volumealsa_get_bcm_device_id (gchar *id)
+{
+    int num;
+    snd_ctl_t *ctl;
+    snd_ctl_card_info_t *info;
+    char buf[16];
+
+    snd_ctl_card_info_alloca (&info);
+    num = -1;
+    while (1)
     {
-        if (xfce_mixer_is_bcm_device (iter->data))
+        snd_card_next (&num);
+        if (num == -1) break;
+
+        sprintf (buf, "hw:%d", num);
+        snd_ctl_open (&ctl, buf, 0);
+        snd_ctl_card_info (ctl, info);
+        snd_ctl_close (ctl);
+        if (volumealsa_is_bcm_device (snd_ctl_card_info_get_name (info)))
         {
-            if (id) strcpy (id, xfce_mixer_get_card_id (iter->data));
-            g_list_free_full (mixers, (GDestroyNotify) _xfce_mixer_destroy_mixer);
+            if (id) strcpy (id, buf);
             return TRUE;
         }
     }
-    if (mixers) g_list_free_full (mixers, (GDestroyNotify) _xfce_mixer_destroy_mixer);
     return FALSE;
 }
 
@@ -1259,7 +1182,7 @@ static void set_bcm_output (GtkWidget * widget, VolumeALSAPlugin *vol)
 
     /* check that the BCM device is default... */
     asound_get_default_card (cmdbuf);
-    if (cmdbuf && xfce_mixer_get_bcm_device_id (bcmdev) && strcmp (cmdbuf, bcmdev))
+    if (cmdbuf && volumealsa_get_bcm_device_id (bcmdev) && strcmp (cmdbuf, bcmdev))
     {
         /* ... and set it to default if not */
         asound_set_default_card (bcmdev);
@@ -1280,6 +1203,7 @@ static void set_bcm_output (GtkWidget * widget, VolumeALSAPlugin *vol)
     send_message ();
 }
 
+#if 0
 static gboolean validate_devices (VolumeALSAPlugin *vol)
 {
     char device[32];
@@ -1308,6 +1232,7 @@ static gboolean validate_devices (VolumeALSAPlugin *vol)
     if (mixers) g_list_free_full (mixers, (GDestroyNotify) _xfce_mixer_destroy_mixer);
     return FALSE;
 }
+#endif
 
 static void open_config_dialog (GtkWidget * widget, VolumeALSAPlugin * vol)
 {
@@ -1369,32 +1294,47 @@ static gboolean volumealsa_button_press_event(GtkWidget * widget, GdkEventButton
     }
     else if (event->button == 3)
     {
-        gint counter, devices;
-        GList *iter, *mixers = gst_audio_default_registry_mixer_filter (_xfce_mixer_filter_mixer, FALSE, &counter);
+        gint bcm, devices;
         GtkWidget *image, *mi;
         gboolean ext_dev = FALSE, bt_dev = TRUE;
+        int num;
+        snd_ctl_t *ctl;
+        snd_ctl_card_info_t *info;
+        char buf[16];
+        const char *card_name;
+
+        snd_ctl_card_info_alloca (&info);
 
         image = gtk_image_new ();
         set_icon (vol->panel, image, "dialog-ok-apply", 16);
 
         vol->menu_popup = gtk_menu_new ();
 
-        if (xfce_mixer_get_bcm_device_id (NULL))
+        if (volumealsa_get_bcm_device_id (NULL))
         {
             /* if the onboard card is default, find currently-set output */
-            counter = -1;
-            for (iter = mixers; iter != NULL; iter = g_list_next (iter))
+            bcm = 0;
+            num = -1;
+            while (1)
             {
-                if (xfce_mixer_is_default_card (iter->data) && xfce_mixer_is_bcm_device (iter->data))
+                snd_card_next (&num);
+                if (num == -1) break;
+
+                sprintf (buf, "hw:%d", num);
+                snd_ctl_open (&ctl, buf, 0);
+                snd_ctl_card_info (ctl, info);
+                snd_ctl_close (ctl);
+                card_name = snd_ctl_card_info_get_name (info);
+                if (volumealsa_is_default_card (buf) && volumealsa_is_bcm_device (card_name))
                 {
-                    counter = asound_get_bcm_output ();
+                    bcm = asound_get_bcm_output ();
                     break;
                 }
             }
 
             mi = gtk_image_menu_item_new_with_label (_("Analog"));
             gtk_image_menu_item_set_always_show_image (GTK_IMAGE_MENU_ITEM (mi), TRUE);
-            if (counter == 1)
+            if (bcm == 1)
             {
                 gtk_image_menu_item_set_image (GTK_IMAGE_MENU_ITEM(mi), image);
             }
@@ -1404,7 +1344,7 @@ static gboolean volumealsa_button_press_event(GtkWidget * widget, GdkEventButton
 
             mi = gtk_image_menu_item_new_with_label (_("HDMI"));
             gtk_image_menu_item_set_always_show_image (GTK_IMAGE_MENU_ITEM (mi), TRUE);
-            if (counter == 2)
+            if (bcm == 2)
             {
                 gtk_image_menu_item_set_image (GTK_IMAGE_MENU_ITEM(mi), image);
             }
@@ -1475,9 +1415,18 @@ static gboolean volumealsa_button_press_event(GtkWidget * widget, GdkEventButton
         }
 
         // add external devices...
-        for (iter = mixers; iter != NULL; iter = g_list_next (iter))
+        num = -1;
+        while (1)
         {
-            if (!xfce_mixer_is_bcm_device (iter->data))
+            snd_card_next (&num);
+            if (num == -1) break;
+
+            sprintf (buf, "hw:%d", num);
+            snd_ctl_open (&ctl, buf, 0);
+            snd_ctl_card_info (ctl, info);
+            snd_ctl_close (ctl);
+            card_name = snd_ctl_card_info_get_name (info);
+            if (!volumealsa_is_bcm_device (card_name))
             {
                 if (!ext_dev && devices)
                 {
@@ -1485,17 +1434,11 @@ static gboolean volumealsa_button_press_event(GtkWidget * widget, GdkEventButton
                     gtk_menu_shell_append (GTK_MENU_SHELL(vol->menu_popup), mi);
                 }
 
-                char namebuf[128];
-                strcpy (namebuf, xfce_mixer_get_card_display_name (iter->data));
-                namebuf[strlen(namebuf) - 13] = 0;
-                mi = gtk_image_menu_item_new_with_label (namebuf);
+                mi = gtk_image_menu_item_new_with_label (card_name);
                 gtk_image_menu_item_set_always_show_image (GTK_IMAGE_MENU_ITEM (mi), TRUE);
 
-                if (xfce_mixer_is_default_card (iter->data))
-                {
-                    gtk_image_menu_item_set_image (GTK_IMAGE_MENU_ITEM(mi), image);
-                }
-                gtk_widget_set_name (mi, xfce_mixer_get_card_id (iter->data));  // use the widget name to store the card id
+                if (volumealsa_is_default_card (buf)) gtk_image_menu_item_set_image (GTK_IMAGE_MENU_ITEM(mi), image);
+                gtk_widget_set_name (mi, buf);  // use the widget name to store the card id
                 g_signal_connect (mi, "activate", G_CALLBACK (set_default_card_event), (gpointer) vol);
                 gtk_menu_shell_append (GTK_MENU_SHELL(vol->menu_popup), mi);
                 ext_dev = TRUE;
@@ -1535,7 +1478,7 @@ static gboolean volumealsa_button_press_event(GtkWidget * widget, GdkEventButton
         gtk_widget_show_all (vol->menu_popup);
         gtk_menu_popup (GTK_MENU(vol->menu_popup), NULL, NULL, (GtkMenuPositionFunc) volumealsa_popup_set_position, (gpointer) vol,
             event->button, event->time);
-        if (mixers) g_list_free_full (mixers, (GDestroyNotify) _xfce_mixer_destroy_mixer);
+        //if (mixers) g_list_free_full (mixers, (GDestroyNotify) _xfce_mixer_destroy_mixer);
     }
     return TRUE;
 }
@@ -1652,7 +1595,6 @@ static void volumealsa_build_popup_window(GtkWidget *p)
     gtk_widget_set_can_focus (vol->mute_check, FALSE);
 
     /* Lock the controls if there is nothing to control... */
-    gint counter = 0;
     gboolean def_good = FALSE;
     char device[32];
 
@@ -1660,16 +1602,24 @@ static void volumealsa_build_popup_window(GtkWidget *p)
     if (!g_strcmp0 (device, "bluealsa")) def_good = TRUE;
     else
     {
-        GList *iter, *mixers = gst_audio_default_registry_mixer_filter (_xfce_mixer_filter_mixer, FALSE, &counter);
-        for (iter = mixers; iter != NULL; iter = g_list_next (iter))
+        int num;
+        snd_ctl_t *ctl;
+        snd_ctl_card_info_t *info;
+        char buf[16];
+        snd_ctl_card_info_alloca (&info);
+        num = -1;
+        while (1)
         {
-            if (xfce_mixer_is_default_card (iter->data))
+            snd_card_next (&num);
+            if (num == -1) break;
+
+            sprintf (buf, "hw:%d", num);
+            if (volumealsa_is_default_card (buf))
             {
                 def_good = TRUE;
                 break;
             }
         }
-		if (mixers) g_list_free_full (mixers, (GDestroyNotify) _xfce_mixer_destroy_mixer);
     }
     if (!def_good)
     {
@@ -1699,9 +1649,6 @@ static GtkWidget *volumealsa_constructor(LXPanel *panel, config_setting_t *setti
 
     vol->bt_conname = NULL;
     vol->master_element = NULL;
-
-    /* Initialise Gstreamer */
-    gst_init (NULL, NULL);
 
     /* Initialize ALSA if default device isn't Bluetooth */
     asound_get_default_card (buffer);

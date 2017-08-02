@@ -22,7 +22,6 @@ volumealsabt_la_CFLAGS = \
 	-DPACKAGE_DATA_DIR=\""$(datadir)/lxpanel"\" \
 	-DPACKAGE_LOCALE_DIR=\""$(prefix)/$(DATADIRNAME)/locale"\" \
 	-I/usr/include/lxpanel \
-	-I/usr/include/gstreamer-0.10 \
 	-I/usr/include/libxml2 \
 	$(PACKAGE_CFLAGS) \
 	$(G_CAST_CHECKS)
@@ -31,9 +30,7 @@ volumealsabt_la_LDFLAGS = \
 	$(PACKAGE_LIBS) \
 	-module @LXPANEL_MODULE@ \
 	-lasound \
-	-lgstreamer-0.10 \
-	-lxml2 \
-	-lgstaudio-0.10
+	-lxml2
 
 install-exec-hook:
 	rm -f $(DESTDIR)$(libdir)/lxpanel/plugins/*.la
