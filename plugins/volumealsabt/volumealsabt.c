@@ -104,8 +104,8 @@ static void asound_deinitialize(VolumeALSAPlugin * vol);
 static void volumealsa_update_display(VolumeALSAPlugin * vol);
 static void volumealsa_destructor(gpointer user_data);
 static void volumealsa_build_popup_window(GtkWidget *p);
-static gboolean volumealsa_is_default_card (char *card_id);
-static gboolean volumealsa_is_bcm_device (const char *card_name);
+static gboolean volumealsa_is_default_card (int num);
+static gboolean volumealsa_is_bcm_device (int num);
 static gboolean volumealsa_get_bcm_device_id (gchar *id);
 static GtkWidget *volumealsa_configure(LXPanel *panel, GtkWidget *p);
 
@@ -851,19 +851,20 @@ static void asound_find_valid_device (void)
     g_warning ("volumealsa: Default ALSA device not valid - resetting to internal");
     if (!asound_set_bcm_card ())
     {
-        int num;
-        snd_ctl_t *ctl;
-        snd_ctl_card_info_t *info;
+        int num = -1;
         char buf[16];
 
         g_warning ("volumealsa: Internal device not available - looking for first valid ALSA device...");
-        snd_ctl_card_info_alloca (&info);
-        num = -1;
         while (1)
         {
-            snd_card_next (&num);
+            if (snd_card_next (&num) < 0)
+            {
+                g_warning ("volumealsa: Cannot enumerate devices");
+                break;
+            }
             if (num == -1) break;
 
+            sprintf (buf, "hw:%d", num);
             g_warning ("volumealsa: Valid ALSA device %s found", buf);
             asound_set_default_card (buf);
             return;
@@ -1102,41 +1103,47 @@ static void volumealsa_update_display(VolumeALSAPlugin * vol)
 
 /* ALSA device ID helper functions */
 
-static gboolean volumealsa_is_default_card (char *card_id)
+static gboolean volumealsa_is_default_card (int num)
 {
-  char cid[16];
-  asound_get_default_card (cid);
-  if (!strcmp (cid, card_id)) return TRUE;
-  return FALSE;
+    char cid[16], buf[16];
+
+    sprintf (buf, "hw:%d", num);
+    asound_get_default_card (cid);
+    if (!strcmp (cid, buf)) return TRUE;
+    return FALSE;
 }
 
-static gboolean volumealsa_is_bcm_device (const char *card_name)
+static gboolean volumealsa_is_bcm_device (int num)
 {
-  if (strncmp (card_name, "bcm2835", 7) == 0) return TRUE;
-  return FALSE;
+    char buf[16];
+    snd_ctl_t *ctl;
+    snd_ctl_card_info_t *info;
+    snd_ctl_card_info_alloca (&info);
+
+    sprintf (buf, "hw:%d", num);
+    if (snd_ctl_open (&ctl, buf, 0) < 0) return FALSE;
+    if (snd_ctl_card_info (ctl, info) < 0) return FALSE;
+    if (snd_ctl_close (ctl) < 0) return FALSE;
+    if (strncmp (snd_ctl_card_info_get_name (info), "bcm2835", 7) == 0) return TRUE;
+    return FALSE;
 }
 
 static gboolean volumealsa_get_bcm_device_id (gchar *id)
 {
-    int num;
-    snd_ctl_t *ctl;
-    snd_ctl_card_info_t *info;
-    char buf[16];
+    int num = -1;
 
-    snd_ctl_card_info_alloca (&info);
-    num = -1;
     while (1)
     {
-        snd_card_next (&num);
+        if (snd_card_next (&num) < 0)
+        {
+            g_warning ("volumealsa: Cannot enumerate devices");
+            break;
+        }
         if (num == -1) break;
 
-        sprintf (buf, "hw:%d", num);
-        snd_ctl_open (&ctl, buf, 0);
-        snd_ctl_card_info (ctl, info);
-        snd_ctl_close (ctl);
-        if (volumealsa_is_bcm_device (snd_ctl_card_info_get_name (info)))
+        if (volumealsa_is_bcm_device (num))
         {
-            if (id) strcpy (id, buf);
+            if (id) sprintf (id, "hw:%d", num);
             return TRUE;
         }
     }
@@ -1187,17 +1194,12 @@ static void set_bcm_output (GtkWidget * widget, VolumeALSAPlugin *vol)
         /* ... and set it to default if not */
         asound_set_default_card (bcmdev);
         asound_restart (vol);
+    }
 
-        /* set the output channel on the BCM device */
-        sprintf (cmdbuf, "amixer -q cset numid=3 %s", widget->name);
-        system (cmdbuf);
-    }
-    else
-    {
-        /* set the output channel on the BCM device */
-        sprintf (cmdbuf, "amixer -q cset numid=3 %s", widget->name);
-        system (cmdbuf);
-    }
+    /* set the output channel on the BCM device */
+    sprintf (cmdbuf, "amixer -q cset numid=3 %s", widget->name);
+    system (cmdbuf);
+
     volumealsa_update_display (vol);
     gtk_menu_popdown (GTK_MENU(vol->menu_popup));
     send_message ();
@@ -1301,7 +1303,6 @@ static gboolean volumealsa_button_press_event(GtkWidget * widget, GdkEventButton
         snd_ctl_t *ctl;
         snd_ctl_card_info_t *info;
         char buf[16];
-        const char *card_name;
 
         snd_ctl_card_info_alloca (&info);
 
@@ -1317,15 +1318,14 @@ static gboolean volumealsa_button_press_event(GtkWidget * widget, GdkEventButton
             num = -1;
             while (1)
             {
-                snd_card_next (&num);
+                if (snd_card_next (&num) < 0)
+                {
+                    g_warning ("volumealsa: Cannot enumerate devices");
+                    break;
+                }
                 if (num == -1) break;
 
-                sprintf (buf, "hw:%d", num);
-                snd_ctl_open (&ctl, buf, 0);
-                snd_ctl_card_info (ctl, info);
-                snd_ctl_close (ctl);
-                card_name = snd_ctl_card_info_get_name (info);
-                if (volumealsa_is_default_card (buf) && volumealsa_is_bcm_device (card_name))
+                if (volumealsa_is_default_card (num) && volumealsa_is_bcm_device (num))
                 {
                     bcm = asound_get_bcm_output ();
                     break;
@@ -1418,15 +1418,14 @@ static gboolean volumealsa_button_press_event(GtkWidget * widget, GdkEventButton
         num = -1;
         while (1)
         {
-            snd_card_next (&num);
+            if (snd_card_next (&num) < 0)
+            {
+                g_warning ("volumealsa: Cannot enumerate devices");
+                break;
+            }
             if (num == -1) break;
 
-            sprintf (buf, "hw:%d", num);
-            snd_ctl_open (&ctl, buf, 0);
-            snd_ctl_card_info (ctl, info);
-            snd_ctl_close (ctl);
-            card_name = snd_ctl_card_info_get_name (info);
-            if (!volumealsa_is_bcm_device (card_name))
+            if (!volumealsa_is_bcm_device (num))
             {
                 if (!ext_dev && devices)
                 {
@@ -1434,10 +1433,14 @@ static gboolean volumealsa_button_press_event(GtkWidget * widget, GdkEventButton
                     gtk_menu_shell_append (GTK_MENU_SHELL(vol->menu_popup), mi);
                 }
 
-                mi = gtk_image_menu_item_new_with_label (card_name);
+                sprintf (buf, "hw:%d", num);
+                if (snd_ctl_open (&ctl, buf, 0) < 0) break;
+                if (snd_ctl_card_info (ctl, info) < 0) break;
+                if (snd_ctl_close (ctl) < 0) break;
+                mi = gtk_image_menu_item_new_with_label (snd_ctl_card_info_get_name (info));
                 gtk_image_menu_item_set_always_show_image (GTK_IMAGE_MENU_ITEM (mi), TRUE);
 
-                if (volumealsa_is_default_card (buf)) gtk_image_menu_item_set_image (GTK_IMAGE_MENU_ITEM(mi), image);
+                if (volumealsa_is_default_card (num)) gtk_image_menu_item_set_image (GTK_IMAGE_MENU_ITEM(mi), image);
                 gtk_widget_set_name (mi, buf);  // use the widget name to store the card id
                 g_signal_connect (mi, "activate", G_CALLBACK (set_default_card_event), (gpointer) vol);
                 gtk_menu_shell_append (GTK_MENU_SHELL(vol->menu_popup), mi);
@@ -1602,19 +1605,17 @@ static void volumealsa_build_popup_window(GtkWidget *p)
     if (!g_strcmp0 (device, "bluealsa")) def_good = TRUE;
     else
     {
-        int num;
-        snd_ctl_t *ctl;
-        snd_ctl_card_info_t *info;
-        char buf[16];
-        snd_ctl_card_info_alloca (&info);
-        num = -1;
+        int num = -1;
         while (1)
         {
-            snd_card_next (&num);
+            if (snd_card_next (&num) < 0)
+            {
+                g_warning ("volumealsa: Cannot enumerate devices");
+                break;
+            }
             if (num == -1) break;
 
-            sprintf (buf, "hw:%d", num);
-            if (volumealsa_is_default_card (buf))
+            if (volumealsa_is_default_card (num))
             {
                 def_good = TRUE;
                 break;
