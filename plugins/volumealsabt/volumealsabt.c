@@ -336,7 +336,6 @@ static void disconnect_device (VolumeALSAPlugin *vol)
 {
     // get the name of the device with the current sink number
     GError *error = NULL;
-    GVariant *var;
     char buffer[64], device[20];
 
     if (get_bt_device_id (device))
@@ -350,11 +349,9 @@ static void disconnect_device (VolumeALSAPlugin *vol)
         {
             DEBUG ("Disconnecting...");
             g_dbus_proxy_call (G_DBUS_PROXY (interface), "Disconnect", NULL, G_DBUS_CALL_FLAGS_NONE, -1, NULL, cb_disconnected, vol);
-            g_variant_unref (var);
             g_object_unref (interface);
             return;
         }
-        g_variant_unref (var);
     }
 
     // if no connection found, just make the new connection
@@ -1481,7 +1478,6 @@ static gboolean volumealsa_button_press_event(GtkWidget * widget, GdkEventButton
         gtk_widget_show_all (vol->menu_popup);
         gtk_menu_popup (GTK_MENU(vol->menu_popup), NULL, NULL, (GtkMenuPositionFunc) volumealsa_popup_set_position, (gpointer) vol,
             event->button, event->time);
-        //if (mixers) g_list_free_full (mixers, (GDestroyNotify) _xfce_mixer_destroy_mixer);
     }
     return TRUE;
 }
