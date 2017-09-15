@@ -620,8 +620,8 @@ static gboolean asound_mixer_event(GIOChannel * channel, GIOCondition cond, gpoi
     if (cond & G_IO_IN)
     {
         /* the status of mixer is changed. update of display is needed. */
-        volumealsa_update_display(vol);
-        return FALSE;
+        /* don't do this if res > 1, as that seems to happen if a BT device has disconnected... */
+        if (res < 2) volumealsa_update_display(vol);
     }
 
     if ((cond & G_IO_HUP) || (res < 0))
@@ -874,6 +874,9 @@ static void asound_find_valid_device (void)
 static gboolean asound_initialize(VolumeALSAPlugin * vol)
 {
     char device[32];
+
+    // make sure existing watches are removed by calling deinit
+    asound_deinitialize (vol);
 
     asound_get_default_card (device);
 
