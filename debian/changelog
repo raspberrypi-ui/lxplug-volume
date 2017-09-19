@@ -1,3 +1,9 @@
+lxplug-volume (0.7) stretch; urgency=medium
+
+  * Fix internationalisation
+
+ -- Simon Long <simon@raspberrypi.org>  Tue, 19 Sep 2017 08:24:25 +0000
+
 lxplug-volume (0.6) stretch; urgency=medium
 
   * Fix for crash on BT device disconnect and for failure to update icon when volume changed elsewhere

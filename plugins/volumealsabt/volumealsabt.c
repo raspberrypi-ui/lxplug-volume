@@ -1258,6 +1258,9 @@ static gboolean volumealsa_button_press_event(GtkWidget * widget, GdkEventButton
 {
     VolumeALSAPlugin * vol = lxpanel_plugin_get_data(widget);
 
+#ifdef ENABLE_NLS
+    textdomain ( GETTEXT_PACKAGE );
+#endif
     if (vol->stopped) return TRUE;
 
     //if (!validate_devices (vol)) volumealsa_update_display (vol);
@@ -1721,6 +1724,9 @@ static GtkWidget *volumealsa_configure(LXPanel *panel, GtkWidget *p)
     const gchar *command_line = NULL;
     GAppInfoCreateFlags flags = G_APP_INFO_CREATE_NONE;
 
+#ifdef ENABLE_NLS
+    textdomain ( GETTEXT_PACKAGE );
+#endif
     /* FIXME: configure settings! */
     /* check if command line was configured */
     config_setting_lookup_string(vol->settings, "MixerCommand", &command_line);
@@ -1841,7 +1847,8 @@ LXPanelPluginInit fm_module_init_lxpanel_gtk = {
     .new_instance = volumealsa_constructor,
     .config = volumealsa_configure,
     .reconfigure = volumealsa_panel_configuration_changed,
-    .control = volumealsa_control_msg
+    .control = volumealsa_control_msg,
+    .gettext_package = GETTEXT_PACKAGE
 };
 
 /* vim: set sw=4 et sts=4 : */
