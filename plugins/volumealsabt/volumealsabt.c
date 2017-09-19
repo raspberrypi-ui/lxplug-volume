@@ -1072,6 +1072,11 @@ static void volumealsa_update_display(VolumeALSAPlugin * vol)
     gboolean mute;
     int level;
 
+#ifdef ENABLE_NLS
+    // need to rebind here for tooltip update
+    textdomain ( GETTEXT_PACKAGE );
+#endif
+
     /* Mute status. */
     mute = asound_is_muted(vol);
     level = asound_get_volume(vol);
