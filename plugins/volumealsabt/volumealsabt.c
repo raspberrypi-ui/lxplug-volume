@@ -1311,11 +1311,14 @@ static gboolean volumealsa_button_press_event(GtkWidget * widget, GdkEventButton
         snd_ctl_t *ctl;
         snd_ctl_card_info_t *info;
         char buf[16];
+        int msize = 16;
+
+        if (panel_get_icon_size (vol->panel) > 36) msize = 24;
 
         snd_ctl_card_info_alloca (&info);
 
         image = gtk_image_new ();
-        set_icon (vol->panel, image, "dialog-ok-apply", 16);
+        set_icon (vol->panel, image, "dialog-ok-apply", msize);
 
         vol->menu_popup = gtk_menu_new ();
 

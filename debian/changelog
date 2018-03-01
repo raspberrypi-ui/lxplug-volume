@@ -1,3 +1,9 @@
+lxplug-volume (0.8) stretch; urgency=medium
+
+  * Resize tick icon when using large menu
+
+ -- Simon Long <simon@raspberrypi.org>  Thu, 01 Mar 2018 15:15:32 +0000
+
 lxplug-volume (0.7) stretch; urgency=medium
 
   * Fix internationalisation
