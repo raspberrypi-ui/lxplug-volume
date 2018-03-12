@@ -1,3 +1,9 @@
+lxplug-volume (0.9) stretch; urgency=medium
+
+  * Block reconnection to currently-connected Bluetooth devices
+
+ -- Simon Long <simon@raspberrypi.org>  Mon, 12 Mar 2018 13:40:54 +0000
+
 lxplug-volume (0.8) stretch; urgency=medium
 
   * Resize tick icon when using large menu

@@ -1402,15 +1402,11 @@ static gboolean volumealsa_button_press_event(GtkWidget * widget, GdkEventButton
                             gtk_image_menu_item_set_always_show_image (GTK_IMAGE_MENU_ITEM (mi), TRUE);
 
                             const char *devname = g_dbus_object_get_object_path (object);
-                            if (btd)
-                            {
-                                if (!strncasecmp (device, devname + (strlen (devname) - 17), 17))
-                                {
-                                    gtk_image_menu_item_set_image (GTK_IMAGE_MENU_ITEM(mi), image);
-                                }
-                            }
+                            if (btd && !strncasecmp (device, devname + (strlen (devname) - 17), 17))
+                                gtk_image_menu_item_set_image (GTK_IMAGE_MENU_ITEM(mi), image);
+                            else
+                                g_signal_connect (mi, "activate", G_CALLBACK (set_bt_card_event), (gpointer) vol);
                             gtk_widget_set_name (mi, devname);  // use the widget name to store the card id
-                            g_signal_connect (mi, "activate", G_CALLBACK (set_bt_card_event), (gpointer) vol);
                             gtk_menu_shell_append (GTK_MENU_SHELL(vol->menu_popup), mi);
                             devices++;
                         }
