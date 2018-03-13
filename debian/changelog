@@ -1,3 +1,9 @@
+lxplug-volume (0.10) stretch; urgency=medium
+
+  * Check that object manager is valid before accessing it when disconnecting
+
+ -- Simon Long <simon@raspberrypi.org>  Tue, 13 Mar 2018 13:21:08 +0000
+
 lxplug-volume (0.9) stretch; urgency=medium
 
   * Block reconnection to currently-connected Bluetooth devices

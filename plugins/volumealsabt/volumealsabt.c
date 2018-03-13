@@ -344,13 +344,16 @@ static void disconnect_device (VolumeALSAPlugin *vol)
         DEBUG ("Device to disconnect = %s", buffer);
 
         // call the disconnect method on BlueZ
-        GDBusInterface *interface = g_dbus_object_manager_get_interface (vol->objmanager, buffer, "org.bluez.Device1");
-        if (interface)
+        if (vol->objmanager)
         {
-            DEBUG ("Disconnecting...");
-            g_dbus_proxy_call (G_DBUS_PROXY (interface), "Disconnect", NULL, G_DBUS_CALL_FLAGS_NONE, -1, NULL, cb_disconnected, vol);
-            g_object_unref (interface);
-            return;
+            GDBusInterface *interface = g_dbus_object_manager_get_interface (vol->objmanager, buffer, "org.bluez.Device1");
+            if (interface)
+            {
+                DEBUG ("Disconnecting...");
+                g_dbus_proxy_call (G_DBUS_PROXY (interface), "Disconnect", NULL, G_DBUS_CALL_FLAGS_NONE, -1, NULL, cb_disconnected, vol);
+                g_object_unref (interface);
+                return;
+            }
         }
     }
 
