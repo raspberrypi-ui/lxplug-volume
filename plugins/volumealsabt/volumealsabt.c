@@ -129,9 +129,9 @@ static inline gboolean use_linear_dB_scale(long dBmin, long dBmax);
 static double get_normalized_volume(snd_mixer_elem_t *elem, snd_mixer_selem_channel_id_t channel);
 static int set_normalized_volume(snd_mixer_elem_t *elem, snd_mixer_selem_channel_id_t channel, double volume, int dir);
 
-static gboolean asound_initialize(VolumeALSAPlugin * vol);
 static void asound_get_default_card (char *id);
 static void asound_find_valid_device (void);
+static int get_simple_ctrls (int dev);
 
 /* Bluetooth */
 
@@ -204,7 +204,7 @@ static void cb_object_removed (GDBusObjectManager *manager, GDBusObject *object,
 {
     VolumeALSAPlugin *vol = (VolumeALSAPlugin *) user_data;
     char device[20];
-    char *obj = g_dbus_object_get_object_path (object);
+    const char *obj = g_dbus_object_get_object_path (object);
     if (get_bt_device_id (device) && strstr (obj, device))
     {
         DEBUG ("Selected Bluetooth audio device has disconnected");
@@ -828,7 +828,7 @@ static int asound_get_bcm_output (void)
 {
     int val = -1, tmp;
     char buf[128];
-    FILE *res = popen ("amixer cget numid=3", "r");
+    FILE *res = popen ("amixer cget numid=3 2>/dev/null", "r");
     while (!feof (res))
     {
         fgets (buf, 128, res);
@@ -897,20 +897,7 @@ static gboolean asound_initialize(VolumeALSAPlugin * vol)
 
     /* Find Master element, or Front element, or PCM element, or LineOut element.
      * If one of these succeeds, master_element is valid. */
-    if (!asound_find_elements (vol))
-    {
-        // this is a belt-and-braces check in case a driver has become corrupt...
-        g_warning ("volumealsa: Can't find elements - trying to reset to internal");
-        snd_mixer_detach (vol->mixer, device);
-        snd_mixer_free (vol->mixer);
-        asound_find_valid_device ();
-        asound_get_default_card (device);
-        snd_mixer_open (&vol->mixer, 0);
-        snd_mixer_attach (vol->mixer, device);
-        snd_mixer_selem_register (vol->mixer, NULL, NULL);
-        snd_mixer_load (vol->mixer);
-        if (!asound_find_elements (vol)) return FALSE;
-   }
+    asound_find_elements (vol);
 
     /* Listen to events from ALSA. */
     int n_fds = snd_mixer_poll_descriptors_count(vol->mixer);
@@ -929,6 +916,14 @@ static gboolean asound_initialize(VolumeALSAPlugin * vol)
         vol->channels[i] = channel;
     }
     g_free(fds);
+
+    if (get_simple_ctrls (-1) == -1)
+    {
+        vol->mixer = NULL;
+        vol->master_element = NULL;
+        asound_set_default_card ("hw:-1");
+    }
+
     return TRUE;
 }
 
@@ -1087,7 +1082,7 @@ static void volumealsa_update_display(VolumeALSAPlugin * vol)
 
     volumealsa_update_current_icon(vol);
 
-    /* Change icon, fallback to default icon if theme doesn't exsit */
+    /* Change icon, fallback to default icon if theme doesn't exist */
     set_icon (vol->panel, vol->tray_icon, vol->icon, 0);
 
     g_signal_handler_block(vol->mute_check, vol->mute_check_handler);
@@ -1205,7 +1200,7 @@ static void set_bcm_output (GtkWidget * widget, VolumeALSAPlugin *vol)
     }
 
     /* set the output channel on the BCM device */
-    sprintf (cmdbuf, "amixer -q cset numid=3 %s", widget->name);
+    sprintf (cmdbuf, "amixer -q cset numid=3 %s 2>/dev/null", widget->name);
     system (cmdbuf);
 
     volumealsa_update_display (vol);
@@ -1260,6 +1255,34 @@ static gboolean volumealsa_mouse_out (GtkWidget * widget, GdkEventButton * event
     return FALSE;
 }
 
+/* This function is used for two things - for finding out how many controls are on the current device,
+ * and for finding out if the current device is still valid (i.e. not disconnected). If it returns -1,
+ * amixer info has returned no data, so the device is invalid. If it returns 0 or greater, the current
+ * device is valid and has the returned number of controls. */
+
+static int get_simple_ctrls (int dev)
+{
+    FILE *fp;
+    char buffer[100];
+    int res;
+
+    if (dev == -1)
+        sprintf (buffer, "amixer info 2>/dev/null | grep \"Simple ctrls\" | cut -d: -f2 | tr -d ' '");
+    else
+        sprintf (buffer, "amixer -c %d info 2>/dev/null | grep \"Simple ctrls\" | cut -d: -f2 | tr -d ' '", dev);
+    fp = popen (buffer, "r");
+
+    if (fp)
+    {
+        if (fgets (buffer, sizeof (buffer) - 1, fp) != NULL)
+        {
+            if (sscanf (buffer, "%d", &res) == 1) return res;
+        }
+        pclose (fp);
+    }
+    return -1;
+ }
+
 /* Handler for "button-press-event" signal on main widget. */
 
 static gboolean volumealsa_button_press_event(GtkWidget * widget, GdkEventButton * event, LXPanel * panel)
@@ -1271,11 +1294,30 @@ static gboolean volumealsa_button_press_event(GtkWidget * widget, GdkEventButton
 #endif
     if (vol->stopped) return TRUE;
 
-    //if (!validate_devices (vol)) volumealsa_update_display (vol);
+    if (get_simple_ctrls (-1) == -1)
+    {
+        vol->mixer = NULL;
+        vol->master_element = NULL;
+        asound_set_default_card ("hw:-1");
+        volumealsa_update_display (vol);
+    }
 
     /* Left-click.  Show or hide the popup window. */
     if (event->button == 1)
     {
+        if (get_simple_ctrls (-1) < 1)
+        {
+            GtkWidget *mi;
+            vol->menu_popup = gtk_menu_new ();
+            mi = gtk_menu_item_new_with_label (_("No controls found"));
+            gtk_widget_set_sensitive (mi, FALSE);
+            gtk_menu_shell_append (GTK_MENU_SHELL (vol->menu_popup), mi);
+            gtk_widget_show_all (vol->menu_popup);
+            gtk_menu_popup (GTK_MENU(vol->menu_popup), NULL, NULL, (GtkMenuPositionFunc) volumealsa_popup_set_position, (gpointer) vol,
+                event->button, event->time);
+            return TRUE;
+        }
+
         if (vol->show_popup)
         {
             gtk_widget_hide(vol->popup_window);
@@ -1447,7 +1489,15 @@ static gboolean volumealsa_button_press_event(GtkWidget * widget, GdkEventButton
                 if (snd_ctl_open (&ctl, buf, 0) < 0) break;
                 if (snd_ctl_card_info (ctl, info) < 0) break;
                 if (snd_ctl_close (ctl) < 0) break;
-                mi = gtk_image_menu_item_new_with_label (snd_ctl_card_info_get_name (info));
+                if (get_simple_ctrls (num) > 0)
+                    mi = gtk_image_menu_item_new_with_label (snd_ctl_card_info_get_name (info));
+                else
+                {
+                    char buffer[100];
+                    mi = gtk_image_menu_item_new_with_label ("");
+                    sprintf (buffer, "<i>%s</i>", snd_ctl_card_info_get_name (info));
+                    gtk_label_set_markup (GTK_LABEL(gtk_bin_get_child (GTK_BIN (mi))), buffer);
+                }
                 gtk_image_menu_item_set_always_show_image (GTK_IMAGE_MENU_ITEM (mi), TRUE);
 
                 if (volumealsa_is_default_card (num)) gtk_image_menu_item_set_image (GTK_IMAGE_MENU_ITEM(mi), image);
@@ -1656,22 +1706,13 @@ static GtkWidget *volumealsa_constructor(LXPanel *panel, config_setting_t *setti
     bind_textdomain_codeset ( GETTEXT_PACKAGE, "UTF-8" );
     textdomain ( GETTEXT_PACKAGE );
 #endif
-
     vol->bt_conname = NULL;
     vol->master_element = NULL;
-
-    /* Initialize ALSA if default device isn't Bluetooth */
-    asound_get_default_card (buffer);
-    if (strcmp (buffer, "bluealsa")) asound_initialize (vol);
-
-    /* Check the default device is valid and reset if not */
-    //validate_devices (vol);
 
     /* Allocate top level widget and set into Plugin widget pointer. */
     vol->panel = panel;
     vol->plugin = p = gtk_button_new();
     gtk_button_set_relief (GTK_BUTTON (vol->plugin), GTK_RELIEF_NONE);
-    //vol->plugin = p = gtk_event_box_new();
     g_signal_connect(vol->plugin, "button-press-event", G_CALLBACK(volumealsa_button_press_event), vol->panel);
     vol->settings = settings;
     lxpanel_plugin_set_data(p, vol, volumealsa_destructor);
@@ -1680,7 +1721,11 @@ static GtkWidget *volumealsa_constructor(LXPanel *panel, config_setting_t *setti
 
     /* Allocate icon as a child of top level. */
     vol->tray_icon = gtk_image_new();
-    gtk_container_add(GTK_CONTAINER(p), vol->tray_icon);
+    gtk_container_add (GTK_CONTAINER(p), vol->tray_icon);
+
+    /* Initialize ALSA if default device isn't Bluetooth */
+    asound_get_default_card (buffer);
+    if (strcmp (buffer, "bluealsa")) asound_initialize (vol);
 
     // set up callbacks to see if BlueZ is on DBus
     g_bus_watch_name (G_BUS_TYPE_SYSTEM, "org.bluez", 0, cb_name_owned, cb_name_unowned, vol, NULL);
