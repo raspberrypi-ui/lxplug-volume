@@ -1294,11 +1294,19 @@ static gboolean volumealsa_button_press_event(GtkWidget * widget, GdkEventButton
 #endif
     if (vol->stopped) return TRUE;
 
-    if (get_simple_ctrls (-1) == -1)
+    int ctrls = get_simple_ctrls (-1);
+    if (ctrls < 0)
     {
         vol->mixer = NULL;
         vol->master_element = NULL;
         asound_set_default_card ("hw:-1");
+        volumealsa_update_display (vol);
+    }
+
+    if (ctrls > 0 && vol->master_element == NULL)
+    {
+        // reconnect a BT device that has connected since startup...
+        asound_initialize (vol);
         volumealsa_update_display (vol);
     }
 
@@ -1449,8 +1457,7 @@ static gboolean volumealsa_button_press_event(GtkWidget * widget, GdkEventButton
                             const char *devname = g_dbus_object_get_object_path (object);
                             if (btd && !strncasecmp (device, devname + (strlen (devname) - 17), 17))
                                 gtk_image_menu_item_set_image (GTK_IMAGE_MENU_ITEM(mi), image);
-                            else
-                                g_signal_connect (mi, "activate", G_CALLBACK (set_bt_card_event), (gpointer) vol);
+                            g_signal_connect (mi, "activate", G_CALLBACK (set_bt_card_event), (gpointer) vol);
                             gtk_widget_set_name (mi, devname);  // use the widget name to store the card id
                             gtk_menu_shell_append (GTK_MENU_SHELL(vol->menu_popup), mi);
                             devices++;
