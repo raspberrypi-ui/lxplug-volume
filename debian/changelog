@@ -1,3 +1,13 @@
+lxplug-volume (0.11) stretch; urgency=medium
+
+  * Remove forcible fallback when device with no simple controls is selected
+  * Show uncontrollable devices in menu in italics
+  * Refresh status icon whenever button is clicked
+  * Add automatic and manual reconnection to Bluetooth devices
+  * Hide HDMI audio option for GL driver
+
+ -- Simon Long <simon@raspberrypi.org>  Thu, 12 Apr 2018 10:05:59 +0100
+
 lxplug-volume (0.10) stretch; urgency=medium
 
   * Check that object manager is valid before accessing it when disconnecting

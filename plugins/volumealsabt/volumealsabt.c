@@ -200,6 +200,19 @@ static int get_bt_device_id (char *id)
     return 0;
 }
 
+static void cb_object_added (GDBusObjectManager *manager, GDBusObject *object, gpointer user_data)
+{
+    VolumeALSAPlugin *vol = (VolumeALSAPlugin *) user_data;
+    char device[20];
+    const char *obj = g_dbus_object_get_object_path (object);
+    if (get_bt_device_id (device) && strstr (obj, device))
+    {
+        DEBUG ("Selected Bluetooth audio device has connected");
+        asound_initialize (vol);
+        volumealsa_update_display (vol);
+    }
+}
+
 static void cb_object_removed (GDBusObjectManager *manager, GDBusObject *object, gpointer user_data)
 {
     VolumeALSAPlugin *vol = (VolumeALSAPlugin *) user_data;
@@ -209,6 +222,7 @@ static void cb_object_removed (GDBusObjectManager *manager, GDBusObject *object,
     {
         DEBUG ("Selected Bluetooth audio device has disconnected");
         asound_initialize (vol);
+        volumealsa_update_display (vol);
     }
 }
 
@@ -230,7 +244,8 @@ static void cb_name_owned (GDBusConnection *connection, const gchar *name, const
     }
     else
     {
-        /* register a callback for devices being removed */
+        /* register callbacks for devices being added or removed */
+        g_signal_connect (vol->objmanager, "object-added", G_CALLBACK (cb_object_added), vol);
         g_signal_connect (vol->objmanager, "object-removed", G_CALLBACK (cb_object_removed), vol);
     }
 
@@ -378,6 +393,10 @@ static void cb_disconnected (GObject *source, GAsyncResult *res, gpointer user_d
         g_error_free (error);
     }
     else DEBUG ("Disconnected OK");
+
+    // mixer and element handles will now be invalid
+    vol->mixer = NULL;
+    vol->master_element = NULL;
 
     // call BlueZ over DBus to connect to the device
     if (vol->bt_conname)
@@ -617,7 +636,7 @@ static gboolean asound_mixer_event(GIOChannel * channel, GIOCondition cond, gpoi
     if (vol->mixer_evt_idle == 0)
     {
         vol->mixer_evt_idle = g_idle_add_full(G_PRIORITY_DEFAULT, (GSourceFunc) asound_reset_mixer_evt_idle, vol, NULL);
-        res = snd_mixer_handle_events(vol->mixer);
+        if (vol->mixer) res = snd_mixer_handle_events(vol->mixer);
     }
 
     if (cond & G_IO_IN)
