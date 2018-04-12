@@ -314,7 +314,7 @@ static void cb_connected (GObject *source, GAsyncResult *res, gpointer user_data
 
     // update the display whether we succeeded or not, as a failure will have caused a fallback to ALSA
     volumealsa_update_display (vol);
-    gtk_menu_popdown (GTK_MENU(vol->menu_popup));
+    if (vol->menu_popup) gtk_menu_popdown (GTK_MENU(vol->menu_popup));
     send_message ();
 }
 
@@ -1179,7 +1179,7 @@ static void set_default_card_event (GtkWidget * widget, VolumeALSAPlugin * vol)
     asound_set_default_card (widget->name);
     asound_restart (vol);
     volumealsa_update_display (vol);
-    gtk_menu_popdown (GTK_MENU(vol->menu_popup));
+    if (vol->menu_popup) gtk_menu_popdown (GTK_MENU(vol->menu_popup));
     send_message ();
 }
 
@@ -1204,7 +1204,7 @@ static void set_bcm_output (GtkWidget * widget, VolumeALSAPlugin *vol)
     system (cmdbuf);
 
     volumealsa_update_display (vol);
-    gtk_menu_popdown (GTK_MENU(vol->menu_popup));
+    if (vol->menu_popup) gtk_menu_popdown (GTK_MENU(vol->menu_popup));
     send_message ();
 }
 
@@ -1309,7 +1309,7 @@ static gboolean volumealsa_button_press_event(GtkWidget * widget, GdkEventButton
         {
             GtkWidget *mi;
             vol->menu_popup = gtk_menu_new ();
-            mi = gtk_menu_item_new_with_label (_("No controls found"));
+            mi = gtk_menu_item_new_with_label (_("No volume control on this device"));
             gtk_widget_set_sensitive (mi, FALSE);
             gtk_menu_shell_append (GTK_MENU_SHELL (vol->menu_popup), mi);
             gtk_widget_show_all (vol->menu_popup);
@@ -1350,7 +1350,7 @@ static gboolean volumealsa_button_press_event(GtkWidget * widget, GdkEventButton
     else if (event->button == 3)
     {
         gint bcm, devices;
-        GtkWidget *image, *mi;
+        GtkWidget *image, *mi, *sep;
         gboolean ext_dev = FALSE, bt_dev = TRUE;
         int num;
         snd_ctl_t *ctl;
@@ -1439,8 +1439,8 @@ static gboolean volumealsa_button_press_event(GtkWidget * widget, GdkEventButton
                         {
                             if (!bt_dev)
                             {
-                                mi = gtk_separator_menu_item_new ();
-                                gtk_menu_shell_append (GTK_MENU_SHELL(vol->menu_popup), mi);
+                                sep = gtk_separator_menu_item_new ();
+                                gtk_menu_shell_append (GTK_MENU_SHELL(vol->menu_popup), sep);
                                 bt_dev = TRUE;
                             }
                             mi = gtk_image_menu_item_new_with_label (g_variant_get_string (name, NULL));
@@ -1479,12 +1479,6 @@ static gboolean volumealsa_button_press_event(GtkWidget * widget, GdkEventButton
 
             if (!volumealsa_is_bcm_device (num))
             {
-                if (!ext_dev && devices)
-                {
-                    mi = gtk_separator_menu_item_new ();
-                    gtk_menu_shell_append (GTK_MENU_SHELL(vol->menu_popup), mi);
-                }
-
                 sprintf (buf, "hw:%d", num);
                 if (snd_ctl_open (&ctl, buf, 0) < 0) break;
                 if (snd_ctl_card_info (ctl, info) < 0) break;
@@ -1493,16 +1487,25 @@ static gboolean volumealsa_button_press_event(GtkWidget * widget, GdkEventButton
                     mi = gtk_image_menu_item_new_with_label (snd_ctl_card_info_get_name (info));
                 else
                 {
+                    // special case...
+                    if (!strcmp (snd_ctl_card_info_get_name (info), "vc4-hdmi")) continue;
+
                     char buffer[100];
                     mi = gtk_image_menu_item_new_with_label ("");
                     sprintf (buffer, "<i>%s</i>", snd_ctl_card_info_get_name (info));
                     gtk_label_set_markup (GTK_LABEL(gtk_bin_get_child (GTK_BIN (mi))), buffer);
+                    gtk_widget_set_tooltip_text(mi, _("No volume control on this device"));
                 }
                 gtk_image_menu_item_set_always_show_image (GTK_IMAGE_MENU_ITEM (mi), TRUE);
-
                 if (volumealsa_is_default_card (num)) gtk_image_menu_item_set_image (GTK_IMAGE_MENU_ITEM(mi), image);
                 gtk_widget_set_name (mi, buf);  // use the widget name to store the card id
                 g_signal_connect (mi, "activate", G_CALLBACK (set_default_card_event), (gpointer) vol);
+
+                if (!ext_dev && devices)
+                {
+                    sep = gtk_separator_menu_item_new ();
+                    gtk_menu_shell_append (GTK_MENU_SHELL(vol->menu_popup), sep);
+                }
                 gtk_menu_shell_append (GTK_MENU_SHELL(vol->menu_popup), mi);
                 ext_dev = TRUE;
                 devices++;
@@ -1511,8 +1514,8 @@ static gboolean volumealsa_button_press_event(GtkWidget * widget, GdkEventButton
 
         if (ext_dev)
         {
-            mi = gtk_separator_menu_item_new ();
-            gtk_menu_shell_append (GTK_MENU_SHELL(vol->menu_popup), mi);
+            sep = gtk_separator_menu_item_new ();
+            gtk_menu_shell_append (GTK_MENU_SHELL(vol->menu_popup), sep);
 
             mi = gtk_image_menu_item_new_with_label (_("USB Device Settings..."));
             g_signal_connect (mi, "activate", G_CALLBACK (open_config_dialog), (gpointer) vol);
@@ -1706,6 +1709,7 @@ static GtkWidget *volumealsa_constructor(LXPanel *panel, config_setting_t *setti
     bind_textdomain_codeset ( GETTEXT_PACKAGE, "UTF-8" );
     textdomain ( GETTEXT_PACKAGE );
 #endif
+
     vol->bt_conname = NULL;
     vol->master_element = NULL;
 

@@ -1,15 +1,15 @@
-# English translations for PACKAGE package.
-# Copyright (C) 2017 THE PACKAGE'S COPYRIGHT HOLDER
-# This file is distributed under the same license as the PACKAGE package.
-#  <simon@raspberrypi.org>, 2017.
+# English translations for lxplug_volumealsabt package.
+# Copyright (C) 2018 Raspberry Pi Ltd
+# This file is distributed under the same license as the lxplug_volumealsabt package.
+# Simon Long <simon@raspberrypi.org>, 2018.
 #
 msgid ""
 msgstr ""
-"Project-Id-Version: PACKAGE VERSION\n"
+"Project-Id-Version: lxplug_volumealsabt 0.1\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2017-03-06 13:06+0000\n"
-"PO-Revision-Date: 2017-03-06 13:06+0000\n"
-"Last-Translator:  <simon@raspberrypi.org>\n"
+"POT-Creation-Date: 2018-04-12 08:15+0100\n"
+"PO-Revision-Date: 2018-04-12 08:15+0100\n"
+"Last-Translator: Simon Long <simon@raspberrypi.org>\n"
 "Language-Team: English (British)\n"
 "Language: en_GB\n"
 "MIME-Version: 1.0\n"
@@ -17,65 +17,61 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=(n != 1);\n"
 
-#: ../plugins/volumealsabt/volumealsabt.c:517
+#: ../plugins/volumealsabt/volumealsabt.c:272
 msgid "Could not get BlueZ interface"
 msgstr "Could not get BlueZ interface"
 
-#: ../plugins/volumealsabt/volumealsabt.c:694
-msgid "Could not connect to PulseAudio"
-msgstr "Could not connect to PulseAudio"
-
-#: ../plugins/volumealsabt/volumealsabt.c:704
+#: ../plugins/volumealsabt/volumealsabt.c:408
 msgid "Connecting Audio Device"
 msgstr "Connecting Audio Device"
 
-#: ../plugins/volumealsabt/volumealsabt.c:709
+#: ../plugins/volumealsabt/volumealsabt.c:413
 #, c-format
 msgid "Connecting to Bluetooth audio device '%s'..."
 msgstr "Connecting to Bluetooth audio device '%s'..."
 
-#: ../plugins/volumealsabt/volumealsabt.c:720
+#: ../plugins/volumealsabt/volumealsabt.c:424
 #, c-format
 msgid "Failed to connect to device - %s. Try to connect again."
 msgstr "Failed to connect to device - %s. Try to connect again."
 
-#: ../plugins/volumealsabt/volumealsabt.c:722
+#: ../plugins/volumealsabt/volumealsabt.c:426
 msgid "_OK"
 msgstr "_OK"
 
 #. Display current level in tooltip.
-#: ../plugins/volumealsabt/volumealsabt.c:1353
-#: ../plugins/volumealsabt/volumealsabt.c:1975
+#: ../plugins/volumealsabt/volumealsabt.c:1102
+#: ../plugins/volumealsabt/volumealsabt.c:1724
 msgid "Volume control"
 msgstr "Volume control"
 
-#: ../plugins/volumealsabt/volumealsabt.c:1394
-#, c-format
-msgid "Unknown Volume Control %d"
-msgstr "Unknown Volume Control %d"
+#: ../plugins/volumealsabt/volumealsabt.c:1312
+#: ../plugins/volumealsabt/volumealsabt.c:1497
+msgid "No volume control on this device"
+msgstr "No volume control on this device"
 
-#: ../plugins/volumealsabt/volumealsabt.c:1639
+#: ../plugins/volumealsabt/volumealsabt.c:1391
 msgid "Analog"
 msgstr "Analog"
 
-#: ../plugins/volumealsabt/volumealsabt.c:1649
+#: ../plugins/volumealsabt/volumealsabt.c:1401
 msgid "HDMI"
 msgstr "HDMI"
 
-#: ../plugins/volumealsabt/volumealsabt.c:1756
+#: ../plugins/volumealsabt/volumealsabt.c:1520
 msgid "USB Device Settings..."
 msgstr "USB Device Settings..."
 
-#: ../plugins/volumealsabt/volumealsabt.c:1763
+#: ../plugins/volumealsabt/volumealsabt.c:1527
 msgid "No audio devices found"
 msgstr "No audio devices found"
 
 #. Create a check button as the child of the vertical box.
-#: ../plugins/volumealsabt/volumealsabt.c:1909
+#: ../plugins/volumealsabt/volumealsabt.c:1657
 msgid "Mute"
 msgstr "Mute"
 
-#: ../plugins/volumealsabt/volumealsabt.c:2092
+#: ../plugins/volumealsabt/volumealsabt.c:1843
 msgid ""
 "Error, you need to install an application to configure the sound "
 "(pavucontrol, alsamixer ...)"
@@ -83,10 +79,10 @@ msgstr ""
 "Error, you need to install an application to configure the sound "
 "(pavucontrol, alsamixer ...)"
 
-#: ../plugins/volumealsabt/volumealsabt.c:2153
+#: ../plugins/volumealsabt/volumealsabt.c:1900
 msgid "Volume Control (ALSA/BT)"
 msgstr "Volume Control (ALSA/BT)"
 
-#: ../plugins/volumealsabt/volumealsabt.c:2154
+#: ../plugins/volumealsabt/volumealsabt.c:1901
 msgid "Display and control volume for ALSA and Bluetooth devices"
 msgstr "Display and control volume for ALSA and Bluetooth devices"
