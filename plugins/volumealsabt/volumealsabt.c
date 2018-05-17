@@ -993,6 +993,16 @@ static gboolean asound_is_muted(VolumeALSAPlugin * vol)
     return (value == 0);
 }
 
+static void asound_set_mute (VolumeALSAPlugin * vol, gboolean mute)
+{
+    if (vol->master_element != NULL)
+    {
+        int chn;
+        for (chn = 0; chn <= SND_MIXER_SCHN_LAST; chn++)
+            snd_mixer_selem_set_playback_switch(vol->master_element, chn, mute ? 0 : 1);
+    }
+}
+
 /* Get the volume from the sound system.
  * This implementation returns the average of the Front Left and Front Right channels. */
 static int asound_get_volume(VolumeALSAPlugin * vol)
@@ -1609,16 +1619,8 @@ static void volumealsa_popup_scale_scrolled(GtkScale * scale, GdkEventScroll * e
 /* Handler for "toggled" signal on popup window mute checkbox. */
 static void volumealsa_popup_mute_toggled(GtkWidget * widget, VolumeALSAPlugin * vol)
 {
-    /* Get the state of the mute toggle. */
-    gboolean active = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(widget));
-
     /* Reflect the mute toggle to the sound system. */
-    if (vol->master_element != NULL)
-    {
-        int chn;
-        for (chn = 0; chn <= SND_MIXER_SCHN_LAST; chn++)
-            snd_mixer_selem_set_playback_switch(vol->master_element, chn, ((active) ? 0 : 1));
-    }
+    asound_set_mute (vol, gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON (widget)));
 
     /* Redraw the controls. */
     volumealsa_update_display(vol);
@@ -1916,6 +1918,50 @@ static gboolean volumealsa_control_msg (GtkWidget *plugin, const char *cmd)
         if (vol->show_popup) gtk_widget_show_all (vol->popup_window);
         return TRUE;
     }
+
+    if (!strncmp (cmd, "mute", 4))
+    {
+        asound_set_mute (vol, asound_is_muted (vol) ? 0 : 1);
+        volumealsa_update_display (vol);
+        return TRUE;
+    }
+
+    if (!strncmp (cmd, "volu", 4))
+    {
+        if (asound_is_muted (vol)) asound_set_mute (vol, 0);
+        else
+        {
+            int volume = asound_get_volume (vol);
+            if (volume < 100)
+            {
+                volume += 10;
+                volume /= 10;
+                volume *= 10;
+            }
+            asound_set_volume (vol, volume);
+        }
+        volumealsa_update_display (vol);
+        return TRUE;
+    }
+
+    if (!strncmp (cmd, "vold", 4))
+    {
+        if (asound_is_muted (vol)) asound_set_mute (vol, 0);
+        else
+        {
+            int volume = asound_get_volume (vol);
+            if (volume > 0)
+            {
+                volume -= 10;
+                volume /= 10;
+                volume *= 10;
+            }
+            asound_set_volume (vol, volume);
+        }
+        volumealsa_update_display (vol);
+        return TRUE;
+    }
+
     return FALSE;
 }
 
