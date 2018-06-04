@@ -1934,9 +1934,9 @@ static gboolean volumealsa_control_msg (GtkWidget *plugin, const char *cmd)
             int volume = asound_get_volume (vol);
             if (volume < 100)
             {
-                volume += 10;
-                volume /= 10;
-                volume *= 10;
+                volume += 5;
+                volume /= 5;
+                volume *= 5;
             }
             asound_set_volume (vol, volume);
         }
@@ -1952,9 +1952,9 @@ static gboolean volumealsa_control_msg (GtkWidget *plugin, const char *cmd)
             int volume = asound_get_volume (vol);
             if (volume > 0)
             {
-                volume -= 10;
-                volume /= 10;
-                volume *= 10;
+                volume -= 1; // effectively -5 + 4 for rounding...
+                volume /= 5;
+                volume *= 5;
             }
             asound_set_volume (vol, volume);
         }
