@@ -1,8 +1,14 @@
-lxplug-volume (0.13) buster; urgency=medium
+lxplug-volume (0.14) buster; urgency=medium
 
   * Add selection of multiple HDMI outputs
 
  -- Simon Long <simon@raspberrypi.org>  Tue, 23 Jul 2019 15:28:05 +0100
+
+lxplug-volume (0.13) stretch; urgency=medium
+
+  * Change volume by steps of 5 in response to control messages
+
+ -- Simon Long <simon@raspberrypi.org>  Mon, 04 Jun 2018 09:26:51 +0100
 
 lxplug-volume (0.12) stretch; urgency=medium
 
