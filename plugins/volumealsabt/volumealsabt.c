@@ -119,6 +119,10 @@ typedef struct {
     /* Icons */
     const char* icon;
 
+    /* HDMI device names */
+    guint hdmis;
+    char *mon_names[2];
+
     GDBusObjectManager *objmanager;         /* BlueZ object manager */
     char *bt_conname;                       /* BlueZ name of device - just used during connection */
     GtkWidget *conn_dialog, *conn_label, *conn_ok;
@@ -160,6 +164,9 @@ static void asound_get_default_card (char *id);
 static void asound_find_valid_device (void);
 static int get_simple_ctrls (int dev);
 static void parse_asoundrc (FILE *fp, char *type, char *cid);
+
+static char *get_string (char *cmd);
+static int n_desktops (VolumeALSAPlugin *vol);
 
 /* Bluetooth */
 
@@ -1263,6 +1270,57 @@ static gboolean validate_devices (VolumeALSAPlugin *vol)
 }
 #endif
 
+/* Multiple HDMI support */
+
+static char *get_string (char *cmd)
+{
+    char *line = NULL, *res = NULL;
+    int len = 0;
+    FILE *fp = popen (cmd, "r");
+
+    if (fp == NULL) return g_strdup ("");
+    if (getline (&line, &len, fp) > 0)
+    {
+        res = line;
+        while (*res++) if (g_ascii_isspace (*res)) *res = 0;
+        res = g_strdup (line);
+    }
+    pclose (fp);
+    g_free (line);
+    return res ? res : g_strdup ("");
+}
+
+static int n_desktops (VolumeALSAPlugin *vol)
+{
+    int i, n, m;
+    char *res;
+
+    /* check xrandr for connected monitors */
+    res = get_string ("xrandr -q | grep -c connected");
+    n = sscanf (res, "%d", &m);
+    g_free (res);
+    if (n != 1 || m <= 0) m = 1;
+    if (m > 2) m = 2;
+
+    /* get the names */
+    if (m == 2)
+    {
+        for (i = 0; i < m; i++)
+        {
+            res = g_strdup_printf ("xrandr --listmonitors | grep %d: | cut -d ' ' -f 6", i);
+            vol->mon_names[i] = get_string (res);
+            g_free (res);
+        }
+
+        /* check both devices are HDMI */
+        if ((vol->mon_names[0] && strncmp (vol->mon_names[0], "HDMI", 4) != 0)
+            || (vol->mon_names[1] && strncmp (vol->mon_names[1], "HDMI", 4) != 0))
+                m = 1;
+    }
+
+    return m;
+}
+
 static void open_config_dialog (GtkWidget * widget, VolumeALSAPlugin * vol)
 {
     volumealsa_configure (vol->panel, vol->plugin);
@@ -1430,18 +1488,42 @@ static gboolean volumealsa_button_press_event(GtkWidget * widget, GdkEventButton
             g_signal_connect (mi, "activate", G_CALLBACK (set_bcm_output), (gpointer) vol);
             gtk_menu_shell_append (GTK_MENU_SHELL(vol->menu_popup), mi);
 
-            mi = gtk_image_menu_item_new_with_label (_("HDMI"));
-            gtk_image_menu_item_set_always_show_image (GTK_IMAGE_MENU_ITEM (mi), TRUE);
-            if (bcm == 2)
+            if (vol->hdmis == 2)
             {
-                gtk_image_menu_item_set_image (GTK_IMAGE_MENU_ITEM(mi), image);
+                mi = gtk_image_menu_item_new_with_label (vol->mon_names[0]);
+                gtk_image_menu_item_set_always_show_image (GTK_IMAGE_MENU_ITEM (mi), TRUE);
+                if (bcm == 2)
+                {
+                    gtk_image_menu_item_set_image (GTK_IMAGE_MENU_ITEM(mi), image);
+                }
+                gtk_widget_set_name (mi, "2");
+                g_signal_connect (mi, "activate", G_CALLBACK (set_bcm_output), (gpointer) vol);
+                gtk_menu_shell_append (GTK_MENU_SHELL(vol->menu_popup), mi);
+                mi = gtk_image_menu_item_new_with_label (vol->mon_names[1]);
+                gtk_image_menu_item_set_always_show_image (GTK_IMAGE_MENU_ITEM (mi), TRUE);
+                if (bcm == 3)
+                {
+                    gtk_image_menu_item_set_image (GTK_IMAGE_MENU_ITEM(mi), image);
+                }
+                gtk_widget_set_name (mi, "3");
+                g_signal_connect (mi, "activate", G_CALLBACK (set_bcm_output), (gpointer) vol);
+                gtk_menu_shell_append (GTK_MENU_SHELL(vol->menu_popup), mi);
+                devices = 3;
             }
-            gtk_widget_set_name (mi, "2");
-            g_signal_connect (mi, "activate", G_CALLBACK (set_bcm_output), (gpointer) vol);
-            gtk_menu_shell_append (GTK_MENU_SHELL(vol->menu_popup), mi);
-
+            else
+            {
+                mi = gtk_image_menu_item_new_with_label (_("HDMI"));
+                gtk_image_menu_item_set_always_show_image (GTK_IMAGE_MENU_ITEM (mi), TRUE);
+                if (bcm == 2)
+                {
+                    gtk_image_menu_item_set_image (GTK_IMAGE_MENU_ITEM(mi), image);
+                }
+                gtk_widget_set_name (mi, "2");
+                g_signal_connect (mi, "activate", G_CALLBACK (set_bcm_output), (gpointer) vol);
+                gtk_menu_shell_append (GTK_MENU_SHELL(vol->menu_popup), mi);
+                devices = 2;
+            }
             bt_dev = FALSE;
-            devices = 2;
         }
         else devices = 0;
 
@@ -1763,6 +1845,9 @@ static GtkWidget *volumealsa_constructor(LXPanel *panel, config_setting_t *setti
     /* Connect signals. */
     g_signal_connect(G_OBJECT(p), "scroll-event", G_CALLBACK(volumealsa_popup_scale_scrolled), vol );
     g_signal_connect(panel_get_icon_theme(panel), "changed", G_CALLBACK(volumealsa_theme_change), vol );
+
+    /* Set up for multiple HDMIs */
+    vol->hdmis = n_desktops (vol);
 
     /* Update the display, show the widget, and return. */
     volumealsa_update_display(vol);
