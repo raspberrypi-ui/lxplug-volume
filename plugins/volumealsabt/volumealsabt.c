@@ -172,6 +172,24 @@ static int n_desktops (VolumeALSAPlugin *vol);
 static void set_external_output_device (GtkWidget * widget, VolumeALSAPlugin * vol);
 static void set_internal_output_device (GtkWidget * widget, VolumeALSAPlugin * vol);
 
+static char *get_string (char *cmd)
+{
+    char *line = NULL, *res = NULL;
+    int len = 0;
+    FILE *fp = popen (cmd, "r");
+
+    if (fp == NULL) return g_strdup ("");
+    if (getline (&line, &len, fp) > 0)
+    {
+        res = line;
+        while (*res++) if (g_ascii_isspace (*res)) *res = 0;
+        res = g_strdup (line);
+    }
+    pclose (fp);
+    g_free (line);
+    return res ? res : g_strdup ("");
+}
+
 /* Bluetooth */
 
 static void asound_set_bt_device (char *devname)
@@ -1255,24 +1273,6 @@ static void set_internal_output_device (GtkWidget *widget, VolumeALSAPlugin *vol
 
 /* Multiple HDMI support */
 
-static char *get_string (char *cmd)
-{
-    char *line = NULL, *res = NULL;
-    int len = 0;
-    FILE *fp = popen (cmd, "r");
-
-    if (fp == NULL) return g_strdup ("");
-    if (getline (&line, &len, fp) > 0)
-    {
-        res = line;
-        while (*res++) if (g_ascii_isspace (*res)) *res = 0;
-        res = g_strdup (line);
-    }
-    pclose (fp);
-    g_free (line);
-    return res ? res : g_strdup ("");
-}
-
 static int n_desktops (VolumeALSAPlugin *vol)
 {
     int i, n, m;
@@ -1327,29 +1327,23 @@ static gboolean volumealsa_mouse_out (GtkWidget * widget, GdkEventButton * event
 
 static int asound_get_simple_ctrls (int dev)
 {
-    FILE *fp;
-    char *cmd;
-    int res, len = 0, val = -1;
+    char *cmd, *res;
+    int n, m;
 
     if (dev == -1)
         cmd = g_strdup_printf ("amixer info 2>/dev/null | grep \"Simple ctrls\" | cut -d: -f2 | tr -d ' '");
     else
         cmd = g_strdup_printf ("amixer -c %d info 2>/dev/null | grep \"Simple ctrls\" | cut -d: -f2 | tr -d ' '", dev);
-    fp = popen (cmd, "r");
+
+    res = get_string (cmd);
     g_free (cmd);
 
-    if (fp)
-    {
-        cmd = NULL;
-        if (getline (&cmd, &len, fp) > 0)
-        {
-            if (sscanf (cmd, "%d", &res) == 1) val = res;
-        }
-        pclose (fp);
-        g_free (cmd);
-    }
-    return val;
- }
+    n = sscanf (res, "%d", &m);
+    g_free (res);
+
+    if (n == 1) return m;
+    return -1;
+}
 
 /* Handler for "button-press-event" signal on main widget. */
 
