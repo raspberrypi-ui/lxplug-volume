@@ -907,7 +907,7 @@ static void parse_asoundrc (FILE *fp, char *type, char *cid)
 }
 
 /* Initialize the ALSA interface. */
-static gboolean asound_initialize(VolumeALSAPlugin * vol)
+static gboolean asound_initialize (VolumeALSAPlugin * vol)
 {
     char device[32];
 
@@ -917,16 +917,16 @@ static gboolean asound_initialize(VolumeALSAPlugin * vol)
     asound_get_default_card (device);
 
     /* Access the "default" device. */
-    snd_mixer_open(&vol->mixer, 0);
-    if (snd_mixer_attach(vol->mixer, device))
+    snd_mixer_open (&vol->mixer, 0);
+    if (snd_mixer_attach (vol->mixer, device))
     {
         g_warning ("volumealsa: Couldn't attach mixer - looking for another valid device");
         asound_find_valid_device ();
         asound_get_default_card (device);
-        snd_mixer_attach(vol->mixer, device);
+        snd_mixer_attach (vol->mixer, device);
     }
-    snd_mixer_selem_register(vol->mixer, NULL, NULL);
-    snd_mixer_load(vol->mixer);
+    snd_mixer_selem_register (vol->mixer, NULL, NULL);
+    snd_mixer_load (vol->mixer);
 
     /* Find Master element, or Front element, or PCM element, or LineOut element.
      * If one of these succeeds, master_element is valid. */
@@ -1245,37 +1245,6 @@ static void set_internal_output_device (GtkWidget * widget, VolumeALSAPlugin *vo
     if (vol->menu_popup) gtk_menu_popdown (GTK_MENU(vol->menu_popup));
     send_message ();
 }
-
-#if 0
-static gboolean validate_devices (VolumeALSAPlugin *vol)
-{
-    char device[32];
-    snd_hctl_t *hctl;
-    gint counter = 0;
-    GList *iter, *mixers = gst_audio_default_registry_mixer_filter (_xfce_mixer_filter_mixer, FALSE, &counter);
-
-    /* Get the current setting - find cards, and which one is default */
-    for (iter = mixers; iter != NULL; iter = g_list_next (iter))
-    {
-        if (xfce_mixer_is_default_card (iter->data))
-        {
-            /* Check if we are still connected to the device */
-            g_list_free_full (mixers, (GDestroyNotify) _xfce_mixer_destroy_mixer);
-            asound_get_default_card (device);
-            if (snd_mixer_get_hctl (vol->mixer, device, &hctl))
-            {
-                asound_restart (vol);
-                return FALSE;
-            }
-            else return TRUE;
-        }
-    }
-    asound_find_valid_device ();
-    asound_restart (vol);
-    if (mixers) g_list_free_full (mixers, (GDestroyNotify) _xfce_mixer_destroy_mixer);
-    return FALSE;
-}
-#endif
 
 /* Multiple HDMI support */
 
@@ -1667,7 +1636,7 @@ static void volumealsa_popup_mute_toggled(GtkWidget * widget, VolumeALSAPlugin *
 }
 
 /* Build the window that appears when the top level widget is clicked. */
-static void volumealsa_build_popup_window(GtkWidget *p)
+static void volumealsa_build_popup_window (GtkWidget *p)
 {
     VolumeALSAPlugin * vol = lxpanel_plugin_get_data(p);
 
