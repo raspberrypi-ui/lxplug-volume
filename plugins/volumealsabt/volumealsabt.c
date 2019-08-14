@@ -830,15 +830,12 @@ static gboolean asound_set_bcm_card (void)
 
 static int asound_get_bcm_output (void)
 {
-    int val = -1, tmp;
-    char buf[128];
-    FILE *res = popen ("amixer cget numid=3 2>/dev/null", "r");
-    while (!feof (res))
-    {
-        fgets (buf, 128, res);
-        if (sscanf (buf, "  : values=%d", &tmp)) val = tmp;
-    }
-    pclose (res);
+    char *res;
+    int n, val = -1;
+
+    res = get_string ("amixer cget numid=3 2>/dev/null | grep : | cut -d = -f 2");
+    if (sscanf (res, "%d", &n) == 1) val = n;
+    g_free (res);
 
     if (val == 0)
     {
