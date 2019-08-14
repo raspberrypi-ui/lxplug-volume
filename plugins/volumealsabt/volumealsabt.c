@@ -129,7 +129,7 @@ typedef struct {
 } VolumeALSAPlugin;
 
 static void send_message (void);
-static gboolean asound_restart(gpointer vol_gpointer);
+static gboolean asound_restart (gpointer vol_gpointer);
 static gboolean asound_initialize(VolumeALSAPlugin * vol);
 static void asound_deinitialize(VolumeALSAPlugin * vol);
 static void volumealsa_update_display(VolumeALSAPlugin * vol);
@@ -140,21 +140,23 @@ static gboolean volumealsa_is_bcm_device (int num);
 static gboolean volumealsa_get_bcm_device_id (gchar *id);
 static GtkWidget *volumealsa_configure(LXPanel *panel, GtkWidget *p);
 
-static void set_bt_device (char *devname);
-static int get_bt_device_id (char *id);
-static void cb_name_owned (GDBusConnection *connection, const gchar *name, const gchar *owner, gpointer user_data);
-static void cb_name_unowned (GDBusConnection *connection, const gchar *name, gpointer user_data);
-static void connect_device (VolumeALSAPlugin *vol);
-static void cb_connected (GObject *source, GAsyncResult *res, gpointer user_data);
-static void cb_trusted (GObject *source, GAsyncResult *res, gpointer user_data);
-static void disconnect_device (VolumeALSAPlugin *vol);
-static void cb_disconnected (GObject *source, GAsyncResult *res, gpointer user_data);
+static void asound_set_bt_device (char *devname);
+static int asound_get_bt_device (char *id);
+static void bt_cb_object_added (GDBusObjectManager *manager, GDBusObject *object, gpointer user_data);
+static void bt_cb_object_removed (GDBusObjectManager *manager, GDBusObject *object, gpointer user_data);
+static void bt_cb_name_owned (GDBusConnection *connection, const gchar *name, const gchar *owner, gpointer user_data);
+static void bt_cb_name_unowned (GDBusConnection *connection, const gchar *name, gpointer user_data);
+static void bt_connect_device (VolumeALSAPlugin *vol);
+static void bt_cb_connected (GObject *source, GAsyncResult *res, gpointer user_data);
+static void bt_cb_trusted (GObject *source, GAsyncResult *res, gpointer user_data);
+static void bt_disconnect_device (VolumeALSAPlugin *vol);
+static void bt_cb_disconnected (GObject *source, GAsyncResult *res, gpointer user_data);
 static void set_bluetooth_output_device (GtkWidget * widget, VolumeALSAPlugin * vol);
 static void show_connect_dialog (VolumeALSAPlugin *vol, gboolean failed, const gchar *param);
 static void handle_close_connect_dialog (GtkButton *button, gpointer user_data);
 static gint handle_delete_connect_dialog (GtkWidget *widget, GdkEvent *event, gpointer user_data);
-static DEVICE_TYPE check_uuids (VolumeALSAPlugin *vol, const gchar *path);
-static gboolean is_current_bt_dev (const char *obj);
+static DEVICE_TYPE bt_get_uuid (VolumeALSAPlugin *vol, const gchar *path);
+static gboolean asound_is_current_bt_dev (const char *obj);
 
 static long lrint_dir(double x, int dir);
 static inline gboolean use_linear_dB_scale(long dBmin, long dBmax);
@@ -174,7 +176,7 @@ static void set_internal_output_device (GtkWidget * widget, VolumeALSAPlugin * v
 
 /* Bluetooth */
 
-static void set_bt_device (char *devname)
+static void asound_set_bt_device (char *devname)
 {
     char *user_config_file;
     FILE *fp;
@@ -197,7 +199,7 @@ static void set_bt_device (char *devname)
     }
 }
 
-static int get_bt_device_id (char *id)
+static int asound_get_bt_device (char *id)
 {
     char *user_config_file, *ptr, buffer[64];
     FILE *fp;
@@ -239,19 +241,18 @@ static int get_bt_device_id (char *id)
     return 0;
 }
 
-static gboolean is_current_bt_dev (const char *obj)
+static gboolean asound_is_current_bt_dev (const char *obj)
 {
     char device[20];
-    if (get_bt_device_id (device) && strstr (obj, device)) return TRUE;
+    if (asound_get_bt_device (device) && strstr (obj, device)) return TRUE;
     return FALSE;
 }
 
-static void cb_object_added (GDBusObjectManager *manager, GDBusObject *object, gpointer user_data)
+static void bt_cb_object_added (GDBusObjectManager *manager, GDBusObject *object, gpointer user_data)
 {
     VolumeALSAPlugin *vol = (VolumeALSAPlugin *) user_data;
-    char device[20];
     const char *obj = g_dbus_object_get_object_path (object);
-    if (get_bt_device_id (device) && strstr (obj, device))
+    if (asound_is_current_bt_dev (obj))
     {
         DEBUG ("Selected Bluetooth audio device has connected");
         asound_initialize (vol);
@@ -259,12 +260,11 @@ static void cb_object_added (GDBusObjectManager *manager, GDBusObject *object, g
     }
 }
 
-static void cb_object_removed (GDBusObjectManager *manager, GDBusObject *object, gpointer user_data)
+static void bt_cb_object_removed (GDBusObjectManager *manager, GDBusObject *object, gpointer user_data)
 {
     VolumeALSAPlugin *vol = (VolumeALSAPlugin *) user_data;
-    char device[20];
     const char *obj = g_dbus_object_get_object_path (object);
-    if (get_bt_device_id (device) && strstr (obj, device))
+    if (asound_is_current_bt_dev (obj))
     {
         DEBUG ("Selected Bluetooth audio device has disconnected");
         asound_initialize (vol);
@@ -272,7 +272,7 @@ static void cb_object_removed (GDBusObjectManager *manager, GDBusObject *object,
     }
 }
 
-static void cb_name_owned (GDBusConnection *connection, const gchar *name, const gchar *owner, gpointer user_data)
+static void bt_cb_name_owned (GDBusConnection *connection, const gchar *name, const gchar *owner, gpointer user_data)
 {
     VolumeALSAPlugin *vol = (VolumeALSAPlugin *) user_data;
     char device[20];
@@ -291,23 +291,23 @@ static void cb_name_owned (GDBusConnection *connection, const gchar *name, const
     else
     {
         /* register callbacks for devices being added or removed */
-        g_signal_connect (vol->objmanager, "object-added", G_CALLBACK (cb_object_added), vol);
-        g_signal_connect (vol->objmanager, "object-removed", G_CALLBACK (cb_object_removed), vol);
+        g_signal_connect (vol->objmanager, "object-added", G_CALLBACK (bt_cb_object_added), vol);
+        g_signal_connect (vol->objmanager, "object-removed", G_CALLBACK (bt_cb_object_removed), vol);
     }
 
     /* Check whether a Bluetooth audio device is the current default - connect to it if it is */
-    if (get_bt_device_id (device))
+    if (asound_get_bt_device (device))
     {
         /* Reconnect the current Bluetooth audio device */
         if (vol->bt_conname) g_free (vol->bt_conname);
         vol->bt_conname = g_strdup_printf ("/org/bluez/hci0/dev_%s", device);
 
         DEBUG ("Connecting to %s...", vol->bt_conname);
-        connect_device (vol);
+        bt_connect_device (vol);
     }
 }
 
-static void cb_name_unowned (GDBusConnection *connection, const gchar *name, gpointer user_data)
+static void bt_cb_name_unowned (GDBusConnection *connection, const gchar *name, gpointer user_data)
 {
     VolumeALSAPlugin *vol = (VolumeALSAPlugin *) user_data;
     DEBUG ("Name %s unowned on DBus", name);
@@ -316,15 +316,15 @@ static void cb_name_unowned (GDBusConnection *connection, const gchar *name, gpo
     vol->objmanager = NULL;
 }
 
-static void connect_device (VolumeALSAPlugin *vol)
+static void bt_connect_device (VolumeALSAPlugin *vol)
 {
     GDBusInterface *interface = g_dbus_object_manager_get_interface (vol->objmanager, vol->bt_conname, "org.bluez.Device1");
     if (interface)
     {
         // trust and connect
         g_dbus_proxy_call (G_DBUS_PROXY (interface), "org.freedesktop.DBus.Properties.Set", g_variant_new ("(ssv)",
-            g_dbus_proxy_get_interface_name (G_DBUS_PROXY (interface)), "Trusted", g_variant_new_boolean (TRUE)), G_DBUS_CALL_FLAGS_NONE, -1, NULL, cb_trusted, vol);
-        g_dbus_proxy_call (G_DBUS_PROXY (interface), "Connect", NULL, G_DBUS_CALL_FLAGS_NONE, -1, NULL, cb_connected, vol);
+            g_dbus_proxy_get_interface_name (G_DBUS_PROXY (interface)), "Trusted", g_variant_new_boolean (TRUE)), G_DBUS_CALL_FLAGS_NONE, -1, NULL, bt_cb_trusted, vol);
+        g_dbus_proxy_call (G_DBUS_PROXY (interface), "Connect", NULL, G_DBUS_CALL_FLAGS_NONE, -1, NULL, bt_cb_connected, vol);
         g_object_unref (interface);
     }
     else
@@ -334,7 +334,7 @@ static void connect_device (VolumeALSAPlugin *vol)
     }
 }
 
-static void cb_connected (GObject *source, GAsyncResult *res, gpointer user_data)
+static void bt_cb_connected (GObject *source, GAsyncResult *res, gpointer user_data)
 {
     VolumeALSAPlugin *vol = (VolumeALSAPlugin *) user_data;
     GError *error = NULL;
@@ -359,8 +359,8 @@ static void cb_connected (GObject *source, GAsyncResult *res, gpointer user_data
     {
         DEBUG ("Connected OK");
 
-        // update the globals with connection details
-        set_bt_device (vol->bt_conname);
+        // update asoundrc with connection details
+        asound_set_bt_device (vol->bt_conname);
 
         // reinit alsa to configure mixer
         asound_initialize (vol);
@@ -379,7 +379,7 @@ static void cb_connected (GObject *source, GAsyncResult *res, gpointer user_data
     send_message ();
 }
 
-static void cb_trusted (GObject *source, GAsyncResult *res, gpointer user_data)
+static void bt_cb_trusted (GObject *source, GAsyncResult *res, gpointer user_data)
 {
     GError *error = NULL;
     GVariant *var = g_dbus_proxy_call_finish (G_DBUS_PROXY (source), res, &error);
@@ -393,13 +393,13 @@ static void cb_trusted (GObject *source, GAsyncResult *res, gpointer user_data)
     else DEBUG ("Trusted OK");
 }
 
-static void disconnect_device (VolumeALSAPlugin *vol)
+static void bt_disconnect_device (VolumeALSAPlugin *vol)
 {
     // get the name of the device with the current sink number
     GError *error = NULL;
     char buffer[64], device[20];
 
-    if (get_bt_device_id (device))
+    if (asound_get_bt_device (device))
     {
         sprintf (buffer, "/org/bluez/hci0/dev_%s", device);
         DEBUG ("Device to disconnect = %s", buffer);
@@ -411,7 +411,7 @@ static void disconnect_device (VolumeALSAPlugin *vol)
             if (interface)
             {
                 DEBUG ("Disconnecting...");
-                g_dbus_proxy_call (G_DBUS_PROXY (interface), "Disconnect", NULL, G_DBUS_CALL_FLAGS_NONE, -1, NULL, cb_disconnected, vol);
+                g_dbus_proxy_call (G_DBUS_PROXY (interface), "Disconnect", NULL, G_DBUS_CALL_FLAGS_NONE, -1, NULL, bt_cb_disconnected, vol);
                 g_object_unref (interface);
                 return;
             }
@@ -422,11 +422,11 @@ static void disconnect_device (VolumeALSAPlugin *vol)
     if (vol->bt_conname)
     {
         DEBUG ("Nothing to disconnect - connecting to %s...", vol->bt_conname);
-        connect_device (vol);
+        bt_connect_device (vol);
     }
 }
 
-static void cb_disconnected (GObject *source, GAsyncResult *res, gpointer user_data)
+static void bt_cb_disconnected (GObject *source, GAsyncResult *res, gpointer user_data)
 {
     VolumeALSAPlugin *vol = (VolumeALSAPlugin *) user_data;
     GError *error = NULL;
@@ -448,7 +448,7 @@ static void cb_disconnected (GObject *source, GAsyncResult *res, gpointer user_d
     if (vol->bt_conname)
     {
         DEBUG ("Connecting to %s...", vol->bt_conname);
-        connect_device (vol);
+        bt_connect_device (vol);
     }
 }
 
@@ -461,7 +461,7 @@ static void set_bluetooth_output_device (GtkWidget * widget, VolumeALSAPlugin * 
     if (vol->bt_conname) g_free (vol->bt_conname);
     vol->bt_conname = g_strndup (widget->name, 64);
 
-    disconnect_device (vol);
+    bt_disconnect_device (vol);
 }
 
 static void show_connect_dialog (VolumeALSAPlugin *vol, gboolean failed, const gchar *param)
@@ -515,7 +515,7 @@ static gint handle_delete_connect_dialog (GtkWidget *widget, GdkEvent *event, gp
     return TRUE;
 }
 
-static DEVICE_TYPE check_uuids (VolumeALSAPlugin *vol, const gchar *path)
+static DEVICE_TYPE bt_get_uuid (VolumeALSAPlugin *vol, const gchar *path)
 {
     GDBusInterface *interface = g_dbus_object_manager_get_interface (vol->objmanager, path, "org.bluez.Device1");
     GVariant *elem, *var = g_dbus_proxy_get_cached_property (G_DBUS_PROXY (interface), "UUIDs");
@@ -671,7 +671,7 @@ static gboolean asound_reset_mixer_evt_idle(VolumeALSAPlugin * vol)
 }
 
 /* Handler for I/O event on ALSA channel. */
-static gboolean asound_mixer_event(GIOChannel * channel, GIOCondition cond, gpointer vol_gpointer)
+static gboolean asound_mixer_event (GIOChannel *channel, GIOCondition cond, gpointer vol_gpointer)
 {
     VolumeALSAPlugin * vol = (VolumeALSAPlugin *) vol_gpointer;
     int res = 0;
@@ -711,22 +711,23 @@ static gboolean asound_mixer_event(GIOChannel * channel, GIOCondition cond, gpoi
     return TRUE;
 }
 
-static gboolean asound_restart(gpointer vol_gpointer)
+static gboolean asound_restart (gpointer vol_gpointer)
 {
     VolumeALSAPlugin * vol = vol_gpointer;
 
-    if (!g_main_current_source()) return TRUE;
-    if (g_source_is_destroyed(g_main_current_source()))
+    if (!g_main_current_source ()) return TRUE;
+    if (g_source_is_destroyed (g_main_current_source ()))
         return FALSE;
 
-    asound_deinitialize(vol);
+    asound_deinitialize (vol);
 
-    if (!asound_initialize(vol)) {
-        g_warning("volumealsa: Re-initialization failed.");
+    if (!asound_initialize (vol))
+    {
+        g_warning ("volumealsa: Re-initialization failed.");
         return TRUE; // try again in a second
     }
 
-    g_warning("volumealsa: Restarted ALSA interface...");
+    g_warning ("volumealsa: Restarted ALSA interface...");
 
     vol->restart_idle = 0;
     return FALSE;
@@ -1211,7 +1212,7 @@ static void send_message (void)
 static void set_external_output_device (GtkWidget * widget, VolumeALSAPlugin * vol)
 {
     /* if there is a Bluetooth device in use, disconnect it first */
-    disconnect_device (vol);
+    bt_disconnect_device (vol);
 
     asound_set_default_card (widget->name);
     asound_restart (vol);
@@ -1225,7 +1226,7 @@ static void set_internal_output_device (GtkWidget * widget, VolumeALSAPlugin *vo
     char cmdbuf[64], bcmdev[64];
 
     /* if there is a Bluetooth device in use, disconnect it first */
-    disconnect_device (vol);
+    bt_disconnect_device (vol);
 
     /* check that the BCM device is default... */
     asound_get_default_card (cmdbuf);
@@ -1517,7 +1518,7 @@ static gboolean volumealsa_button_press_event(GtkWidget * widget, GdkEventButton
                     GDBusInterface *interface = G_DBUS_INTERFACE (interfaces->data);
                     if (g_strcmp0 (g_dbus_proxy_get_interface_name (G_DBUS_PROXY (interface)), "org.bluez.Device1") == 0)
                     {
-                        if (check_uuids (vol, g_dbus_proxy_get_object_path (G_DBUS_PROXY (interface))) == DEV_AUDIO_SINK)
+                        if (bt_get_uuid (vol, g_dbus_proxy_get_object_path (G_DBUS_PROXY (interface))) == DEV_AUDIO_SINK)
                         {
                             GVariant *name = g_dbus_proxy_get_cached_property (G_DBUS_PROXY (interface), "Alias");
                             GVariant *icon = g_dbus_proxy_get_cached_property (G_DBUS_PROXY (interface), "Icon");
@@ -1531,7 +1532,7 @@ static gboolean volumealsa_button_press_event(GtkWidget * widget, GdkEventButton
                                     gtk_menu_shell_append (GTK_MENU_SHELL (vol->menu_popup), mi);
                                 }
 
-                                volumealsa_menu_item_add (vol, g_variant_get_string (name, NULL), objpath, is_current_bt_dev (objpath), G_CALLBACK (set_bluetooth_output_device));
+                                volumealsa_menu_item_add (vol, g_variant_get_string (name, NULL), objpath, asound_is_current_bt_dev (objpath), G_CALLBACK (set_bluetooth_output_device));
                                 bt_dev = TRUE;
                                 devices++;
                             }
@@ -1782,38 +1783,38 @@ static GtkWidget *volumealsa_constructor(LXPanel *panel, config_setting_t *setti
 
     /* Allocate top level widget and set into Plugin widget pointer. */
     vol->panel = panel;
-    vol->plugin = p = gtk_button_new();
+    vol->plugin = p = gtk_button_new ();
     gtk_button_set_relief (GTK_BUTTON (vol->plugin), GTK_RELIEF_NONE);
-    g_signal_connect(vol->plugin, "button-press-event", G_CALLBACK(volumealsa_button_press_event), vol->panel);
+    g_signal_connect (vol->plugin, "button-press-event", G_CALLBACK (volumealsa_button_press_event), vol->panel);
     vol->settings = settings;
-    lxpanel_plugin_set_data(p, vol, volumealsa_destructor);
-    gtk_widget_add_events(p, GDK_BUTTON_PRESS_MASK);
-    gtk_widget_set_tooltip_text(p, _("Volume control"));
+    lxpanel_plugin_set_data (p, vol, volumealsa_destructor);
+    gtk_widget_add_events (p, GDK_BUTTON_PRESS_MASK);
+    gtk_widget_set_tooltip_text (p, _("Volume control"));
 
     /* Allocate icon as a child of top level. */
     vol->tray_icon = gtk_image_new();
-    gtk_container_add (GTK_CONTAINER(p), vol->tray_icon);
+    gtk_container_add (GTK_CONTAINER (p), vol->tray_icon);
 
     /* Initialize ALSA if default device isn't Bluetooth */
     asound_get_default_card (buffer);
     if (strcmp (buffer, "bluealsa")) asound_initialize (vol);
 
     // set up callbacks to see if BlueZ is on DBus
-    g_bus_watch_name (G_BUS_TYPE_SYSTEM, "org.bluez", 0, cb_name_owned, cb_name_unowned, vol, NULL);
+    g_bus_watch_name (G_BUS_TYPE_SYSTEM, "org.bluez", 0, bt_cb_name_owned, bt_cb_name_unowned, vol, NULL);
 
     /* Initialize window to appear when icon clicked. */
-    volumealsa_build_popup_window(p);
+    volumealsa_build_popup_window (p);
 
     /* Connect signals. */
-    g_signal_connect(G_OBJECT(p), "scroll-event", G_CALLBACK(volumealsa_popup_scale_scrolled), vol );
-    g_signal_connect(panel_get_icon_theme(panel), "changed", G_CALLBACK(volumealsa_theme_change), vol );
+    g_signal_connect (G_OBJECT (p), "scroll-event", G_CALLBACK (volumealsa_popup_scale_scrolled), vol);
+    g_signal_connect (panel_get_icon_theme (panel), "changed", G_CALLBACK (volumealsa_theme_change), vol);
 
     /* Set up for multiple HDMIs */
     vol->hdmis = n_desktops (vol);
 
     /* Update the display, show the widget, and return. */
-    volumealsa_update_display(vol);
-    gtk_widget_show_all(p);
+    volumealsa_update_display (vol);
+    gtk_widget_show_all (p);
 
     vol->stopped = FALSE;
     return p;
@@ -1954,7 +1955,7 @@ static gboolean volumealsa_control_msg (GtkWidget *plugin, const char *cmd)
 
     if (!strncmp (cmd, "reco", 4))
     {
-        asound_restart(vol);
+        asound_restart (vol);
         volumealsa_build_popup_window (vol->plugin);
         volumealsa_update_display(vol);
         if (vol->show_popup) gtk_widget_show_all (vol->popup_window);
