@@ -149,11 +149,12 @@ static void cb_connected (GObject *source, GAsyncResult *res, gpointer user_data
 static void cb_trusted (GObject *source, GAsyncResult *res, gpointer user_data);
 static void disconnect_device (VolumeALSAPlugin *vol);
 static void cb_disconnected (GObject *source, GAsyncResult *res, gpointer user_data);
-static void set_bt_card_event (GtkWidget * widget, VolumeALSAPlugin * vol);
+static void set_bluetooth_output_device (GtkWidget * widget, VolumeALSAPlugin * vol);
 static void show_connect_dialog (VolumeALSAPlugin *vol, gboolean failed, const gchar *param);
 static void handle_close_connect_dialog (GtkButton *button, gpointer user_data);
 static gint handle_delete_connect_dialog (GtkWidget *widget, GdkEvent *event, gpointer user_data);
 static DEVICE_TYPE check_uuids (VolumeALSAPlugin *vol, const gchar *path);
+static gboolean is_current_bt_dev (const char *obj);
 
 static long lrint_dir(double x, int dir);
 static inline gboolean use_linear_dB_scale(long dBmin, long dBmax);
@@ -167,6 +168,9 @@ static void parse_asoundrc (FILE *fp, char *type, char *cid);
 
 static char *get_string (char *cmd);
 static int n_desktops (VolumeALSAPlugin *vol);
+
+static void set_external_output_device (GtkWidget * widget, VolumeALSAPlugin * vol);
+static void set_internal_output_device (GtkWidget * widget, VolumeALSAPlugin * vol);
 
 /* Bluetooth */
 
@@ -182,7 +186,7 @@ static void set_bt_device (char *devname)
         return;
     }
 
-    user_config_file= g_build_filename (g_get_home_dir (), "/.asoundrc", NULL);
+    user_config_file = g_build_filename (g_get_home_dir (), "/.asoundrc", NULL);
     fp = fopen (user_config_file, "wb");
     g_free (user_config_file);
 
@@ -233,6 +237,13 @@ static int get_bt_device_id (char *id)
 
     fclose (fp);
     return 0;
+}
+
+static gboolean is_current_bt_dev (const char *obj)
+{
+    char device[20];
+    if (get_bt_device_id (device) && strstr (obj, device)) return TRUE;
+    return FALSE;
 }
 
 static void cb_object_added (GDBusObjectManager *manager, GDBusObject *object, gpointer user_data)
@@ -441,7 +452,7 @@ static void cb_disconnected (GObject *source, GAsyncResult *res, gpointer user_d
     }
 }
 
-static void set_bt_card_event (GtkWidget * widget, VolumeALSAPlugin * vol)
+static void set_bluetooth_output_device (GtkWidget * widget, VolumeALSAPlugin * vol)
 {
     // show the connection dialog
     show_connect_dialog (vol, FALSE, gtk_menu_item_get_label (GTK_MENU_ITEM (widget)));
@@ -1130,9 +1141,9 @@ static void volumealsa_update_display(VolumeALSAPlugin * vol)
     }
 
     /* Display current level in tooltip. */
-    char * tooltip = g_strdup_printf("%s %d", _("Volume control"), level);
-    gtk_widget_set_tooltip_text(vol->plugin, tooltip);
-    g_free(tooltip);
+    char *tooltip = g_strdup_printf("%s %d", _("Volume control"), level);
+    gtk_widget_set_tooltip_text (vol->plugin, tooltip);
+    g_free (tooltip);
 }
 
 /* ALSA device ID helper functions */
@@ -1149,17 +1160,12 @@ static gboolean volumealsa_is_default_card (int num)
 
 static gboolean volumealsa_is_bcm_device (int num)
 {
-    char buf[16];
-    snd_ctl_t *ctl;
-    snd_ctl_card_info_t *info;
-    snd_ctl_card_info_alloca (&info);
-
-    sprintf (buf, "hw:%d", num);
-    if (snd_ctl_open (&ctl, buf, 0) < 0) return FALSE;
-    if (snd_ctl_card_info (ctl, info) < 0) return FALSE;
-    if (snd_ctl_close (ctl) < 0) return FALSE;
-    if (strncmp (snd_ctl_card_info_get_name (info), "bcm2835", 7) == 0) return TRUE;
-    return FALSE;
+    char *name;
+    if (snd_card_get_name (num, &name)) return FALSE;
+    int res = strncmp (name, "bcm2835", 7);
+    g_free (name);
+    if (res) return FALSE;
+    return TRUE;
 }
 
 static gboolean volumealsa_get_bcm_device_id (gchar *id)
@@ -1202,7 +1208,7 @@ static void send_message (void)
   id = g_bus_own_name (G_BUS_TYPE_SESSION, "org.lxde.volumealsa", 0, NULL, NULL, NULL, NULL, NULL);
 }
 
-static void set_default_card_event (GtkWidget * widget, VolumeALSAPlugin * vol)
+static void set_external_output_device (GtkWidget * widget, VolumeALSAPlugin * vol)
 {
     /* if there is a Bluetooth device in use, disconnect it first */
     disconnect_device (vol);
@@ -1214,7 +1220,7 @@ static void set_default_card_event (GtkWidget * widget, VolumeALSAPlugin * vol)
     send_message ();
 }
 
-static void set_bcm_output (GtkWidget * widget, VolumeALSAPlugin *vol)
+static void set_internal_output_device (GtkWidget * widget, VolumeALSAPlugin *vol)
 {
     char cmdbuf[64], bcmdev[64];
 
@@ -1367,6 +1373,22 @@ static int get_simple_ctrls (int dev)
 
 /* Handler for "button-press-event" signal on main widget. */
 
+static GtkWidget *volumealsa_menu_item_add (VolumeALSAPlugin *vol, const char *label, const char *name, gboolean selected, GCallback cb)
+{
+    GtkWidget *mi = gtk_image_menu_item_new_with_label (label);
+    gtk_image_menu_item_set_always_show_image (GTK_IMAGE_MENU_ITEM (mi), TRUE);
+    if (selected)
+    {
+        GtkWidget *image = gtk_image_new ();
+        set_icon (vol->panel, image, "dialog-ok-apply", panel_get_icon_size (vol->panel) > 36 ? 24 : 16);
+        gtk_image_menu_item_set_image (GTK_IMAGE_MENU_ITEM(mi), image);
+    }
+    gtk_widget_set_name (mi, name);
+    g_signal_connect (mi, "activate", cb, (gpointer) vol);
+    gtk_menu_shell_append (GTK_MENU_SHELL (vol->menu_popup), mi);
+    return mi;
+}
+
 static gboolean volumealsa_button_press_event(GtkWidget * widget, GdkEventButton * event, LXPanel * panel)
 {
     VolumeALSAPlugin * vol = lxpanel_plugin_get_data(widget);
@@ -1392,9 +1414,9 @@ static gboolean volumealsa_button_press_event(GtkWidget * widget, GdkEventButton
         volumealsa_update_display (vol);
     }
 
-    /* Left-click.  Show or hide the popup window. */
     if (event->button == 1)
     {
+        /* left-click - show or hide volume popup */
         if (get_simple_ctrls (-1) < 1)
         {
             GtkWidget *mi;
@@ -1403,14 +1425,14 @@ static gboolean volumealsa_button_press_event(GtkWidget * widget, GdkEventButton
             gtk_widget_set_sensitive (mi, FALSE);
             gtk_menu_shell_append (GTK_MENU_SHELL (vol->menu_popup), mi);
             gtk_widget_show_all (vol->menu_popup);
-            gtk_menu_popup (GTK_MENU(vol->menu_popup), NULL, NULL, (GtkMenuPositionFunc) volumealsa_popup_set_position, (gpointer) vol,
+            gtk_menu_popup (GTK_MENU (vol->menu_popup), NULL, NULL, (GtkMenuPositionFunc) volumealsa_popup_set_position, (gpointer) vol,
                 event->button, event->time);
             return TRUE;
         }
 
         if (vol->show_popup)
         {
-            gtk_widget_hide(vol->popup_window);
+            gtk_widget_hide (vol->popup_window);
             vol->show_popup = FALSE;
         }
         else
@@ -1427,116 +1449,67 @@ static gboolean volumealsa_button_press_event(GtkWidget * widget, GdkEventButton
             gdk_window_move (gtk_widget_get_window (vol->popup_window), x, y);
             gtk_window_present (GTK_WINDOW (vol->popup_window));
             gdk_pointer_grab (gtk_widget_get_window (vol->popup_window), TRUE, GDK_BUTTON_PRESS_MASK, NULL, NULL, GDK_CURRENT_TIME);
-            g_signal_connect (G_OBJECT(vol->popup_window), "button-press-event", G_CALLBACK (volumealsa_mouse_out), vol);
+            g_signal_connect (G_OBJECT (vol->popup_window), "button-press-event", G_CALLBACK (volumealsa_mouse_out), vol);
             vol->show_popup = TRUE;
         }
     }
-
-    /* Middle-click.  Toggle the mute status. */
     else if (event->button == 2)
     {
-        gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(vol->mute_check), ! gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(vol->mute_check)));
+        /* middle-click - toggle mute */
+        gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (vol->mute_check), ! gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON (vol->mute_check)));
     }
     else if (event->button == 3)
     {
-        gint bcm, devices;
-        GtkWidget *image, *mi, *sep;
-        gboolean ext_dev = FALSE, bt_dev = TRUE;
-        int num;
-        snd_ctl_t *ctl;
-        snd_ctl_card_info_t *info;
-        char buf[16];
-        int msize = 16;
-
-        if (panel_get_icon_size (vol->panel) > 36) msize = 24;
-
-        snd_ctl_card_info_alloca (&info);
-
-        image = gtk_image_new ();
-        set_icon (vol->panel, image, "dialog-ok-apply", msize);
+        /* right-click - show device list */
+        GtkWidget *mi;
+        gint devices = 0, card_num;
+        gboolean ext_dev = FALSE, bt_dev = FALSE;
 
         vol->menu_popup = gtk_menu_new ();
 
-        if (volumealsa_get_bcm_device_id (NULL))
+        /* add internal device... */
+        card_num = -1;
+        while (1)
         {
-            /* if the onboard card is default, find currently-set output */
-            bcm = 0;
-            num = -1;
-            while (1)
+            if (snd_card_next (&card_num) < 0)
             {
-                if (snd_card_next (&num) < 0)
-                {
-                    g_warning ("volumealsa: Cannot enumerate devices");
-                    break;
-                }
-                if (num == -1) break;
+                g_warning ("volumealsa: Cannot enumerate devices");
+                break;
+            }
+            if (card_num == -1) break;
 
-                if (volumealsa_is_default_card (num) && volumealsa_is_bcm_device (num))
-                {
-                    bcm = asound_get_bcm_output ();
-                    break;
-                }
-            }
+            if (volumealsa_is_bcm_device (card_num))
+            {
+                /* if the onboard card is default, find currently-set output */
+                gint bcm = 0;
 
-            mi = gtk_image_menu_item_new_with_label (_("Analog"));
-            gtk_image_menu_item_set_always_show_image (GTK_IMAGE_MENU_ITEM (mi), TRUE);
-            if (bcm == 1)
-            {
-                gtk_image_menu_item_set_image (GTK_IMAGE_MENU_ITEM(mi), image);
-            }
-            gtk_widget_set_name (mi, "1");
-            g_signal_connect (mi, "activate", G_CALLBACK (set_bcm_output), (gpointer) vol);
-            gtk_menu_shell_append (GTK_MENU_SHELL(vol->menu_popup), mi);
+                if (volumealsa_is_default_card (card_num)) bcm = asound_get_bcm_output ();
 
-            if (vol->hdmis == 2)
-            {
-                mi = gtk_image_menu_item_new_with_label (vol->mon_names[0]);
-                gtk_image_menu_item_set_always_show_image (GTK_IMAGE_MENU_ITEM (mi), TRUE);
-                if (bcm == 2)
+                volumealsa_menu_item_add (vol, _("Analog"), "1", bcm == 1, G_CALLBACK (set_internal_output_device));
+                if (vol->hdmis == 2)
                 {
-                    gtk_image_menu_item_set_image (GTK_IMAGE_MENU_ITEM(mi), image);
+                    volumealsa_menu_item_add (vol, vol->mon_names[0], "2", bcm == 2, G_CALLBACK (set_internal_output_device));
+                    volumealsa_menu_item_add (vol, vol->mon_names[1], "3", bcm == 3, G_CALLBACK (set_internal_output_device));
+                    devices = 3;
                 }
-                gtk_widget_set_name (mi, "2");
-                g_signal_connect (mi, "activate", G_CALLBACK (set_bcm_output), (gpointer) vol);
-                gtk_menu_shell_append (GTK_MENU_SHELL(vol->menu_popup), mi);
-                mi = gtk_image_menu_item_new_with_label (vol->mon_names[1]);
-                gtk_image_menu_item_set_always_show_image (GTK_IMAGE_MENU_ITEM (mi), TRUE);
-                if (bcm == 3)
+                else
                 {
-                    gtk_image_menu_item_set_image (GTK_IMAGE_MENU_ITEM(mi), image);
+                    volumealsa_menu_item_add (vol, _("HDMI"), "2", bcm == 2, G_CALLBACK (set_internal_output_device));
+                    devices = 2;
                 }
-                gtk_widget_set_name (mi, "3");
-                g_signal_connect (mi, "activate", G_CALLBACK (set_bcm_output), (gpointer) vol);
-                gtk_menu_shell_append (GTK_MENU_SHELL(vol->menu_popup), mi);
-                devices = 3;
+                break;
             }
-            else
-            {
-                mi = gtk_image_menu_item_new_with_label (_("HDMI"));
-                gtk_image_menu_item_set_always_show_image (GTK_IMAGE_MENU_ITEM (mi), TRUE);
-                if (bcm == 2)
-                {
-                    gtk_image_menu_item_set_image (GTK_IMAGE_MENU_ITEM(mi), image);
-                }
-                gtk_widget_set_name (mi, "2");
-                g_signal_connect (mi, "activate", G_CALLBACK (set_bcm_output), (gpointer) vol);
-                gtk_menu_shell_append (GTK_MENU_SHELL(vol->menu_popup), mi);
-                devices = 2;
-            }
-            bt_dev = FALSE;
         }
-        else devices = 0;
 
         // add Bluetooth devices...
         if (vol->objmanager)
         {
-            char device[20];
-            int btd = get_bt_device_id (device);
             // iterate all the objects the manager knows about
             GList *objects = g_dbus_object_manager_get_objects (vol->objmanager);
             while (objects != NULL)
             {
                 GDBusObject *object = (GDBusObject *) objects->data;
+                const char *objpath = g_dbus_object_get_object_path (object);
                 GList *interfaces = g_dbus_object_get_interfaces (object);
                 while (interfaces != NULL)
                 {
@@ -1544,33 +1517,29 @@ static gboolean volumealsa_button_press_event(GtkWidget * widget, GdkEventButton
                     GDBusInterface *interface = G_DBUS_INTERFACE (interfaces->data);
                     if (g_strcmp0 (g_dbus_proxy_get_interface_name (G_DBUS_PROXY (interface)), "org.bluez.Device1") == 0)
                     {
-                        GVariant *name = g_dbus_proxy_get_cached_property (G_DBUS_PROXY (interface), "Alias");
-                        GVariant *paired = g_dbus_proxy_get_cached_property (G_DBUS_PROXY (interface), "Paired");
-                        GVariant *trusted = g_dbus_proxy_get_cached_property (G_DBUS_PROXY (interface), "Trusted");
-                        GVariant *icon = g_dbus_proxy_get_cached_property (G_DBUS_PROXY (interface), "Icon");
-                        DEVICE_TYPE dev = check_uuids (vol, g_dbus_proxy_get_object_path (G_DBUS_PROXY (interface)));
-                        if (name && icon && paired && trusted && dev == DEV_AUDIO_SINK && g_variant_get_boolean (paired) && g_variant_get_boolean (trusted))
+                        if (check_uuids (vol, g_dbus_proxy_get_object_path (G_DBUS_PROXY (interface))) == DEV_AUDIO_SINK)
                         {
-                            if (!bt_dev)
+                            GVariant *name = g_dbus_proxy_get_cached_property (G_DBUS_PROXY (interface), "Alias");
+                            GVariant *icon = g_dbus_proxy_get_cached_property (G_DBUS_PROXY (interface), "Icon");
+                            GVariant *paired = g_dbus_proxy_get_cached_property (G_DBUS_PROXY (interface), "Paired");
+                            GVariant *trusted = g_dbus_proxy_get_cached_property (G_DBUS_PROXY (interface), "Trusted");
+                            if (name && icon && paired && trusted && g_variant_get_boolean (paired) && g_variant_get_boolean (trusted))
                             {
-                                sep = gtk_separator_menu_item_new ();
-                                gtk_menu_shell_append (GTK_MENU_SHELL(vol->menu_popup), sep);
-                                bt_dev = TRUE;
-                            }
-                            mi = gtk_image_menu_item_new_with_label (g_variant_get_string (name, NULL));
-                            gtk_image_menu_item_set_always_show_image (GTK_IMAGE_MENU_ITEM (mi), TRUE);
+                                if (!bt_dev && devices)
+                                {
+                                    mi = gtk_separator_menu_item_new ();
+                                    gtk_menu_shell_append (GTK_MENU_SHELL (vol->menu_popup), mi);
+                                }
 
-                            const char *devname = g_dbus_object_get_object_path (object);
-                            if (btd && !strncasecmp (device, devname + (strlen (devname) - 17), 17))
-                                gtk_image_menu_item_set_image (GTK_IMAGE_MENU_ITEM(mi), image);
-                            g_signal_connect (mi, "activate", G_CALLBACK (set_bt_card_event), (gpointer) vol);
-                            gtk_widget_set_name (mi, devname);  // use the widget name to store the card id
-                            gtk_menu_shell_append (GTK_MENU_SHELL(vol->menu_popup), mi);
-                            devices++;
+                                volumealsa_menu_item_add (vol, g_variant_get_string (name, NULL), objpath, is_current_bt_dev (objpath), G_CALLBACK (set_bluetooth_output_device));
+                                bt_dev = TRUE;
+                                devices++;
+                            }
+                            g_variant_unref (name);
+                            g_variant_unref (icon);
+                            g_variant_unref (paired);
+                            g_variant_unref (trusted);
                         }
-                        g_variant_unref (name);
-                        g_variant_unref (paired);
-                        g_variant_unref (trusted);
                         break;
                     }
                     interfaces = interfaces->next;
@@ -1580,46 +1549,39 @@ static gboolean volumealsa_button_press_event(GtkWidget * widget, GdkEventButton
         }
 
         // add external devices...
-        num = -1;
+        card_num = -1;
         while (1)
         {
-            if (snd_card_next (&num) < 0)
+            if (snd_card_next (&card_num) < 0)
             {
                 g_warning ("volumealsa: Cannot enumerate devices");
                 break;
             }
-            if (num == -1) break;
+            if (card_num == -1) break;
 
-            if (!volumealsa_is_bcm_device (num))
+            if (!volumealsa_is_bcm_device (card_num))
             {
-                sprintf (buf, "hw:%d", num);
-                if (snd_ctl_open (&ctl, buf, 0) < 0) break;
-                if (snd_ctl_card_info (ctl, info) < 0) break;
-                if (snd_ctl_close (ctl) < 0) break;
-                if (get_simple_ctrls (num) > 0)
-                    mi = gtk_image_menu_item_new_with_label (snd_ctl_card_info_get_name (info));
-                else
-                {
-                    // special case...
-                    if (!strcmp (snd_ctl_card_info_get_name (info), "vc4-hdmi")) continue;
-
-                    char buffer[100];
-                    mi = gtk_image_menu_item_new_with_label ("");
-                    sprintf (buffer, "<i>%s</i>", snd_ctl_card_info_get_name (info));
-                    gtk_label_set_markup (GTK_LABEL(gtk_bin_get_child (GTK_BIN (mi))), buffer);
-                    gtk_widget_set_tooltip_text(mi, _("No volume control on this device"));
-                }
-                gtk_image_menu_item_set_always_show_image (GTK_IMAGE_MENU_ITEM (mi), TRUE);
-                if (volumealsa_is_default_card (num)) gtk_image_menu_item_set_image (GTK_IMAGE_MENU_ITEM(mi), image);
-                gtk_widget_set_name (mi, buf);  // use the widget name to store the card id
-                g_signal_connect (mi, "activate", G_CALLBACK (set_default_card_event), (gpointer) vol);
+                char *nam, *dev;
+                snd_card_get_name (card_num, &nam);
+                dev = g_strdup_printf ("hw:%d", card_num);
 
                 if (!ext_dev && devices)
                 {
-                    sep = gtk_separator_menu_item_new ();
-                    gtk_menu_shell_append (GTK_MENU_SHELL(vol->menu_popup), sep);
+                    mi = gtk_separator_menu_item_new ();
+                    gtk_menu_shell_append (GTK_MENU_SHELL (vol->menu_popup), mi);
                 }
-                gtk_menu_shell_append (GTK_MENU_SHELL(vol->menu_popup), mi);
+
+                mi = volumealsa_menu_item_add (vol, nam, dev, volumealsa_is_default_card (card_num), G_CALLBACK (set_external_output_device));
+                if (get_simple_ctrls (card_num) < 1)
+                {
+                    char *lab = g_strdup_printf ("<i>%s</i>", nam);
+                    gtk_label_set_markup (GTK_LABEL (gtk_bin_get_child (GTK_BIN (mi))), lab);
+                    gtk_widget_set_tooltip_text (mi, _("No volume control on this device"));
+                    g_free (lab);
+                }
+
+                g_free (nam);
+                g_free (dev);
                 ext_dev = TRUE;
                 devices++;
             }
@@ -1627,19 +1589,19 @@ static gboolean volumealsa_button_press_event(GtkWidget * widget, GdkEventButton
 
         if (ext_dev)
         {
-            sep = gtk_separator_menu_item_new ();
-            gtk_menu_shell_append (GTK_MENU_SHELL(vol->menu_popup), sep);
+            mi = gtk_separator_menu_item_new ();
+            gtk_menu_shell_append (GTK_MENU_SHELL (vol->menu_popup), mi);
 
             mi = gtk_image_menu_item_new_with_label (_("USB Device Settings..."));
             g_signal_connect (mi, "activate", G_CALLBACK (open_config_dialog), (gpointer) vol);
-            gtk_menu_shell_append (GTK_MENU_SHELL(vol->menu_popup), mi);
+            gtk_menu_shell_append (GTK_MENU_SHELL (vol->menu_popup), mi);
         }
 
         if (!devices)
         {
             mi = gtk_image_menu_item_new_with_label (_("No audio devices found"));
             gtk_widget_set_sensitive (GTK_WIDGET (mi), FALSE);
-            gtk_menu_shell_append (GTK_MENU_SHELL(vol->menu_popup), mi);
+            gtk_menu_shell_append (GTK_MENU_SHELL (vol->menu_popup), mi);
         }
 
         // lock menu if a dialog is open
