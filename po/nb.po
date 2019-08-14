@@ -30,7 +30,7 @@ msgstr "Kobler til lydenhet"
 #: ../plugins/volumealsabt/volumealsabt.c:413
 #, c-format
 msgid "Connecting to Bluetooth audio device '%s'..."
-msgstr "Kobler til '%s'-Bluetooth-lydenhet …"
+msgstr "Kobler til '%s'-Bluetooth-lydenheten …"
 
 #: ../plugins/volumealsabt/volumealsabt.c:424
 #, c-format
