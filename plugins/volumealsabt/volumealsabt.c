@@ -219,25 +219,63 @@ static gboolean find_in_section (char *file, char *sec, char *seek)
 
 static void asound_set_bt_device (char *devname)
 {
-    char *user_config_file;
-    FILE *fp;
+    char *user_config_file = g_build_filename (g_get_home_dir (), "/.asoundrc", NULL);
     int b1, b2, b3, b4, b5, b6;
 
+    /* parse the device name to make sure it is valid */
     if (sscanf (devname, "/org/bluez/hci0/dev_%x_%x_%x_%x_%x_%x", &b1, &b2, &b3, &b4, &b5, &b6) != 6)
     {
         DEBUG ("Failed to set device - name %s invalid", devname);
         return;
     }
 
-    user_config_file = g_build_filename (g_get_home_dir (), "/.asoundrc", NULL);
-    fp = fopen (user_config_file, "wb");
-    g_free (user_config_file);
-
-    if (fp)
+    /* check file exists - write default contents if not */
+    if (!g_file_test (user_config_file, G_FILE_TEST_IS_REGULAR))
     {
-        fprintf (fp, "pcm.!default {\n\ttype plug\n\tslave.pcm {\n\t\ttype bluealsa\n\t\tdevice \"%02X:%02X:%02X:%02X:%02X:%02X\"\n\t\tprofile \"a2dp\"\n\t}\n}\n\nctl.!default {\n\ttype bluealsa\n}\n", b1, b2, b3, b4, b5, b6);
-        fclose (fp);
+        vsystem ("echo 'pcm.!default {\n\ttype plug\n\tslave.pcm {\n\t\ttype bluealsa\n\t\tdevice \"%02X:%02X:%02X:%02X:%02X:%02X\"\n\t\tprofile \"a2dp\"\n\t}\n}\n\nctl.!default {\n\ttype bluealsa\n}\n' >> %s", b1, b2, b3, b4, b5, b6, user_config_file);
+        g_free (user_config_file);
+        return;
     }
+
+    /* check for new pcm.default section */
+    if (find_in_section (user_config_file, "pcm.!default", "'slave.pcm \".*\"'"))
+    {
+        /* replace slave.pcm "" section with bluealsa version */
+        vsystem ("sed -i '/pcm.!default/,/}/ { s/slave.pcm .*/slave.pcm {\\n\\t\\ttype bluealsa\\n\\t\\tdevice \"%02X:%02X:%02X:%02X:%02X:%02X\"\\n\\t\\tprofile \"a2dp\"\\n\\t}/ }' %s", b1, b2, b3, b4, b5, b6, user_config_file);
+    }
+    else if (find_in_section (user_config_file, "pcm.!default", "slave.pcm"))
+    {
+        /* replace slave.pcm {} section with bluealsa version */
+        vsystem ("sed -i '/slave.pcm {/,/}/ { s/slave.pcm {/slave.pcm {\\n\\t\\ttype bluealsa\\n\\t\\tdevice \"%02X:%02X:%02X:%02X:%02X:%02X\"\\n\\t\\tprofile \"a2dp\"\\n\\t}/; /slave.pcm/!d }' %s", b1, b2, b3, b4, b5, b6, user_config_file);
+    }
+    else
+    {
+        /* does the file contain an old format pcm.default section? */
+        if (find_in_section (user_config_file, "pcm.!default", "type"))
+        {
+            /* overwrite entirety of pcm.default section with bluealsa version */
+            vsystem ("sed -i '/pcm.!default/,/}/ { s/pcm.!default {/pcm.!default {\\n\\ttype bluealsa\\n\\tslave.pcm {\\n\\t\\ttype bluealsa\\n\\t\\tdevice \"%02X:%02X:%02X:%02X:%02X:%02X\"\\n\\t\\tprofile \"a2dp\"\\n\\t}\\n}/; /pcm/!d }' %s", b1, b2, b3, b4, b5, b6, user_config_file);
+        }
+        else
+        {
+            /* append a pcm.default section */
+            vsystem ("sed -i '$ a \\\n\\npcm.!default {\\n\\ttype plug\\n\\tslave.pcm {\\n\\t\\ttype bluealsa\\n\\t\\tdevice \"%02X:%02X:%02X:%02X:%02X:%02X\"\\n\\t\\tprofile\"a2dp\"\\n\\t}\\n}\\n %s", b1, b2, b3, b4, b5, b6, user_config_file);
+        }
+    }
+
+    /* check for ctl.default section */
+    if (find_in_section (user_config_file, "ctl.!default", "type"))
+    {
+        /* overwrite entirety of ctl.default section with bluealsa version */
+        vsystem ("sed -i '/ctl.!default/,/}/ { s/ctl.!default {/ctl.!default {\\n\\ttype bluealsa\\n}/; /ctl/!d }' %s", user_config_file);
+    }
+    else
+    {
+        /* append a ctl.default section */
+        vsystem ("sed -i '$ a \\\n\\nctl.!default {\\n\\ttype bluealsa\\n}\\n' %s", user_config_file);
+    }
+
+    g_free (user_config_file);
 }
 
 static int asound_get_bt_device (char *id)
@@ -304,7 +342,6 @@ static void bt_cb_name_owned (GDBusConnection *connection, const gchar *name, co
 {
     VolumeALSAPlugin *vol = (VolumeALSAPlugin *) user_data;
     char device[20];
-    FILE *fp;
     DEBUG ("Name %s owned on DBus", name);
 
     /* BlueZ exists - get an object manager for it */
@@ -801,25 +838,21 @@ static void asound_get_default_card (char *id)
 
 static void asound_set_default_card (const char *id)
 {
-    char idbuf[16], *card;
     char *user_config_file = g_build_filename (g_get_home_dir (), "/.asoundrc", NULL);
+    char idbuf[16], *card;
 
     /* break the id string into the type (before the colon) and the card number (after the colon) */
     strcpy (idbuf, id);
     card = strchr (idbuf, ':') + 1;
     *(strchr (idbuf, ':')) = 0;
 
-    FILE *fp = fopen (user_config_file, "rb");
-    if (!fp)
+    /* check file exists - write default contents if not */
+    if (!g_file_test (user_config_file, G_FILE_TEST_IS_REGULAR))
     {
-        /* file does not exist - create it from scratch */
-        fp = fopen (user_config_file, "wb");
-        fprintf (fp, "pcm.!default {\n\ttype plug\n\tslave.pcm \"%s:%s\"\n}\n\nctl.!default {\n\ttype %s\n\tcard %s\n}\n", idbuf, card, idbuf, card);
-        fclose (fp);
+        vsystem ("echo 'pcm.!default {\n\ttype plug\n\tslave.pcm \"%s:%s\"\n}\n\nctl.!default {\n\ttype %s\n\tcard %s\n}\n' >> %s", idbuf, card, idbuf, card, user_config_file);
         g_free (user_config_file);
         return;
     }
-    else fclose (fp);
 
     /* check for new pcm.default section */
     if (find_in_section (user_config_file, "pcm.!default", "'slave.pcm \".*\"'"))
@@ -829,6 +862,9 @@ static void asound_set_default_card (const char *id)
     }
     else if (find_in_section (user_config_file, "pcm.!default", "slave.pcm"))
     {
+        /* replace type in pcm section with type plug */
+        vsystem ("sed -i '/pcm.!default/,/}/ s/type .*/type plug/' %s", user_config_file);
+
         /* replace slave.pcm {} section with slave.pcm "card ID" */
         vsystem ("sed -i '/slave.pcm {/,/}/ { s/slave.pcm {/slave.pcm \"%s:%s\"/; /slave.pcm/!d }' %s", idbuf, card, user_config_file);
     }
@@ -1736,13 +1772,12 @@ static GtkWidget *volumealsa_constructor(LXPanel *panel, config_setting_t *setti
     /* Allocate and initialize plugin context and set into Plugin private data pointer. */
     VolumeALSAPlugin * vol = g_new0(VolumeALSAPlugin, 1);
     GtkWidget *p;
-    FILE *fp;
 
 #ifdef ENABLE_NLS
     setlocale (LC_ALL, "");
-    bindtextdomain ( GETTEXT_PACKAGE, PACKAGE_LOCALE_DIR );
-    bind_textdomain_codeset ( GETTEXT_PACKAGE, "UTF-8" );
-    textdomain ( GETTEXT_PACKAGE );
+    bindtextdomain (GETTEXT_PACKAGE, PACKAGE_LOCALE_DIR);
+    bind_textdomain_codeset (GETTEXT_PACKAGE, "UTF-8");
+    textdomain (GETTEXT_PACKAGE);
 #endif
 
     vol->bt_conname = NULL;
