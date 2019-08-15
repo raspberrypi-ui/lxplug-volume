@@ -165,7 +165,7 @@ static void asound_find_valid_device (void);
 static int asound_get_bcm_output (void);
 static int asound_get_simple_ctrls (int dev);
 
-static char *get_string (char *cmd);
+static char *get_string (const char *fmt, ...);
 static int n_desktops (VolumeALSAPlugin *vol);
 
 static void set_external_output_device (GtkWidget * widget, VolumeALSAPlugin * vol);
@@ -173,21 +173,30 @@ static void set_internal_output_device (GtkWidget * widget, VolumeALSAPlugin * v
 
 /* General file parsing utils */
 
-static char *get_string (char *cmd)
+static char *get_string (const char *fmt, ...)
 {
     char *line = NULL, *res = NULL;
     int len = 0;
-    FILE *fp = popen (cmd, "r");
+    char *cmdline;
 
-    if (fp == NULL) return g_strdup ("");
-    if (getline (&line, &len, fp) > 0)
+    va_list arg;
+    va_start (arg, fmt);
+    g_vasprintf (&cmdline, fmt, arg);
+    va_end (arg);
+
+    FILE *fp = popen (cmdline, "r");
+    if (fp)
     {
-        res = line;
-        while (*res++) if (g_ascii_isspace (*res)) *res = 0;
-        res = g_strdup (line);
+        if (getline (&line, &len, fp) > 0)
+        {
+            res = line;
+            while (*res++) if (g_ascii_isspace (*res)) *res = 0;
+            res = g_strdup (line);
+        }
+        pclose (fp);
+        g_free (line);
     }
-    pclose (fp);
-    g_free (line);
+    g_free (cmdline);
     return res ? res : g_strdup ("");
 }
 
@@ -280,14 +289,12 @@ static void asound_set_bt_device (char *devname)
 
 static int asound_get_bt_device (char *id)
 {
-    char *user_config_file, *cmd, *res;
+    char *user_config_file, *res;
     int ret = 0;
 
     user_config_file = g_build_filename (g_get_home_dir (), "/.asoundrc", NULL);
 
-    cmd = g_strdup_printf ("sed -n '/pcm.!default/,/}/{/device/p}' %s 2>/dev/null | cut -d '\"' -f 2 | tr : _", user_config_file);
-    res = get_string (cmd);
-    g_free (cmd);
+    res = get_string ("sed -n '/pcm.!default/,/}/{/device/p}' %s 2>/dev/null | cut -d '\"' -f 2 | tr : _", user_config_file);
 
     if (res && res[0] && strlen (res) == 17)
     {
@@ -797,35 +804,26 @@ static gboolean asound_restart (gpointer vol_gpointer)
 
 static void asound_get_default_card (char *id)
 {
-    char *cmd, *res, *res2;
+    char *res, *res2;
     char *user_config_file = g_build_filename (g_get_home_dir (), "/.asoundrc", NULL);
 
     /* first check to see if Bluetooth is in use */
-    cmd = g_strdup_printf ("sed -n '/pcm.!default/,/}/{/bluealsa/p}' %s 2>/dev/null", user_config_file);
-    res = get_string (cmd);
-    g_free (cmd);
+    res = get_string ("sed -n '/pcm.!default/,/}/{/bluealsa/p}' %s 2>/dev/null", user_config_file);
 
     if (res[0]) sprintf (id, "bluealsa");
     else
     {
         /* if not, check for new format file */
         g_free (res);
-        cmd = g_strdup_printf ("sed -n '/pcm.!default/,/}/{/slave.pcm/p}' %s 2>/dev/null | cut -d '\"' -f 2", user_config_file);
-        res = get_string (cmd);
-        g_free (cmd);
+        res = get_string ("sed -n '/pcm.!default/,/}/{/slave.pcm/p}' %s 2>/dev/null | cut -d '\"' -f 2", user_config_file);
 
         if (res[0]) strcpy (id, res);
         else
         {
             /* if not, check for old format file */
             g_free (res);
-            cmd = g_strdup_printf ("sed -n '/pcm.!default/,/}/{/type/p}' %s 2>/dev/null | cut -d ' ' -f 2", user_config_file);
-            res = get_string (cmd);
-            g_free (cmd);
-
-            cmd = g_strdup_printf ("sed -n '/pcm.!default/,/}/{/card/p}' %s 2>/dev/null | cut -d ' ' -f 2", user_config_file);
-            res2 = get_string (cmd);
-            g_free (cmd);
+            res = get_string ("sed -n '/pcm.!default/,/}/{/type/p}' %s 2>/dev/null | cut -d ' ' -f 2", user_config_file);
+            res2 = get_string ("sed -n '/pcm.!default/,/}/{/card/p}' %s 2>/dev/null | cut -d ' ' -f 2", user_config_file);
 
             if (res[0] && res2[0]) sprintf (id, "%s:%s", res, res2);
             else sprintf (id, "hw:0");
@@ -1326,9 +1324,7 @@ static int n_desktops (VolumeALSAPlugin *vol)
     {
         for (i = 0; i < m; i++)
         {
-            res = g_strdup_printf ("xrandr --listmonitors | grep %d: | cut -d ' ' -f 6", i);
-            vol->mon_names[i] = get_string (res);
-            g_free (res);
+            vol->mon_names[i] = get_string ("xrandr --listmonitors | grep %d: | cut -d ' ' -f 6", i);
         }
 
         /* check both devices are HDMI */
@@ -1363,16 +1359,13 @@ static gboolean volumealsa_mouse_out (GtkWidget * widget, GdkEventButton * event
 
 static int asound_get_simple_ctrls (int dev)
 {
-    char *cmd, *res;
+    char *res;
     int n, m;
 
     if (dev == -1)
-        cmd = g_strdup_printf ("amixer info 2>/dev/null | grep \"Simple ctrls\" | cut -d: -f2 | tr -d ' '");
+        res = get_string ("amixer info 2>/dev/null | grep \"Simple ctrls\" | cut -d: -f2 | tr -d ' '");
     else
-        cmd = g_strdup_printf ("amixer -c %d info 2>/dev/null | grep \"Simple ctrls\" | cut -d: -f2 | tr -d ' '", dev);
-
-    res = get_string (cmd);
-    g_free (cmd);
+        res = get_string ("amixer -c %d info 2>/dev/null | grep \"Simple ctrls\" | cut -d: -f2 | tr -d ' '", dev);
 
     n = sscanf (res, "%d", &m);
     g_free (res);
