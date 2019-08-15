@@ -254,12 +254,12 @@ static void asound_set_bt_device (char *devname)
         if (find_in_section (user_config_file, "pcm.!default", "type"))
         {
             /* overwrite entirety of pcm.default section with bluealsa version */
-            vsystem ("sed -i '/pcm.!default/,/}/ { s/pcm.!default {/pcm.!default {\\n\\ttype bluealsa\\n\\tslave.pcm {\\n\\t\\ttype bluealsa\\n\\t\\tdevice \"%02X:%02X:%02X:%02X:%02X:%02X\"\\n\\t\\tprofile \"a2dp\"\\n\\t}\\n}/; /pcm/!d }' %s", b1, b2, b3, b4, b5, b6, user_config_file);
+            vsystem ("sed -i '/pcm.!default/,/}/ { s/pcm.!default {/pcm.!default {\\n\\ttype plug\\n\\tslave.pcm {\\n\\t\\ttype bluealsa\\n\\t\\tdevice \"%02X:%02X:%02X:%02X:%02X:%02X\"\\n\\t\\tprofile \"a2dp\"\\n\\t}\\n}/; /pcm/!d }' %s", b1, b2, b3, b4, b5, b6, user_config_file);
         }
         else
         {
             /* append a pcm.default section */
-            vsystem ("sed -i '$ a \\\n\\npcm.!default {\\n\\ttype plug\\n\\tslave.pcm {\\n\\t\\ttype bluealsa\\n\\t\\tdevice \"%02X:%02X:%02X:%02X:%02X:%02X\"\\n\\t\\tprofile\"a2dp\"\\n\\t}\\n}\\n %s", b1, b2, b3, b4, b5, b6, user_config_file);
+            vsystem ("echo '\npcm.!default {\n\ttype plug\n\tslave.pcm {\n\t\ttype bluealsa\n\t\tdevice \"%02X:%02X:%02X:%02X:%02X:%02X\"\n\t\tprofile \"a2dp\"\n\t}\n}\n' >> %s", b1, b2, b3, b4, b5, b6, user_config_file);
         }
     }
 
@@ -272,7 +272,7 @@ static void asound_set_bt_device (char *devname)
     else
     {
         /* append a ctl.default section */
-        vsystem ("sed -i '$ a \\\n\\nctl.!default {\\n\\ttype bluealsa\\n}\\n' %s", user_config_file);
+        vsystem ("echo '\nctl.!default {\n\ttype bluealsa\n}\n' >> %s", user_config_file);
     }
 
     g_free (user_config_file);
@@ -880,7 +880,7 @@ static void asound_set_default_card (const char *id)
         else
         {
             /* append a pcm.default section in the new format */
-            vsystem ("sed -i '$ a \\\n\\npcm.!default {\\n\\ttype plug\\n\\tslave.pcm \"%s:%s\"\\n}\\n' %s", idbuf, card, user_config_file);
+            vsystem ("echo '\npcm.!default {\n\ttype plug\n\tslave.pcm \"%s:%s\"\n}\n' >> %s", idbuf, card, user_config_file);
         }
     }
 
@@ -901,7 +901,7 @@ static void asound_set_default_card (const char *id)
     else
     {
         /* append a ctl.default section */
-        vsystem ("sed -i '$ a \\\n\\nctl.!default {\\n\\ttype %s\\n\\tcard %s\\n}\\n' %s", idbuf, card, user_config_file);
+        vsystem ("echo '\nctl.!default {\n\ttype %s\n\tcard %s\n}\n' >> %s", idbuf, card, user_config_file);
     }
 
     g_free (user_config_file);
