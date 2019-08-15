@@ -164,13 +164,14 @@ static void asound_set_default_card (const char *id);
 static void asound_find_valid_device (void);
 static int asound_get_bcm_output (void);
 static int asound_get_simple_ctrls (int dev);
-static void parse_asoundrc (FILE *fp, char *type, char *cid);
 
 static char *get_string (char *cmd);
 static int n_desktops (VolumeALSAPlugin *vol);
 
 static void set_external_output_device (GtkWidget * widget, VolumeALSAPlugin * vol);
 static void set_internal_output_device (GtkWidget * widget, VolumeALSAPlugin * vol);
+
+/* General file parsing utils */
 
 static char *get_string (char *cmd)
 {
@@ -189,6 +190,30 @@ static char *get_string (char *cmd)
     g_free (line);
     return res ? res : g_strdup ("");
 }
+
+static int vsystem (const char *fmt, ...)
+{
+    char *cmdline;
+    int res;
+
+    va_list arg;
+    va_start (arg, fmt);
+    g_vasprintf (&cmdline, fmt, arg);
+    va_end (arg);
+    res = system (cmdline);
+    g_free (cmdline);
+    return res;
+}
+
+static gboolean find_in_section (char *file, char *sec, char *seek)
+{
+    char *cmd = g_strdup_printf ("sed -n '/%s/,/}/p' %s 2>/dev/null | grep -q %s", sec, file, seek);
+    int res = system (cmd);
+    g_free (cmd);
+    if (res == 0) return TRUE;
+    else return FALSE;
+}
+
 
 /* Bluetooth */
 
@@ -217,44 +242,23 @@ static void asound_set_bt_device (char *devname)
 
 static int asound_get_bt_device (char *id)
 {
-    char *user_config_file, *ptr, buffer[64];
-    FILE *fp;
-    int count;
+    char *user_config_file, *cmd, *res;
+    int ret = 0;
 
     user_config_file = g_build_filename (g_get_home_dir (), "/.asoundrc", NULL);
-    fp = fopen (user_config_file, "rb");
-    g_free (user_config_file);
 
-    if (!fp) return 0;
+    cmd = g_strdup_printf ("sed -n '/pcm.!default/,/}/{/device/p}' %s 2>/dev/null | cut -d '\"' -f 2 | tr : _", user_config_file);
+    res = get_string (cmd);
+    g_free (cmd);
 
-    while (fgets (buffer, sizeof (buffer), fp))
+    if (res && res[0] && strlen (res) == 17)
     {
-        ptr = strstr (buffer, "device");
-        if (ptr)
-        {
-            // find the opening quote
-            while (*ptr && *ptr != '"') ptr++;
-            if (*ptr == '"')
-            {
-                // there should be another quote at the end, 18 chars later
-                if (*(ptr + 18) == '"')
-                {
-                    // replace : with _
-                    for (count = 1; count < 6; count++) *(ptr + (count * 3)) = '_';
-
-                    // copy and terminate
-                    strncpy (id, ptr + 1, 17);
-                    id[17] = 0;
-
-                    fclose (fp);
-                    return 1;
-                }
-            }
-        }
+        strcpy (id, res);
+        ret = 1;
     }
 
-    fclose (fp);
-    return 0;
+    g_free (res);
+    return ret;
 }
 
 static gboolean asound_is_current_bt_dev (const char *obj)
@@ -756,31 +760,51 @@ static gboolean asound_restart (gpointer vol_gpointer)
 
 static void asound_get_default_card (char *id)
 {
-    char type[16], cid[16];
+    char *cmd, *res, *res2;
     char *user_config_file = g_build_filename (g_get_home_dir (), "/.asoundrc", NULL);
 
-    type[0] = 0;
-    cid[0] = 0;
+    /* first check to see if Bluetooth is in use */
+    cmd = g_strdup_printf ("sed -n '/pcm.!default/,/}/{/bluealsa/p}' %s 2>/dev/null", user_config_file);
+    res = get_string (cmd);
+    g_free (cmd);
 
-    FILE *fp = fopen (user_config_file, "rb");
-    if (fp)
+    if (res[0]) sprintf (id, "bluealsa");
+    else
     {
-        parse_asoundrc (fp, type, cid);
-        fclose (fp);
-    }
+        /* if not, check for new format file */
+        g_free (res);
+        cmd = g_strdup_printf ("sed -n '/pcm.!default/,/}/{/slave.pcm/p}' %s 2>/dev/null | cut -d '\"' -f 2", user_config_file);
+        res = get_string (cmd);
+        g_free (cmd);
 
-    if (!strcmp (type, "bluealsa")) sprintf (id, "bluealsa");
-    else if (cid[0] && type[0]) sprintf (id, "%s:%s", type, cid);
-    else sprintf (id, "hw:0");
+        if (res[0]) strcpy (id, res);
+        else
+        {
+            /* if not, check for old format file */
+            g_free (res);
+            cmd = g_strdup_printf ("sed -n '/pcm.!default/,/}/{/type/p}' %s 2>/dev/null | cut -d ' ' -f 2", user_config_file);
+            res = get_string (cmd);
+            g_free (cmd);
+
+            cmd = g_strdup_printf ("sed -n '/pcm.!default/,/}/{/card/p}' %s 2>/dev/null | cut -d ' ' -f 2", user_config_file);
+            res2 = get_string (cmd);
+            g_free (cmd);
+
+            if (res[0] && res2[0]) sprintf (id, "%s:%s", res, res2);
+            else sprintf (id, "hw:0");
+            g_free (res);
+            g_free (res2);
+        }
+    }
     g_free (user_config_file);
 }
 
 static void asound_set_default_card (const char *id)
 {
-    char idbuf[16], type[16], cid[16], *card;
+    char idbuf[16], *card;
     char *user_config_file = g_build_filename (g_get_home_dir (), "/.asoundrc", NULL);
 
-    // Break the id string into the type (before the colon) and the card number (after the colon)
+    /* break the id string into the type (before the colon) and the card number (after the colon) */
     strcpy (idbuf, id);
     card = strchr (idbuf, ':') + 1;
     *(strchr (idbuf, ':')) = 0;
@@ -788,32 +812,62 @@ static void asound_set_default_card (const char *id)
     FILE *fp = fopen (user_config_file, "rb");
     if (!fp)
     {
-        // File does not exist - create it from scratch
+        /* file does not exist - create it from scratch */
         fp = fopen (user_config_file, "wb");
-        fprintf (fp, "pcm.!default {\n\ttype %s\n\tcard %s\n}\n\nctl.!default {\n\ttype %s\n\tcard %s\n}\n", idbuf, card, idbuf, card);
+        fprintf (fp, "pcm.!default {\n\ttype plug\n\tslave.pcm \"%s:%s\"\n}\n\nctl.!default {\n\ttype %s\n\tcard %s\n}\n", idbuf, card, idbuf, card);
         fclose (fp);
+        g_free (user_config_file);
+        return;
+    }
+    else fclose (fp);
+
+    /* check for new pcm.default section */
+    if (find_in_section (user_config_file, "pcm.!default", "'slave.pcm \".*\"'"))
+    {
+        /* file is in new format already, so update in place */
+        vsystem ("sed -i '/pcm.!default/,/}/ { s/slave.pcm .*/slave.pcm \"%s:%s\"/ }' %s", idbuf, card, user_config_file);
+    }
+    else if (find_in_section (user_config_file, "pcm.!default", "slave.pcm"))
+    {
+        /* replace slave.pcm {} section with slave.pcm "card ID" */
+        vsystem ("sed -i '/slave.pcm {/,/}/ { s/slave.pcm {/slave.pcm \"%s:%s\"/; /slave.pcm/!d }' %s", idbuf, card, user_config_file);
     }
     else
     {
-        // File exists - check to see whether it contains a default card
-        parse_asoundrc (fp, type, cid);
-        fclose (fp);
-        if (cid[0] && type[0])
+        /* does the file contain an old format pcm.default section? */
+        if (find_in_section (user_config_file, "pcm.!default", "type") && find_in_section (user_config_file, "pcm.!default", "card"))
         {
-            // This piece of sed is surely self-explanatory...
-            char *cmd = g_strdup_printf ("sed -i '/pcm.!default\\|ctl.!default/,/}/ { s/type .*/type %s/g; s/card .*/card %s/g; }' %s", idbuf, card, user_config_file);
-            system (cmd);
-            g_free (cmd);
-            // Oh, OK then - it looks for type * and card * within the delimiters pcm.!default or ctl.!default and } and replaces the parameters
+            /* old format section found; update it to the new format */
+            vsystem ("sed -i '/pcm.!default/,/}/ { s/type .*/type plug\\n\\tslave.pcm \"%s:%s\"/ }' %s", idbuf, card, user_config_file);
+            vsystem ("sed -i '/pcm.!default/,/}/ { /card .*/d }' %s", user_config_file);
         }
         else
         {
-            // No default card - replace file
-            fp = fopen (user_config_file, "wb");
-            fprintf (fp, "\n\npcm.!default {\n\ttype %s\n\tcard %s\n}\n\nctl.!default {\n\ttype %s\n\tcard %s\n}\n", idbuf, card, idbuf, card);
-            fclose (fp);
+            /* append a pcm.default section in the new format */
+            vsystem ("sed -i '$ a \\\n\\npcm.!default {\\n\\ttype plug\\n\\tslave.pcm \"%s:%s\"\\n}\\n' %s", idbuf, card, user_config_file);
         }
     }
+
+    /* check for ctl.default section */
+    if (find_in_section (user_config_file, "ctl.!default", "type"))
+    {
+        if (find_in_section (user_config_file, "ctl.!default", "card"))
+        {
+            /* standard ctl.default section found; update both type and card */
+            vsystem ("sed -i '/ctl.!default/,/}/ { s/type .*/type %s/g; s/card .*/card %s/g; }' %s", idbuf, card, user_config_file);
+        }
+        else
+        {
+            /* ctl has type but not card - probably bluetooth then, so replace type and add card */
+            vsystem ("sed -i '/ctl.!default/,/}/ { s/type .*/type %s\\n\\tcard %s/g; }' %s", idbuf, card, user_config_file);
+        }
+    }
+    else
+    {
+        /* append a ctl.default section */
+        vsystem ("sed -i '$ a \\\n\\nctl.!default {\\n\\ttype %s\\n\\tcard %s\\n}\\n' %s", idbuf, card, user_config_file);
+    }
+
     g_free (user_config_file);
 }
 
@@ -871,57 +925,6 @@ static void asound_find_valid_device (void)
             return;
         }
         g_warning ("volumealsa: No ALSA devices found");
-    }
-}
-
-static void parse_asoundrc (FILE *fp, char *type, char *cid)
-{
-    char tokenbuf[256], state = 0, indef = 0;
-    char *bufptr = tokenbuf;
-    int inchar, count;
-    type[0] = 0;
-    cid[0] = 0;
-    count = 0;
-    while ((inchar = fgetc (fp)) != EOF)
-    {
-        if (inchar == ' ' || inchar == '\t' || inchar == '\n' || inchar == '\r')
-        {
-            if (bufptr != tokenbuf)
-            {
-                *bufptr = 0;
-                switch (state)
-                {
-                    case 1 :    strcpy (type, tokenbuf);
-                                state = 0;
-                                break;
-                    case 2 :    strcpy (cid, tokenbuf);
-                                state = 0;
-                                break;
-                    default :   if (!strcmp (tokenbuf, "type") && indef) state = 1;
-                                else if (!strcmp (tokenbuf, "card") && indef) state = 2;
-                                else if (!strcmp (tokenbuf, "pcm.!default")) indef = 1;
-                                else if (!strcmp (tokenbuf, "}")) indef = 0;
-                                break;
-                }
-                bufptr = tokenbuf;
-                count = 0;
-                if (cid[0] && type[0]) break;
-            }
-            else
-            {
-                bufptr = tokenbuf;
-                count = 0;
-            }
-        }
-        else
-        {
-            if (count < 255)
-            {
-                *bufptr++ = inchar;
-                count++;
-            }
-            else tokenbuf[255] = 0;
-        }
     }
 }
 
