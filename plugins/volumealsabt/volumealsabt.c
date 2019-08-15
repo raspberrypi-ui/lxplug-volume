@@ -289,20 +289,18 @@ static void asound_set_bt_device (char *devname)
 
 static int asound_get_bt_device (char *id)
 {
-    char *user_config_file, *res;
     int ret = 0;
+    char *user_config_file = g_build_filename (g_get_home_dir (), "/.asoundrc", NULL);
 
-    user_config_file = g_build_filename (g_get_home_dir (), "/.asoundrc", NULL);
-
-    res = get_string ("sed -n '/pcm.!default/,/}/{/device/p}' %s 2>/dev/null | cut -d '\"' -f 2 | tr : _", user_config_file);
-
-    if (res && res[0] && strlen (res) == 17)
+    char *res = get_string ("sed -n '/pcm.!default/,/}/{/device/p}' %s 2>/dev/null | cut -d '\"' -f 2 | tr : _", user_config_file);
+    if (strlen (res) == 17)
     {
         strcpy (id, res);
         ret = 1;
     }
 
     g_free (res);
+    g_free (user_config_file);
     return ret;
 }
 
@@ -808,13 +806,11 @@ static void asound_get_default_card (char *id)
     char *user_config_file = g_build_filename (g_get_home_dir (), "/.asoundrc", NULL);
 
     /* first check to see if Bluetooth is in use */
-    res = get_string ("sed -n '/pcm.!default/,/}/{/bluealsa/p}' %s 2>/dev/null", user_config_file);
-
-    if (res[0]) sprintf (id, "bluealsa");
+    if (find_in_section (user_config_file, "pcm.!default", "bluealsa"))
+        sprintf (id, "bluealsa");
     else
     {
         /* if not, check for new format file */
-        g_free (res);
         res = get_string ("sed -n '/pcm.!default/,/}/{/slave.pcm/p}' %s 2>/dev/null | cut -d '\"' -f 2", user_config_file);
 
         if (res[0]) strcpy (id, res);
@@ -1249,12 +1245,12 @@ static gboolean asound_get_bcm_device_id (gchar *id)
     return FALSE;
 }
 
-static void volumealsa_popup_set_position(GtkWidget * menu, gint * px, gint * py, gboolean * push_in, gpointer data)
+static void volumealsa_popup_set_position (GtkWidget *menu, gint *px, gint *py, gboolean *push_in, gpointer data)
 {
-    VolumeALSAPlugin * vol= (VolumeALSAPlugin *) data;
+    VolumeALSAPlugin *vol= (VolumeALSAPlugin *) data;
 
     /* Determine the coordinates. */
-    lxpanel_plugin_popup_set_position_helper(vol->panel, vol->plugin, menu, px, py);
+    lxpanel_plugin_popup_set_position_helper (vol->panel, vol->plugin, menu, px, py);
     *push_in = TRUE;
 }
 
