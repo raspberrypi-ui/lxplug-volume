@@ -85,41 +85,42 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 typedef struct {
 
-    /* Graphics. */
-    GtkWidget * plugin;             /* Back pointer to the widget */
-    LXPanel * panel;                /* Back pointer to panel */
-    config_setting_t * settings;        /* Plugin settings */
-    GtkWidget * tray_icon;          /* Displayed image */
-    GtkWidget * popup_window;           /* Top level window for popup */
-    GtkWidget * volume_scale;           /* Scale for volume */
-    GtkWidget * mute_check;         /* Checkbox for mute state */
-    GtkWidget * menu_popup;
-    gboolean show_popup;            /* Toggle to show and hide the popup on left click */
+    /* plugin */
+    GtkWidget *plugin;                  /* Back pointer to widget */
+    LXPanel *panel;                     /* Back pointer to panel */
+    config_setting_t *settings;         /* Plugin settings */
+
+    /* graphics */
+    GtkWidget *tray_icon;               /* Displayed icon */
+    GtkWidget *popup_window;            /* Top level window for popup */
+    GtkWidget *volume_scale;            /* Scale for volume */
+    GtkWidget *mute_check;              /* Checkbox for mute state */
+    GtkWidget *menu_popup;              /* Right-click menu */
+    gboolean show_popup;                /* Toggle to show and hide the popup on left click */
     guint volume_scale_handler;         /* Handler for vscale widget */
     guint mute_check_handler;           /* Handler for mute_check widget */
 
     /* ALSA interface. */
-    snd_mixer_t * mixer;            /* The mixer */
-    snd_mixer_elem_t * master_element;      /* The Master element */
-    guint mixer_evt_idle;           /* Timer to handle restarting poll */
-    guint restart_idle;
-    gboolean stopped;
+    snd_mixer_t *mixer;                 /* The mixer */
+    snd_mixer_elem_t *master_element;   /* The master element */
+    guint mixer_evt_idle;               /* Timer to handle mixer reset */
+    guint restart_idle;                 /* Timer to handle restarting */
+    gboolean stopped;                   /* Flag to indicate that ALSA is restarting */
+    GIOChannel **channels;              /* Channels that we listen to */
+    guint *watches;                     /* Watcher IDs for channels */
+    guint num_channels;                 /* Number of channels */
 
-    /* unloading and error handling */
-    GIOChannel **channels;                      /* Channels that we listen to */
-    guint *watches;                             /* Watcher IDs for channels */
-    guint num_channels;                         /* Number of channels */
+    /* Bluetooth interface */
+    GDBusObjectManager *objmanager;     /* BlueZ object manager */
+    char *bt_conname;                   /* BlueZ name of device - just used during connection */
+    GtkWidget *conn_dialog;             /* Connection dialog box */
+    GtkWidget *conn_label;              /* Dialog box text field */
+    GtkWidget *conn_ok;                 /* Dialog box button */
 
-    /* Icons */
-    const char* icon;
+    /* HDMI devices */
+    guint hdmis;                        /* Number of HDMI devices */
+    char *mon_names[2];                 /* Names of HDMI devices */
 
-    /* HDMI device names */
-    guint hdmis;
-    char *mon_names[2];
-
-    GDBusObjectManager *objmanager;         /* BlueZ object manager */
-    char *bt_conname;                       /* BlueZ name of device - just used during connection */
-    GtkWidget *conn_dialog, *conn_label, *conn_ok;
 } VolumeALSAPlugin;
 
 static void send_message (void);
@@ -127,13 +128,11 @@ static gboolean asound_restart (gpointer vol_gpointer);
 static gboolean asound_initialize (VolumeALSAPlugin *vol);
 static void asound_deinitialize (VolumeALSAPlugin *vol);
 static void volumealsa_update_display (VolumeALSAPlugin *vol);
-static void volumealsa_destructor (gpointer user_data);
 static void volumealsa_build_popup_window (GtkWidget *p);
 static gboolean asound_is_default_card (int num);
 static gboolean asound_is_bcm_device (int num);
 static gboolean asound_get_bcm_device_id (gchar *id);
 static gboolean asound_set_bcm_card (void);
-static GtkWidget *volumealsa_configure (LXPanel *panel, GtkWidget *p);
 
 static void asound_set_bt_device (char *devname);
 static int asound_get_bt_device (char *id);
@@ -183,17 +182,22 @@ static gboolean asound_mixer_event (GIOChannel *channel, GIOCondition cond, gpoi
 static void open_config_dialog (GtkWidget * widget, VolumeALSAPlugin * vol);
 void set_icon (LXPanel *p, GtkWidget *image, const char *icon, int size);
 static gboolean volumealsa_button_press_event (GtkWidget *widget, GdkEventButton *event, LXPanel *panel);
-static GtkWidget *volumealsa_constructor (LXPanel *panel, config_setting_t *settings);
-static gboolean volumealsa_control_msg (GtkWidget *plugin, const char *cmd);
 static GtkWidget *volumealsa_menu_item_add (VolumeALSAPlugin *vol, const char *label, const char *name, gboolean selected, GCallback cb);
 static gboolean volumealsa_mouse_out (GtkWidget *widget, GdkEventButton *event, VolumeALSAPlugin *vol);
-static void volumealsa_panel_configuration_changed (LXPanel *panel, GtkWidget *p);
 static void volumealsa_popup_scale_changed (GtkRange *range, VolumeALSAPlugin *vol);
 static void volumealsa_popup_scale_scrolled (GtkScale *scale, GdkEventScroll *evt, VolumeALSAPlugin *vol);
 static void volumealsa_popup_mute_toggled (GtkWidget *widget, VolumeALSAPlugin *vol);
 static void volumealsa_popup_set_position (GtkWidget *menu, gint *px, gint *py, gboolean *push_in, gpointer data);
 static void volumealsa_theme_change (GtkWidget *widget, VolumeALSAPlugin *vol);
 static void volumealsa_update_current_icon (VolumeALSAPlugin *vol);
+
+
+static gboolean volumealsa_control_msg (GtkWidget *plugin, const char *cmd);
+static void volumealsa_panel_configuration_changed (LXPanel *panel, GtkWidget *plugin);
+static GtkWidget *volumealsa_configure (LXPanel *panel, GtkWidget *plugin);
+static GtkWidget *volumealsa_constructor (LXPanel *panel, config_setting_t *settings);
+static void volumealsa_destructor (gpointer user_data);
+
 
 
 /* General file parsing utils */
@@ -787,8 +791,7 @@ static gboolean asound_mixer_event (GIOChannel *channel, GIOCondition cond, gpoi
         gtk_widget_set_tooltip_text (vol->plugin, "ALSA (or pulseaudio) had a problem."
                 " Please check the lxpanel logs.");
 
-        if (vol->restart_idle == 0)
-            vol->restart_idle = g_timeout_add_seconds (1, asound_restart, vol);
+        if (vol->restart_idle == 0) vol->restart_idle = g_timeout_add_seconds (1, asound_restart, vol);
 
         return FALSE;
     }
@@ -1129,14 +1132,14 @@ static void volumealsa_update_current_icon (VolumeALSAPlugin *vol)
     level = asound_get_volume (vol);
 
     /* Change icon according to mute / volume */
-    const char* icon = "audio-volume-muted";
+    const char *icon = "audio-volume-muted";
 
     if (mute) icon = "audio-volume-muted";
     else if (level >= 66) icon = "audio-volume-high";
     else if (level >= 33) icon = "audio-volume-medium";
     else if (level > 0) icon = "audio-volume-low";
 
-    vol->icon = icon;
+    set_icon (vol->panel, vol->tray_icon, icon, 0);
 }
 
 void set_icon (LXPanel *p, GtkWidget *image, const char *icon, int size)
@@ -1171,31 +1174,27 @@ void set_icon (LXPanel *p, GtkWidget *image, const char *icon, int size)
 /* Do a full redraw of the display. */
 static void volumealsa_update_display (VolumeALSAPlugin *vol)
 {
-    gboolean mute;
-    int level;
-
 #ifdef ENABLE_NLS
     // need to rebind here for tooltip update
-    textdomain ( GETTEXT_PACKAGE );
+    textdomain (GETTEXT_PACKAGE);
 #endif
 
     /* Mute status. */
-    mute = asound_is_muted (vol);
-    level = asound_get_volume (vol);
+    gboolean mute = asound_is_muted (vol);
+    int level = asound_get_volume (vol);
     if (mute) level = 0;
 
     volumealsa_update_current_icon (vol);
 
-    /* Change icon, fallback to default icon if theme doesn't exist */
-    set_icon (vol->panel, vol->tray_icon, vol->icon, 0);
+    if (vol->mute_check)
+    {
+        g_signal_handler_block (vol->mute_check, vol->mute_check_handler);
+        gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (vol->mute_check), mute);
+        gtk_widget_set_sensitive (vol->mute_check, asound_has_mute (vol));
+        g_signal_handler_unblock (vol->mute_check, vol->mute_check_handler);
+    }
 
-    g_signal_handler_block (vol->mute_check, vol->mute_check_handler);
-    gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (vol->mute_check), mute);
-    gtk_widget_set_sensitive (vol->mute_check, asound_has_mute(vol));
-    g_signal_handler_unblock (vol->mute_check, vol->mute_check_handler);
-
-    /* Volume. */
-    if (vol->volume_scale != NULL)
+    if (vol->volume_scale)
     {
         g_signal_handler_block (vol->volume_scale, vol->volume_scale_handler);
         gtk_range_set_value (GTK_RANGE (vol->volume_scale), level);
@@ -1342,7 +1341,7 @@ static int n_desktops (VolumeALSAPlugin *vol)
 static void open_config_dialog (GtkWidget * widget, VolumeALSAPlugin * vol)
 {
     volumealsa_configure (vol->panel, vol->plugin);
-    gtk_menu_popdown (GTK_MENU(vol->menu_popup));
+    gtk_menu_popdown (GTK_MENU (vol->menu_popup));
 }
 
 /* Handler for "focus-out" signal on popup window. */
@@ -1631,7 +1630,7 @@ static gboolean volumealsa_button_press_event (GtkWidget *widget, GdkEventButton
 
 static void volumealsa_theme_change (GtkWidget *widget, VolumeALSAPlugin *vol)
 {
-    set_icon (vol->panel, vol->tray_icon, vol->icon, 0);
+    volumealsa_update_current_icon (vol);
 }
 
 /* Handler for "value_changed" signal on popup window vertical scale. */
@@ -1762,88 +1761,11 @@ static void volumealsa_build_popup_window (GtkWidget *p)
     }
 }
 
-/* Plugin constructor. */
-static GtkWidget *volumealsa_constructor (LXPanel *panel, config_setting_t *settings)
+/* Callback when the configuration dialog is to be shown */
+
+static GtkWidget *volumealsa_configure (LXPanel *panel, GtkWidget *plugin)
 {
-    /* Allocate and initialize plugin context and set into Plugin private data pointer. */
-    VolumeALSAPlugin * vol = g_new0 (VolumeALSAPlugin, 1);
-    GtkWidget *p;
-
-#ifdef ENABLE_NLS
-    setlocale (LC_ALL, "");
-    bindtextdomain (GETTEXT_PACKAGE, PACKAGE_LOCALE_DIR);
-    bind_textdomain_codeset (GETTEXT_PACKAGE, "UTF-8");
-    textdomain (GETTEXT_PACKAGE);
-#endif
-
-    vol->bt_conname = NULL;
-    vol->master_element = NULL;
-
-    /* Allocate top level widget and set into Plugin widget pointer. */
-    vol->panel = panel;
-    vol->plugin = p = gtk_button_new ();
-    gtk_button_set_relief (GTK_BUTTON (vol->plugin), GTK_RELIEF_NONE);
-    g_signal_connect (vol->plugin, "button-press-event", G_CALLBACK (volumealsa_button_press_event), vol->panel);
-    vol->settings = settings;
-    lxpanel_plugin_set_data (p, vol, volumealsa_destructor);
-    gtk_widget_add_events (p, GDK_BUTTON_PRESS_MASK);
-    gtk_widget_set_tooltip_text (p, _("Volume control"));
-
-    /* Allocate icon as a child of top level. */
-    vol->tray_icon = gtk_image_new ();
-    gtk_container_add (GTK_CONTAINER (p), vol->tray_icon);
-
-    /* Initialize ALSA if default device isn't Bluetooth */
-    if (!asound_bt_is_default ()) asound_initialize (vol);
-
-    // set up callbacks to see if BlueZ is on DBus
-    g_bus_watch_name (G_BUS_TYPE_SYSTEM, "org.bluez", 0, bt_cb_name_owned, bt_cb_name_unowned, vol, NULL);
-
-    /* Initialize window to appear when icon clicked. */
-    volumealsa_build_popup_window (p);
-
-    /* Connect signals. */
-    g_signal_connect (G_OBJECT (p), "scroll-event", G_CALLBACK (volumealsa_popup_scale_scrolled), vol);
-    g_signal_connect (panel_get_icon_theme (panel), "changed", G_CALLBACK (volumealsa_theme_change), vol);
-
-    /* Set up for multiple HDMIs */
-    vol->hdmis = n_desktops (vol);
-
-    /* Update the display, show the widget, and return. */
-    volumealsa_update_display (vol);
-    gtk_widget_show_all (p);
-
-    vol->stopped = FALSE;
-    return p;
-}
-
-/* Plugin destructor. */
-static void volumealsa_destructor(gpointer user_data)
-{
-    VolumeALSAPlugin *vol = (VolumeALSAPlugin *) user_data;
-
-    asound_deinitialize (vol);
-
-    /* If the dialog box is open, dismiss it. */
-    if (vol->popup_window != NULL)
-        gtk_widget_destroy (vol->popup_window);
-
-    if (vol->restart_idle)
-        g_source_remove (vol->restart_idle);
-
-   if (vol->panel) /* SF bug #683: crash if constructor failed */
-    g_signal_handlers_disconnect_by_func (panel_get_icon_theme (vol->panel),
-                                         volumealsa_theme_change, vol);
-
-    /* Deallocate all memory. */
-    g_free (vol);
-}
-
-/* Callback when the configuration dialog is to be shown. */
-
-static GtkWidget *volumealsa_configure (LXPanel *panel, GtkWidget *p)
-{
-    VolumeALSAPlugin * vol = lxpanel_plugin_get_data (p);
+    VolumeALSAPlugin * vol = lxpanel_plugin_get_data (plugin);
     char *path = NULL;
     const gchar *command_line = NULL;
     GAppInfoCreateFlags flags = G_APP_INFO_CREATE_NONE;
@@ -1900,16 +1822,20 @@ static GtkWidget *volumealsa_configure (LXPanel *panel, GtkWidget *p)
     return NULL;
 }
 
-/* Callback when panel configuration changes. */
-static void volumealsa_panel_configuration_changed (LXPanel *panel, GtkWidget *p)
+/* Callback when panel configuration changes */
+
+static void volumealsa_panel_configuration_changed (LXPanel *panel, GtkWidget *plugin)
 {
-    VolumeALSAPlugin *vol = lxpanel_plugin_get_data(p);
+    VolumeALSAPlugin *vol = lxpanel_plugin_get_data (plugin);
 
     volumealsa_build_popup_window (vol->plugin);
+
     /* Do a full redraw. */
     volumealsa_update_display (vol);
     if (vol->show_popup) gtk_widget_show_all (vol->popup_window);
 }
+
+/* Callback when control message arrives */
 
 static gboolean volumealsa_control_msg (GtkWidget *plugin, const char *cmd)
 {
@@ -1990,9 +1916,85 @@ static gboolean volumealsa_control_msg (GtkWidget *plugin, const char *cmd)
     return FALSE;
 }
 
+/* Plugin constructor */
+
+static GtkWidget *volumealsa_constructor (LXPanel *panel, config_setting_t *settings)
+{
+    /* Allocate and initialize plugin context and set into Plugin private data pointer. */
+    VolumeALSAPlugin * vol = g_new0 (VolumeALSAPlugin, 1);
+    GtkWidget *p;
+
+#ifdef ENABLE_NLS
+    setlocale (LC_ALL, "");
+    bindtextdomain (GETTEXT_PACKAGE, PACKAGE_LOCALE_DIR);
+    bind_textdomain_codeset (GETTEXT_PACKAGE, "UTF-8");
+    textdomain (GETTEXT_PACKAGE);
+#endif
+
+    vol->bt_conname = NULL;
+    vol->master_element = NULL;
+
+    /* Allocate top level widget and set into Plugin widget pointer. */
+    vol->panel = panel;
+    vol->plugin = p = gtk_button_new ();
+    gtk_button_set_relief (GTK_BUTTON (vol->plugin), GTK_RELIEF_NONE);
+    g_signal_connect (vol->plugin, "button-press-event", G_CALLBACK (volumealsa_button_press_event), vol->panel);
+    vol->settings = settings;
+    lxpanel_plugin_set_data (p, vol, volumealsa_destructor);
+    gtk_widget_add_events (p, GDK_BUTTON_PRESS_MASK);
+    gtk_widget_set_tooltip_text (p, _("Volume control"));
+
+    /* Allocate icon as a child of top level. */
+    vol->tray_icon = gtk_image_new ();
+    gtk_container_add (GTK_CONTAINER (p), vol->tray_icon);
+
+    /* Initialize ALSA if default device isn't Bluetooth */
+    if (!asound_bt_is_default ()) asound_initialize (vol);
+
+    /* Set up callbacks to see if BlueZ is on DBus */
+    g_bus_watch_name (G_BUS_TYPE_SYSTEM, "org.bluez", 0, bt_cb_name_owned, bt_cb_name_unowned, vol, NULL);
+
+    /* Initialize window to appear when icon clicked. */
+    volumealsa_build_popup_window (p);
+
+    /* Connect signals. */
+    g_signal_connect (G_OBJECT (p), "scroll-event", G_CALLBACK (volumealsa_popup_scale_scrolled), vol);
+    g_signal_connect (panel_get_icon_theme (panel), "changed", G_CALLBACK (volumealsa_theme_change), vol);
+
+    /* Set up for multiple HDMIs */
+    vol->hdmis = n_desktops (vol);
+
+    /* Update the display, show the widget, and return. */
+    volumealsa_update_display (vol);
+    gtk_widget_show_all (p);
+
+    vol->stopped = FALSE;
+    return p;
+}
+
+/* Plugin destructor */
+
+static void volumealsa_destructor (gpointer user_data)
+{
+    VolumeALSAPlugin *vol = (VolumeALSAPlugin *) user_data;
+
+    asound_deinitialize (vol);
+
+    /* If the dialog box is open, dismiss it. */
+    if (vol->popup_window != NULL) gtk_widget_destroy (vol->popup_window);
+
+    if (vol->restart_idle) g_source_remove (vol->restart_idle);
+
+    if (vol->panel) g_signal_handlers_disconnect_by_func (panel_get_icon_theme (vol->panel), volumealsa_theme_change, vol);
+
+    /* Deallocate all memory. */
+    g_free (vol);
+}
+
 FM_DEFINE_MODULE (lxpanel_gtk, volumealsabt)
 
-/* Plugin descriptor. */
+/* Plugin descriptor */
+
 LXPanelPluginInit fm_module_init_lxpanel_gtk = 
 {
     .name = N_("Volume Control (ALSA/BT)"),
