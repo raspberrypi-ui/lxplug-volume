@@ -154,10 +154,10 @@ static gint handle_delete_connect_dialog (GtkWidget *widget, GdkEvent *event, gp
 static gboolean bt_is_audio_sink (VolumeALSAPlugin *vol, const gchar *path);
 static gboolean asound_is_current_bt_dev (const char *obj);
 
-static long lrint_dir(double x, int dir);
-static inline gboolean use_linear_dB_scale(long dBmin, long dBmax);
-static double get_normalized_volume(snd_mixer_elem_t *elem, snd_mixer_selem_channel_id_t channel);
-static int set_normalized_volume(snd_mixer_elem_t *elem, snd_mixer_selem_channel_id_t channel, double volume, int dir);
+static long lrint_dir (double x, int dir);
+static inline gboolean use_linear_dB_scale (long dBmin, long dBmax);
+static double get_normalized_volume (snd_mixer_elem_t *elem, snd_mixer_selem_channel_id_t channel);
+static int set_normalized_volume (snd_mixer_elem_t *elem, snd_mixer_selem_channel_id_t channel, double volume, int dir);
 
 static void asound_get_default_card (char *id);
 static void asound_set_default_card (const char *id);
@@ -167,16 +167,41 @@ static int asound_get_simple_ctrls (int dev);
 
 static char *get_string (const char *fmt, ...);
 static int n_desktops (VolumeALSAPlugin *vol);
+static gboolean find_in_section (char *file, char *sec, char *seek);
 
-static void set_external_output_device (GtkWidget * widget, VolumeALSAPlugin * vol);
-static void set_internal_output_device (GtkWidget * widget, VolumeALSAPlugin * vol);
+static void set_external_output_device (GtkWidget *widget, VolumeALSAPlugin *vol);
+static void set_internal_output_device (GtkWidget *widget, VolumeALSAPlugin *vol);
+static gboolean asound_find_elements (VolumeALSAPlugin *vol);
+
+static gboolean asound_has_mute (VolumeALSAPlugin *vol);
+static gboolean asound_is_muted (VolumeALSAPlugin *vol);
+static void asound_set_mute (VolumeALSAPlugin *vol, gboolean mute);
+static int asound_get_volume (VolumeALSAPlugin *vol);
+static void asound_set_volume (VolumeALSAPlugin *vol, int volume);
+static gboolean asound_reset_mixer_evt_idle (VolumeALSAPlugin * vol);
+static gboolean asound_mixer_event (GIOChannel *channel, GIOCondition cond, gpointer vol_gpointer);
+static void open_config_dialog (GtkWidget * widget, VolumeALSAPlugin * vol);
+void set_icon (LXPanel *p, GtkWidget *image, const char *icon, int size);
+static gboolean volumealsa_button_press_event (GtkWidget *widget, GdkEventButton *event, LXPanel *panel);
+static GtkWidget *volumealsa_constructor (LXPanel *panel, config_setting_t *settings);
+static gboolean volumealsa_control_msg (GtkWidget *plugin, const char *cmd);
+static GtkWidget *volumealsa_menu_item_add (VolumeALSAPlugin *vol, const char *label, const char *name, gboolean selected, GCallback cb);
+static gboolean volumealsa_mouse_out (GtkWidget *widget, GdkEventButton *event, VolumeALSAPlugin *vol);
+static void volumealsa_panel_configuration_changed (LXPanel *panel, GtkWidget *p);
+static void volumealsa_popup_scale_changed (GtkRange *range, VolumeALSAPlugin *vol);
+static void volumealsa_popup_scale_scrolled (GtkScale *scale, GdkEventScroll *evt, VolumeALSAPlugin *vol);
+static void volumealsa_popup_mute_toggled (GtkWidget *widget, VolumeALSAPlugin *vol);
+static void volumealsa_popup_set_position (GtkWidget *menu, gint *px, gint *py, gboolean *push_in, gpointer data);
+static void volumealsa_theme_change (GtkWidget *widget, VolumeALSAPlugin *vol);
+static void volumealsa_update_current_icon (VolumeALSAPlugin *vol);
+
 
 /* General file parsing utils */
 
 static char *get_string (const char *fmt, ...)
 {
     char *line = NULL, *res = NULL;
-    int len = 0;
+    size_t len = 0;
     char *cmdline;
 
     va_list arg;
@@ -229,7 +254,7 @@ static gboolean find_in_section (char *file, char *sec, char *seek)
 static void asound_set_bt_device (char *devname)
 {
     char *user_config_file = g_build_filename (g_get_home_dir (), "/.asoundrc", NULL);
-    int b1, b2, b3, b4, b5, b6;
+    unsigned int b1, b2, b3, b4, b5, b6;
 
     /* parse the device name to make sure it is valid */
     if (sscanf (devname, "/org/bluez/hci0/dev_%x_%x_%x_%x_%x_%x", &b1, &b2, &b3, &b4, &b5, &b6) != 6)
@@ -463,7 +488,6 @@ static void bt_cb_trusted (GObject *source, GAsyncResult *res, gpointer user_dat
 static void bt_disconnect_device (VolumeALSAPlugin *vol)
 {
     // get the name of the device with the current sink number
-    GError *error = NULL;
     char buffer[64], device[20];
 
     if (asound_get_bt_device (device))
@@ -519,7 +543,7 @@ static void bt_cb_disconnected (GObject *source, GAsyncResult *res, gpointer use
     }
 }
 
-static void set_bluetooth_output_device (GtkWidget * widget, VolumeALSAPlugin * vol)
+static void set_bluetooth_output_device (GtkWidget *widget, VolumeALSAPlugin *vol)
 {
     // show the connection dialog
     show_connect_dialog (vol, FALSE, gtk_menu_item_get_label (GTK_MENU_ITEM (widget)));
@@ -588,7 +612,7 @@ static gboolean bt_is_audio_sink (VolumeALSAPlugin *vol, const gchar *path)
     GVariant *elem, *var = g_dbus_proxy_get_cached_property (G_DBUS_PROXY (interface), "UUIDs");
     GVariantIter iter;
     g_variant_iter_init (&iter, var);
-    while (elem = g_variant_iter_next_value (&iter))
+    while ((elem = g_variant_iter_next_value (&iter)))
     {
         const char *uuid = g_variant_get_string (elem, NULL);
         if (!strncasecmp (uuid, "00001124", 8)) return FALSE;
@@ -602,100 +626,95 @@ static gboolean bt_is_audio_sink (VolumeALSAPlugin *vol, const gchar *path)
 
 /*** ALSA ***/
 
-static long lrint_dir(double x, int dir)
+static long lrint_dir (double x, int dir)
 {
     if (dir > 0)
-        return lrint(ceil(x));
+        return lrint (ceil(x));
     else if (dir < 0)
-        return lrint(floor(x));
+        return lrint (floor(x));
     else
-        return lrint(x);
+        return lrint (x);
 }
 
-static inline gboolean use_linear_dB_scale(long dBmin, long dBmax)
+static inline gboolean use_linear_dB_scale (long dBmin, long dBmax)
 {
     return dBmax - dBmin <= MAX_LINEAR_DB_SCALE * 100;
 }
 
-static double get_normalized_volume(snd_mixer_elem_t *elem,
-                    snd_mixer_selem_channel_id_t channel)
+static double get_normalized_volume (snd_mixer_elem_t *elem, snd_mixer_selem_channel_id_t channel)
 {
     long min, max, value;
     double normalized, min_norm;
     int err;
 
-    err = snd_mixer_selem_get_playback_dB_range(elem, &min, &max);
-    if (err < 0 || min >= max) {
-        err = snd_mixer_selem_get_playback_volume_range(elem, &min, &max);
-        if (err < 0 || min == max)
-            return 0;
+    err = snd_mixer_selem_get_playback_dB_range (elem, &min, &max);
+    if (err < 0 || min >= max)
+    {
+        err = snd_mixer_selem_get_playback_volume_range (elem, &min, &max);
+        if (err < 0 || min == max) return 0;
 
-        err = snd_mixer_selem_get_playback_volume(elem, channel, &value);
-        if (err < 0)
-            return 0;
+        err = snd_mixer_selem_get_playback_volume (elem, channel, &value);
+        if (err < 0) return 0;
 
         return (value - min) / (double)(max - min);
     }
 
-    err = snd_mixer_selem_get_playback_dB(elem, channel, &value);
-    if (err < 0)
-        return 0;
+    err = snd_mixer_selem_get_playback_dB (elem, channel, &value);
+    if (err < 0) return 0;
 
-    if (use_linear_dB_scale(min, max))
-        return (value - min) / (double)(max - min);
+    if (use_linear_dB_scale (min, max)) return (value - min) / (double)(max - min);
 
-    normalized = exp10((value - max) / 6000.0);
-    if (min != SND_CTL_TLV_DB_GAIN_MUTE) {
-        min_norm = exp10((min - max) / 6000.0);
+    normalized = exp10 ((value - max) / 6000.0);
+    if (min != SND_CTL_TLV_DB_GAIN_MUTE)
+    {
+        min_norm = exp10 ((min - max) / 6000.0);
         normalized = (normalized - min_norm) / (1 - min_norm);
     }
 
     return normalized;
 }
 
-static int set_normalized_volume(snd_mixer_elem_t *elem,
-                 snd_mixer_selem_channel_id_t channel,
-                 double volume,
-                 int dir)
+static int set_normalized_volume (snd_mixer_elem_t *elem, snd_mixer_selem_channel_id_t channel, double volume, int dir)
 {
     long min, max, value;
     double min_norm;
     int err;
 
-    err = snd_mixer_selem_get_playback_dB_range(elem, &min, &max);
-    if (err < 0 || min >= max) {
+    err = snd_mixer_selem_get_playback_dB_range (elem, &min, &max);
+    if (err < 0 || min >= max)
+    {
         err = snd_mixer_selem_get_playback_volume_range(elem, &min, &max);
-        if (err < 0)
-            return err;
+        if (err < 0) return err;
 
-        value = lrint_dir(volume * (max - min), dir) + min;
-        return snd_mixer_selem_set_playback_volume(elem, channel, value);
+        value = lrint_dir (volume * (max - min), dir) + min;
+        return snd_mixer_selem_set_playback_volume (elem, channel, value);
     }
 
-    if (use_linear_dB_scale(min, max)) {
-        value = lrint_dir(volume * (max - min), dir) + min;
-        return snd_mixer_selem_set_playback_dB(elem, channel, value, dir);
+    if (use_linear_dB_scale(min, max))
+    {
+        value = lrint_dir (volume * (max - min), dir) + min;
+        return snd_mixer_selem_set_playback_dB (elem, channel, value, dir);
     }
 
-    if (min != SND_CTL_TLV_DB_GAIN_MUTE) {
-        min_norm = exp10((min - max) / 6000.0);
+    if (min != SND_CTL_TLV_DB_GAIN_MUTE)
+    {
+        min_norm = exp10 ((min - max) / 6000.0);
         volume = volume * (1 - min_norm) + min_norm;
     }
-    value = lrint_dir(6000.0 * log10(volume), dir) + max;
-    return snd_mixer_selem_set_playback_dB(elem, channel, value, dir);
+    value = lrint_dir (6000.0 * log10 (volume), dir) + max;
+    return snd_mixer_selem_set_playback_dB (elem, channel, value, dir);
 }
 
-static gboolean asound_find_elements(VolumeALSAPlugin * vol)
+static gboolean asound_find_elements (VolumeALSAPlugin *vol)
 {
     const char *name;
-    for (
-      vol->master_element = snd_mixer_first_elem(vol->mixer);
-      vol->master_element != NULL;
-      vol->master_element = snd_mixer_elem_next(vol->master_element))
+    for (vol->master_element = snd_mixer_first_elem(vol->mixer);
+        vol->master_element != NULL;
+        vol->master_element = snd_mixer_elem_next(vol->master_element))
     {
-        if ((snd_mixer_selem_is_active(vol->master_element)))
+        if ((snd_mixer_selem_is_active (vol->master_element)))
         {
-            name = snd_mixer_selem_get_name(vol->master_element);
+            name = snd_mixer_selem_get_name (vol->master_element);
             if (!strncasecmp (name, "Master", 6)) return TRUE;
             if (!strncasecmp (name, "Front", 5)) return TRUE;
             if (!strncasecmp (name, "PCM", 3)) return TRUE;
@@ -730,9 +749,9 @@ static gboolean asound_find_elements(VolumeALSAPlugin * vol)
  * iteration, and won't be affected.
  */
 
-static gboolean asound_reset_mixer_evt_idle(VolumeALSAPlugin * vol)
+static gboolean asound_reset_mixer_evt_idle (VolumeALSAPlugin * vol)
 {
-    if (!g_source_is_destroyed(g_main_current_source()))
+    if (!g_source_is_destroyed (g_main_current_source ()))
         vol->mixer_evt_idle = 0;
     return FALSE;
 }
@@ -743,34 +762,33 @@ static gboolean asound_mixer_event (GIOChannel *channel, GIOCondition cond, gpoi
     VolumeALSAPlugin * vol = (VolumeALSAPlugin *) vol_gpointer;
     int res = 0;
 
-    if (g_source_is_destroyed(g_main_current_source()))
-        return FALSE;
+    if (g_source_is_destroyed (g_main_current_source ())) return FALSE;
 
     if (vol->mixer_evt_idle == 0)
     {
-        vol->mixer_evt_idle = g_idle_add_full(G_PRIORITY_DEFAULT, (GSourceFunc) asound_reset_mixer_evt_idle, vol, NULL);
-        if (vol->mixer) res = snd_mixer_handle_events(vol->mixer);
+        vol->mixer_evt_idle = g_idle_add_full (G_PRIORITY_DEFAULT, (GSourceFunc) asound_reset_mixer_evt_idle, vol, NULL);
+        if (vol->mixer) res = snd_mixer_handle_events (vol->mixer);
     }
 
     if (cond & G_IO_IN)
     {
         /* the status of mixer is changed. update of display is needed. */
         /* don't do this if res > 1, as that seems to happen if a BT device has disconnected... */
-        if (res < 2) volumealsa_update_display(vol);
+        if (res < 2) volumealsa_update_display (vol);
     }
 
     if ((cond & G_IO_HUP) || (res < 0))
     {
         /* This means there're some problems with alsa. */
-        g_warning("volumealsa: ALSA (or pulseaudio) had a problem: "
+        g_warning ("volumealsa: ALSA (or pulseaudio) had a problem: "
                 "volumealsa: snd_mixer_handle_events() = %d,"
                 " cond 0x%x (IN: 0x%x, HUP: 0x%x).", res, cond,
                 G_IO_IN, G_IO_HUP);
-        gtk_widget_set_tooltip_text(vol->plugin, "ALSA (or pulseaudio) had a problem."
+        gtk_widget_set_tooltip_text (vol->plugin, "ALSA (or pulseaudio) had a problem."
                 " Please check the lxpanel logs.");
 
         if (vol->restart_idle == 0)
-            vol->restart_idle = g_timeout_add_seconds(1, asound_restart, vol);
+            vol->restart_idle = g_timeout_add_seconds (1, asound_restart, vol);
 
         return FALSE;
     }
@@ -985,22 +1003,22 @@ static gboolean asound_initialize (VolumeALSAPlugin * vol)
     asound_find_elements (vol);
 
     /* Listen to events from ALSA. */
-    int n_fds = snd_mixer_poll_descriptors_count(vol->mixer);
-    struct pollfd * fds = g_new0(struct pollfd, n_fds);
+    int n_fds = snd_mixer_poll_descriptors_count (vol->mixer);
+    struct pollfd * fds = g_new0 (struct pollfd, n_fds);
 
-    vol->channels = g_new0(GIOChannel *, n_fds);
-    vol->watches = g_new0(guint, n_fds);
+    vol->channels = g_new0 (GIOChannel *, n_fds);
+    vol->watches = g_new0 (guint, n_fds);
     vol->num_channels = n_fds;
 
-    snd_mixer_poll_descriptors(vol->mixer, fds, n_fds);
+    snd_mixer_poll_descriptors (vol->mixer, fds, n_fds);
     int i;
     for (i = 0; i < n_fds; ++i)
     {
-        GIOChannel* channel = g_io_channel_unix_new(fds[i].fd);
-        vol->watches[i] = g_io_add_watch(channel, G_IO_IN | G_IO_HUP, asound_mixer_event, vol);
+        GIOChannel* channel = g_io_channel_unix_new (fds[i].fd);
+        vol->watches[i] = g_io_add_watch (channel, G_IO_IN | G_IO_HUP, asound_mixer_event, vol);
         vol->channels[i] = channel;
     }
-    g_free(fds);
+    g_free (fds);
 
     if (asound_get_simple_ctrls (-1) == -1)
     {
@@ -1045,89 +1063,78 @@ static void asound_deinitialize (VolumeALSAPlugin * vol)
 }
 
 /* Get the presence of the mute control from the sound system. */
-static gboolean asound_has_mute(VolumeALSAPlugin * vol)
+static gboolean asound_has_mute (VolumeALSAPlugin *vol)
 {
-    return ((vol->master_element != NULL) ? snd_mixer_selem_has_playback_switch(vol->master_element) : FALSE);
+    return ((vol->master_element != NULL) ? snd_mixer_selem_has_playback_switch (vol->master_element) : FALSE);
 }
 
 /* Get the condition of the mute control from the sound system. */
-static gboolean asound_is_muted(VolumeALSAPlugin * vol)
+static gboolean asound_is_muted (VolumeALSAPlugin *vol)
 {
     /* The switch is on if sound is not muted, and off if the sound is muted.
      * Initialize so that the sound appears unmuted if the control does not exist. */
     int value = 1;
     if (vol->master_element != NULL)
-        snd_mixer_selem_get_playback_switch(vol->master_element, 0, &value);
+        snd_mixer_selem_get_playback_switch (vol->master_element, 0, &value);
     return (value == 0);
 }
 
-static void asound_set_mute (VolumeALSAPlugin * vol, gboolean mute)
+static void asound_set_mute (VolumeALSAPlugin *vol, gboolean mute)
 {
     if (vol->master_element != NULL)
     {
         int chn;
         for (chn = 0; chn <= SND_MIXER_SCHN_LAST; chn++)
-            snd_mixer_selem_set_playback_switch(vol->master_element, chn, mute ? 0 : 1);
+            snd_mixer_selem_set_playback_switch (vol->master_element, chn, mute ? 0 : 1);
     }
 }
 
 /* Get the volume from the sound system.
  * This implementation returns the average of the Front Left and Front Right channels. */
-static int asound_get_volume(VolumeALSAPlugin * vol)
+static int asound_get_volume (VolumeALSAPlugin *vol)
 {
     double aleft = 0;
     double aright = 0;
     if (vol->master_element != NULL)
     {
-        aleft = get_normalized_volume(vol->master_element, SND_MIXER_SCHN_FRONT_LEFT);
-        aright = get_normalized_volume(vol->master_element, SND_MIXER_SCHN_FRONT_RIGHT);
+        aleft = get_normalized_volume (vol->master_element, SND_MIXER_SCHN_FRONT_LEFT);
+        aright = get_normalized_volume (vol->master_element, SND_MIXER_SCHN_FRONT_RIGHT);
     }
-    return (int)round((aleft + aright) * 50);
+    return (int) round ((aleft + aright) * 50);
 }
 
 /* Set the volume to the sound system.
  * This implementation sets the Front Left and Front Right channels to the specified value. */
-static void asound_set_volume(VolumeALSAPlugin * vol, int volume)
+static void asound_set_volume (VolumeALSAPlugin *vol, int volume)
 {
-    int dir = volume - asound_get_volume(vol);
-    double vol_perc = (double)volume / 100;
+    int dir = volume - asound_get_volume (vol);
+    double vol_perc = (double) volume / 100;
 
     if (vol->master_element != NULL)
     {
-        set_normalized_volume(vol->master_element, SND_MIXER_SCHN_FRONT_LEFT, vol_perc, dir);
-        set_normalized_volume(vol->master_element, SND_MIXER_SCHN_FRONT_RIGHT, vol_perc, dir);
+        set_normalized_volume (vol->master_element, SND_MIXER_SCHN_FRONT_LEFT, vol_perc, dir);
+        set_normalized_volume (vol->master_element, SND_MIXER_SCHN_FRONT_RIGHT, vol_perc, dir);
     }
 }
 
 /*** Graphics ***/
 
-static void volumealsa_update_current_icon(VolumeALSAPlugin * vol)
+static void volumealsa_update_current_icon (VolumeALSAPlugin *vol)
 {
     gboolean mute;
     int level;
 
     /* Mute status. */
-    mute = asound_is_muted(vol);
-    level = asound_get_volume(vol);
+    mute = asound_is_muted (vol);
+    level = asound_get_volume (vol);
 
     /* Change icon according to mute / volume */
-    const char* icon="audio-volume-muted";
-    if (mute)
-    {
-         icon="audio-volume-muted";
-    }
-    else if (level >= 66)
-    {
-         icon="audio-volume-high";
-    }
-    else if (level >= 33)
-    {
-         icon="audio-volume-medium";
-    }
-    else if (level > 0)
-    {
-         icon="audio-volume-low";
-    }
+    const char* icon = "audio-volume-muted";
+
+    if (mute) icon = "audio-volume-muted";
+    else if (level >= 66) icon = "audio-volume-high";
+    else if (level >= 33) icon = "audio-volume-medium";
+    else if (level > 0) icon = "audio-volume-low";
 
     vol->icon = icon;
 }
@@ -1162,7 +1169,7 @@ void set_icon (LXPanel *p, GtkWidget *image, const char *icon, int size)
 }
 
 /* Do a full redraw of the display. */
-static void volumealsa_update_display(VolumeALSAPlugin * vol)
+static void volumealsa_update_display (VolumeALSAPlugin *vol)
 {
     gboolean mute;
     int level;
@@ -1173,30 +1180,30 @@ static void volumealsa_update_display(VolumeALSAPlugin * vol)
 #endif
 
     /* Mute status. */
-    mute = asound_is_muted(vol);
-    level = asound_get_volume(vol);
+    mute = asound_is_muted (vol);
+    level = asound_get_volume (vol);
     if (mute) level = 0;
 
-    volumealsa_update_current_icon(vol);
+    volumealsa_update_current_icon (vol);
 
     /* Change icon, fallback to default icon if theme doesn't exist */
     set_icon (vol->panel, vol->tray_icon, vol->icon, 0);
 
-    g_signal_handler_block(vol->mute_check, vol->mute_check_handler);
-    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(vol->mute_check), mute);
-    gtk_widget_set_sensitive(vol->mute_check, asound_has_mute(vol));
-    g_signal_handler_unblock(vol->mute_check, vol->mute_check_handler);
+    g_signal_handler_block (vol->mute_check, vol->mute_check_handler);
+    gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (vol->mute_check), mute);
+    gtk_widget_set_sensitive (vol->mute_check, asound_has_mute(vol));
+    g_signal_handler_unblock (vol->mute_check, vol->mute_check_handler);
 
     /* Volume. */
     if (vol->volume_scale != NULL)
     {
-        g_signal_handler_block(vol->volume_scale, vol->volume_scale_handler);
-        gtk_range_set_value(GTK_RANGE(vol->volume_scale), level);
-        g_signal_handler_unblock(vol->volume_scale, vol->volume_scale_handler);
+        g_signal_handler_block (vol->volume_scale, vol->volume_scale_handler);
+        gtk_range_set_value (GTK_RANGE (vol->volume_scale), level);
+        g_signal_handler_unblock (vol->volume_scale, vol->volume_scale_handler);
     }
 
     /* Display current level in tooltip. */
-    char *tooltip = g_strdup_printf("%s %d", _("Volume control"), level);
+    char *tooltip = g_strdup_printf ("%s %d", _("Volume control"), level);
     gtk_widget_set_tooltip_text (vol->plugin, tooltip);
     g_free (tooltip);
 }
@@ -1247,7 +1254,7 @@ static gboolean asound_get_bcm_device_id (gchar *id)
 
 static void volumealsa_popup_set_position (GtkWidget *menu, gint *px, gint *py, gboolean *push_in, gpointer data)
 {
-    VolumeALSAPlugin *vol= (VolumeALSAPlugin *) data;
+    VolumeALSAPlugin *vol = (VolumeALSAPlugin *) data;
 
     /* Determine the coordinates. */
     lxpanel_plugin_popup_set_position_helper (vol->panel, vol->plugin, menu, px, py);
@@ -1263,7 +1270,7 @@ static void send_message (void)
   id = g_bus_own_name (G_BUS_TYPE_SESSION, "org.lxde.volumealsa", 0, NULL, NULL, NULL, NULL, NULL);
 }
 
-static void set_external_output_device (GtkWidget * widget, VolumeALSAPlugin * vol)
+static void set_external_output_device (GtkWidget *widget, VolumeALSAPlugin *vol)
 {
     /* if there is a Bluetooth device in use, disconnect it first */
     bt_disconnect_device (vol);
@@ -1339,10 +1346,10 @@ static void open_config_dialog (GtkWidget * widget, VolumeALSAPlugin * vol)
 }
 
 /* Handler for "focus-out" signal on popup window. */
-static gboolean volumealsa_mouse_out (GtkWidget * widget, GdkEventButton * event, VolumeALSAPlugin * vol)
+static gboolean volumealsa_mouse_out (GtkWidget *widget, GdkEventButton *event, VolumeALSAPlugin *vol)
 {
     /* Hide the widget. */
-    gtk_widget_hide(vol->popup_window);
+    gtk_widget_hide (vol->popup_window);
     vol->show_popup = FALSE;
     gdk_pointer_ungrab (GDK_CURRENT_TIME);
     return FALSE;
@@ -1388,12 +1395,12 @@ static GtkWidget *volumealsa_menu_item_add (VolumeALSAPlugin *vol, const char *l
     return mi;
 }
 
-static gboolean volumealsa_button_press_event(GtkWidget * widget, GdkEventButton * event, LXPanel * panel)
+static gboolean volumealsa_button_press_event (GtkWidget *widget, GdkEventButton *event, LXPanel *panel)
 {
-    VolumeALSAPlugin * vol = lxpanel_plugin_get_data(widget);
+    VolumeALSAPlugin * vol = lxpanel_plugin_get_data (widget);
 
 #ifdef ENABLE_NLS
-    textdomain ( GETTEXT_PACKAGE );
+    textdomain (GETTEXT_PACKAGE);
 #endif
     if (vol->stopped) return TRUE;
 
@@ -1667,7 +1674,7 @@ static void volumealsa_popup_mute_toggled (GtkWidget *widget, VolumeALSAPlugin *
 /* Build the window that appears when the top level widget is clicked. */
 static void volumealsa_build_popup_window (GtkWidget *p)
 {
-    VolumeALSAPlugin * vol = lxpanel_plugin_get_data(p);
+    VolumeALSAPlugin *vol = lxpanel_plugin_get_data (p);
 
     if (vol->popup_window)
     {
@@ -1712,7 +1719,7 @@ static void volumealsa_build_popup_window (GtkWidget *p)
     g_object_set (vol->volume_scale, "height-request", 120, NULL);
     gtk_scale_set_draw_value (GTK_SCALE (vol->volume_scale), FALSE);
     gtk_range_set_inverted (GTK_RANGE (vol->volume_scale), TRUE);
-    gtk_box_pack_start (GTK_BOX(box), vol->volume_scale, TRUE, TRUE, 0);
+    gtk_box_pack_start (GTK_BOX (box), vol->volume_scale, TRUE, TRUE, 0);
     gtk_widget_set_can_focus (vol->volume_scale, FALSE);
 
     /* Value-changed and scroll-event signals. */
@@ -1756,10 +1763,10 @@ static void volumealsa_build_popup_window (GtkWidget *p)
 }
 
 /* Plugin constructor. */
-static GtkWidget *volumealsa_constructor(LXPanel *panel, config_setting_t *settings)
+static GtkWidget *volumealsa_constructor (LXPanel *panel, config_setting_t *settings)
 {
     /* Allocate and initialize plugin context and set into Plugin private data pointer. */
-    VolumeALSAPlugin * vol = g_new0(VolumeALSAPlugin, 1);
+    VolumeALSAPlugin * vol = g_new0 (VolumeALSAPlugin, 1);
     GtkWidget *p;
 
 #ifdef ENABLE_NLS
@@ -1783,7 +1790,7 @@ static GtkWidget *volumealsa_constructor(LXPanel *panel, config_setting_t *setti
     gtk_widget_set_tooltip_text (p, _("Volume control"));
 
     /* Allocate icon as a child of top level. */
-    vol->tray_icon = gtk_image_new();
+    vol->tray_icon = gtk_image_new ();
     gtk_container_add (GTK_CONTAINER (p), vol->tray_icon);
 
     /* Initialize ALSA if default device isn't Bluetooth */
@@ -1813,30 +1820,30 @@ static GtkWidget *volumealsa_constructor(LXPanel *panel, config_setting_t *setti
 /* Plugin destructor. */
 static void volumealsa_destructor(gpointer user_data)
 {
-    VolumeALSAPlugin * vol = (VolumeALSAPlugin *) user_data;
+    VolumeALSAPlugin *vol = (VolumeALSAPlugin *) user_data;
 
-    asound_deinitialize(vol);
+    asound_deinitialize (vol);
 
     /* If the dialog box is open, dismiss it. */
     if (vol->popup_window != NULL)
-        gtk_widget_destroy(vol->popup_window);
+        gtk_widget_destroy (vol->popup_window);
 
     if (vol->restart_idle)
-        g_source_remove(vol->restart_idle);
+        g_source_remove (vol->restart_idle);
 
    if (vol->panel) /* SF bug #683: crash if constructor failed */
-    g_signal_handlers_disconnect_by_func(panel_get_icon_theme(vol->panel),
+    g_signal_handlers_disconnect_by_func (panel_get_icon_theme (vol->panel),
                                          volumealsa_theme_change, vol);
 
     /* Deallocate all memory. */
-    g_free(vol);
+    g_free (vol);
 }
 
 /* Callback when the configuration dialog is to be shown. */
 
-static GtkWidget *volumealsa_configure(LXPanel *panel, GtkWidget *p)
+static GtkWidget *volumealsa_configure (LXPanel *panel, GtkWidget *p)
 {
-    VolumeALSAPlugin * vol = lxpanel_plugin_get_data(p);
+    VolumeALSAPlugin * vol = lxpanel_plugin_get_data (p);
     char *path = NULL;
     const gchar *command_line = NULL;
     GAppInfoCreateFlags flags = G_APP_INFO_CREATE_NONE;
@@ -1846,61 +1853,46 @@ static GtkWidget *volumealsa_configure(LXPanel *panel, GtkWidget *p)
 #endif
     /* FIXME: configure settings! */
     /* check if command line was configured */
-    config_setting_lookup_string(vol->settings, "MixerCommand", &command_line);
+    config_setting_lookup_string (vol->settings, "MixerCommand", &command_line);
     /* FIXME: support "needs terminal" for MixerCommand */
     /* FIXME: selection for master channel! */
     /* FIXME: configure buttons for each action (toggle volume/mixer/mute)! */
 
     /* if command isn't set in settings then let guess it */
-#if 0
-    if (command_line == NULL && (path = g_find_program_in_path("pulseaudio")))
-    {
-        g_free(path);
-     /* Assume that when pulseaudio is installed, it's launching every time */
-        if ((path = g_find_program_in_path("gnome-sound-applet")))
-        {
-            command_line = "gnome-sound-applet";
-        }
-        else if ((path = g_find_program_in_path("pavucontrol")))
-        {
-            command_line = "pavucontrol";
-        }
-    }
-#endif
     /* Fallback to alsamixer when PA is not running, or when no PA utility is find */
     if (command_line == NULL)
     {
-        if ((path = g_find_program_in_path("gnome-alsamixer")))
+        if ((path = g_find_program_in_path ("gnome-alsamixer")))
         {
             command_line = "gnome-alsamixer";
         }
-        else if ((path = g_find_program_in_path("alsamixergui")))
+        else if ((path = g_find_program_in_path ("alsamixergui")))
         {
             command_line = "alsamixergui";
         }
-        else if ((path = g_find_program_in_path("pimixer")))
+        else if ((path = g_find_program_in_path ("pimixer")))
         {
             command_line = "pimixer";
         }
-        else if ((path = g_find_program_in_path("xfce4-mixer")))
+        else if ((path = g_find_program_in_path ("xfce4-mixer")))
         {
             command_line = "xfce4-mixer";
         }
-       else if ((path = g_find_program_in_path("alsamixer")))
+       else if ((path = g_find_program_in_path ("alsamixer")))
         {
             command_line = "alsamixer";
             flags = G_APP_INFO_CREATE_NEEDS_TERMINAL;
         }
     }
-    g_free(path);
+    g_free (path);
 
     if (command_line)
     {
-        fm_launch_command_simple(NULL, NULL, flags, command_line, NULL);
+        fm_launch_command_simple (NULL, NULL, flags, command_line, NULL);
     }
     else
     {
-        fm_show_error(NULL, NULL,
+        fm_show_error (NULL, NULL,
                       _("Error, you need to install an application to configure"
                         " the sound (pavucontrol, alsamixer ...)"));
     }
@@ -1909,13 +1901,13 @@ static GtkWidget *volumealsa_configure(LXPanel *panel, GtkWidget *p)
 }
 
 /* Callback when panel configuration changes. */
-static void volumealsa_panel_configuration_changed(LXPanel *panel, GtkWidget *p)
+static void volumealsa_panel_configuration_changed (LXPanel *panel, GtkWidget *p)
 {
-    VolumeALSAPlugin * vol = lxpanel_plugin_get_data(p);
+    VolumeALSAPlugin *vol = lxpanel_plugin_get_data(p);
 
     volumealsa_build_popup_window (vol->plugin);
     /* Do a full redraw. */
-    volumealsa_update_display(vol);
+    volumealsa_update_display (vol);
     if (vol->show_popup) gtk_widget_show_all (vol->popup_window);
 }
 
@@ -1998,18 +1990,16 @@ static gboolean volumealsa_control_msg (GtkWidget *plugin, const char *cmd)
     return FALSE;
 }
 
-FM_DEFINE_MODULE(lxpanel_gtk, volumealsabt)
+FM_DEFINE_MODULE (lxpanel_gtk, volumealsabt)
 
 /* Plugin descriptor. */
-LXPanelPluginInit fm_module_init_lxpanel_gtk = {
+LXPanelPluginInit fm_module_init_lxpanel_gtk = 
+{
     .name = N_("Volume Control (ALSA/BT)"),
     .description = N_("Display and control volume for ALSA and Bluetooth devices"),
-
     .new_instance = volumealsa_constructor,
     .config = volumealsa_configure,
     .reconfigure = volumealsa_panel_configuration_changed,
     .control = volumealsa_control_msg,
     .gettext_package = GETTEXT_PACKAGE
 };
-
-/* vim: set sw=4 et sts=4 : */
