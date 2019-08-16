@@ -64,10 +64,6 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "plugin.h"
 
-#define ICONS_TICK          PACKAGE_DATA_DIR "/images/dialog-ok-apply.png"
-
-#define ICON_BUTTON_TRIM 4
-
 #define DEBUG_ON
 #ifdef DEBUG_ON
 //#define DEBUG(fmt,args...) {FILE *flp = fopen ("/home/pi/vlog.txt", "ab+"); fprintf (flp, fmt,##args); fprintf (flp, "\n"); fclose (flp);}
@@ -116,7 +112,6 @@ typedef struct {
     char *mon_names[2];                 /* Names of HDMI devices */
 
 } VolumeALSAPlugin;
-
 
 #define BLUEALSA_DEV (-99)
 
@@ -211,9 +206,8 @@ static void volumealsa_destructor (gpointer user_data);
 
 static char *get_string (const char *fmt, ...)
 {
-    char *line = NULL, *res = NULL;
+    char *cmdline, *line = NULL, *res = NULL;
     size_t len = 0;
-    char *cmdline;
 
     va_list arg;
     va_start (arg, fmt);
@@ -238,8 +232,8 @@ static char *get_string (const char *fmt, ...)
 
 static int get_value (const char *fmt, ...)
 {
-    int n, m;
     char *res;
+    int n, m;
 
     res = get_string (fmt);
     n = sscanf (res, "%d", &m);
@@ -274,6 +268,7 @@ static gboolean find_in_section (char *file, char *sec, char *seek)
 
 static void set_icon (LXPanel *p, GtkWidget *image, const char *icon, int size)
 {
+#define ICON_BUTTON_TRIM 4
     GdkPixbuf *pixbuf;
     if (size == 0) size = panel_get_icon_size (p) - ICON_BUTTON_TRIM;
     if (gtk_icon_theme_has_icon (panel_get_icon_theme (p), icon))
@@ -542,7 +537,6 @@ static gboolean bt_is_audio_sink (VolumeALSAPlugin *vol, const gchar *path)
     while ((elem = g_variant_iter_next_value (&iter)))
     {
         const char *uuid = g_variant_get_string (elem, NULL);
-        if (!strncasecmp (uuid, "00001124", 8)) return FALSE;
         if (!strncasecmp (uuid, "0000110B", 8)) return TRUE;
         g_variant_unref (elem);
     }
@@ -787,14 +781,12 @@ static void asound_deinitialize (VolumeALSAPlugin * vol)
 
 static gboolean asound_restart (gpointer vol_gpointer)
 {
-    VolumeALSAPlugin * vol = vol_gpointer;
+    VolumeALSAPlugin *vol = vol_gpointer;
 
     if (!g_main_current_source ()) return TRUE;
-    if (g_source_is_destroyed (g_main_current_source ()))
-        return FALSE;
+    if (g_source_is_destroyed (g_main_current_source ())) return FALSE;
 
     asound_deinitialize (vol);
-
     if (!asound_initialize (vol))
     {
         g_warning ("volumealsa: Re-initialization failed.");
@@ -809,14 +801,12 @@ static gboolean asound_restart (gpointer vol_gpointer)
 
 static gboolean asound_find_elements (VolumeALSAPlugin *vol)
 {
-    const char *name;
-    for (vol->master_element = snd_mixer_first_elem(vol->mixer);
-        vol->master_element != NULL;
-        vol->master_element = snd_mixer_elem_next(vol->master_element))
+    for (vol->master_element = snd_mixer_first_elem (vol->mixer); vol->master_element != NULL;
+        vol->master_element = snd_mixer_elem_next (vol->master_element))
     {
         if ((snd_mixer_selem_is_active (vol->master_element)))
         {
-            name = snd_mixer_selem_get_name (vol->master_element);
+            const char *name = snd_mixer_selem_get_name (vol->master_element);
             if (!strncasecmp (name, "Master", 6)) return TRUE;
             if (!strncasecmp (name, "Front", 5)) return TRUE;
             if (!strncasecmp (name, "PCM", 3)) return TRUE;
@@ -1124,17 +1114,14 @@ static void asound_set_bt_device (char *devname)
 
 static gboolean asound_is_current_bt_dev (const char *obj)
 {
+    gboolean res = FALSE;
     char *device = asound_get_bt_device ();
     if (device)
     {
-        if (strstr (obj, device))
-        {
-            g_free (device);
-            return TRUE;
-        }
+        if (strstr (obj, device)) res = TRUE;
         g_free (device);
     }
-    return FALSE;
+    return res;
 }
 
 static int asound_get_bcm_device_num (void)
@@ -1161,8 +1148,7 @@ static gboolean asound_is_bcm_device (int num)
     if (snd_card_get_name (num, &name)) return FALSE;
     int res = strncmp (name, "bcm2835", 7);
     g_free (name);
-    if (res) return FALSE;
-    return TRUE;
+    return res == 0 ? TRUE : FALSE;
 }
 
 static char *asound_default_device_name (void)
@@ -1790,36 +1776,25 @@ static GtkWidget *volumealsa_configure (LXPanel *panel, GtkWidget *plugin)
     GAppInfoCreateFlags flags = G_APP_INFO_CREATE_NONE;
 
 #ifdef ENABLE_NLS
-    textdomain ( GETTEXT_PACKAGE );
+    textdomain (GETTEXT_PACKAGE);
 #endif
-    /* FIXME: configure settings! */
+
     /* check if command line was configured */
     config_setting_lookup_string (vol->settings, "MixerCommand", &command_line);
-    /* FIXME: support "needs terminal" for MixerCommand */
-    /* FIXME: selection for master channel! */
-    /* FIXME: configure buttons for each action (toggle volume/mixer/mute)! */
 
     /* if command isn't set in settings then let guess it */
     /* Fallback to alsamixer when PA is not running, or when no PA utility is find */
     if (command_line == NULL)
     {
-        if ((path = g_find_program_in_path ("gnome-alsamixer")))
-        {
-            command_line = "gnome-alsamixer";
-        }
-        else if ((path = g_find_program_in_path ("alsamixergui")))
-        {
-            command_line = "alsamixergui";
-        }
-        else if ((path = g_find_program_in_path ("pimixer")))
-        {
+        if ((path = g_find_program_in_path ("pimixer")))
             command_line = "pimixer";
-        }
+        else if ((path = g_find_program_in_path ("gnome-alsamixer")))
+            command_line = "gnome-alsamixer";
+        else if ((path = g_find_program_in_path ("alsamixergui")))
+            command_line = "alsamixergui";
         else if ((path = g_find_program_in_path ("xfce4-mixer")))
-        {
             command_line = "xfce4-mixer";
-        }
-       else if ((path = g_find_program_in_path ("alsamixer")))
+        else if ((path = g_find_program_in_path ("alsamixer")))
         {
             command_line = "alsamixer";
             flags = G_APP_INFO_CREATE_NEEDS_TERMINAL;
@@ -1827,10 +1802,7 @@ static GtkWidget *volumealsa_configure (LXPanel *panel, GtkWidget *plugin)
     }
     g_free (path);
 
-    if (command_line)
-    {
-        fm_launch_command_simple (NULL, NULL, flags, command_line, NULL);
-    }
+    if (command_line) fm_launch_command_simple (NULL, NULL, flags, command_line, NULL);
     else
     {
         fm_show_error (NULL, NULL,
