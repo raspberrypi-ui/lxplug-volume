@@ -1637,11 +1637,7 @@ static void volumealsa_build_popup_window (GtkWidget *p)
 {
     VolumeALSAPlugin *vol = lxpanel_plugin_get_data (p);
 
-    if (vol->popup_window)
-    {
-        gtk_widget_destroy (vol->popup_window);
-        vol->popup_window = NULL;
-    }
+    if (vol->popup_window) gtk_widget_destroy (vol->popup_window);
 
     /* Create a new window. */
     vol->popup_window = gtk_window_new (GTK_WINDOW_POPUP);
