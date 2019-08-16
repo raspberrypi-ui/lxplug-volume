@@ -309,7 +309,7 @@ static int hdmi_monitors (VolumeALSAPlugin *vol)
 
     /* check xrandr for connected monitors */
     m = get_value ("xrandr -q | grep -c connected");
-    if (m <= 0) m = 1;
+    if (m < 0) m = 1; /* couldn't read, so assume 1... */
     if (m > 2) m = 2;
 
     /* get the names */
@@ -1433,34 +1433,34 @@ static void volumealsa_build_device_menu (VolumeALSAPlugin *vol)
 
         if (asound_is_bcm_device (card_num))
         {
-            /* if the onboard card is default, find currently-set output */
             int bcm = 0;
 
+            /* if the onboard card is default, find currently-set output */
             if (asound_is_default_card (card_num))
             {
                 /* read back the current input on the BCM device */
-                int val = get_value ("amixer cget numid=3 2>/dev/null | grep : | cut -d = -f 2");
+                bcm = get_value ("amixer cget numid=3 2>/dev/null | grep : | cut -d = -f 2");
 
-                if (val == 0)
+                /* if auto, then set to HDMI if there is one, otherwise analog */
+                if (bcm == 0)
                 {
-                    /* set to analog if result is auto */
-                    system ("amixer -q cset numid=3 2");
-                    val = 2;
+                    if (vol->hdmis > 0) bcm = 2;
+                    else bcm = 1;
                 }
-                bcm = val;
             }
 
             volumealsa_menu_item_add (vol, _("Analog"), "1", bcm == 1, G_CALLBACK (volumealsa_set_internal_output));
-            if (vol->hdmis == 2)
+            devices = 1;
+            if (vol->hdmis == 1)
+            {
+                volumealsa_menu_item_add (vol, _("HDMI"), "2", bcm == 2, G_CALLBACK (volumealsa_set_internal_output));
+                devices = 2;
+            }
+            else if (vol->hdmis == 2)
             {
                 volumealsa_menu_item_add (vol, vol->mon_names[0], "2", bcm == 2, G_CALLBACK (volumealsa_set_internal_output));
                 volumealsa_menu_item_add (vol, vol->mon_names[1], "3", bcm == 3, G_CALLBACK (volumealsa_set_internal_output));
                 devices = 3;
-            }
-            else
-            {
-                volumealsa_menu_item_add (vol, _("HDMI"), "2", bcm == 2, G_CALLBACK (volumealsa_set_internal_output));
-                devices = 2;
             }
             break;
         }
