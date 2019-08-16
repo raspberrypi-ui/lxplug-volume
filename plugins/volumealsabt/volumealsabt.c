@@ -118,6 +118,8 @@ typedef struct {
 } VolumeALSAPlugin;
 
 
+#define BLUEALSA_DEV (-99)
+
 /* Helpers */
 static char *get_string (const char *fmt, ...);
 static int get_value (const char *fmt, ...);
@@ -160,16 +162,14 @@ static gboolean asound_reset_mixer_evt_idle (VolumeALSAPlugin * vol);
 static gboolean asound_mixer_event (GIOChannel *channel, GIOCondition cond, gpointer vol_gpointer);
 
 /* .asoundrc */
+static int asound_get_default_card (void);
+static void asound_set_default_card (int num);
+static char *asound_get_bt_device (void);
 static void asound_set_bt_device (char *devname);
-static int asound_get_bt_device (char *id);
 static gboolean asound_is_current_bt_dev (const char *obj);
-static gboolean asound_bt_is_default (void);
-static void asound_get_default_card (char *id);
-static void asound_set_default_card (const char *id);
-static gboolean asound_set_bcm_card (void);
-static gboolean asound_is_default_card (int num);
+static int asound_get_bcm_device_num (void);
 static gboolean asound_is_bcm_device (int num);
-static gboolean asound_get_bcm_device_id (gchar *id);
+static char *asound_default_device_name (void);
 
 /* Handlers and graphics */
 static void volumealsa_update_display (VolumeALSAPlugin *vol);
@@ -290,9 +290,9 @@ static void set_icon (LXPanel *p, GtkWidget *image, const char *icon, int size)
     }
     else
     {
-        char path[256];
-        sprintf (path, "%s/images/%s.png", PACKAGE_DATA_DIR, icon);
+        char *path = g_strdup_printf ("%s/images/%s.png", PACKAGE_DATA_DIR, icon);
         pixbuf = gdk_pixbuf_new_from_file_at_scale (path, size, size, TRUE, NULL);
+        g_free (path);
         if (pixbuf != NULL)
         {
             gtk_image_set_from_pixbuf (GTK_IMAGE (image), pixbuf);
@@ -361,7 +361,6 @@ static void bt_cb_object_removed (GDBusObjectManager *manager, GDBusObject *obje
 static void bt_cb_name_owned (GDBusConnection *connection, const gchar *name, const gchar *owner, gpointer user_data)
 {
     VolumeALSAPlugin *vol = (VolumeALSAPlugin *) user_data;
-    char device[20];
     DEBUG ("Name %s owned on DBus", name);
 
     /* BlueZ exists - get an object manager for it */
@@ -381,11 +380,13 @@ static void bt_cb_name_owned (GDBusConnection *connection, const gchar *name, co
     }
 
     /* Check whether a Bluetooth audio device is the current default - connect to it if it is */
-    if (asound_get_bt_device (device))
+    char *device = asound_get_bt_device ();
+    if (device)
     {
         /* Reconnect the current Bluetooth audio device */
         if (vol->bt_conname) g_free (vol->bt_conname);
         vol->bt_conname = g_strdup_printf ("/org/bluez/hci0/dev_%s", device);
+        g_free (device);
 
         DEBUG ("Connecting to %s...", vol->bt_conname);
         bt_connect_device (vol);
@@ -435,7 +436,7 @@ static void bt_cb_connected (GObject *source, GAsyncResult *res, gpointer user_d
         if (vol->conn_dialog) volumealsa_show_connect_dialog (vol, TRUE, error->message);
 
         // call initialize to fall back to a non-BT device here if on initial startup
-        if (asound_bt_is_default ()) asound_initialize (vol);
+        if (asound_get_default_card () == BLUEALSA_DEV) asound_initialize (vol);
     }
     else
     {
@@ -476,17 +477,18 @@ static void bt_cb_trusted (GObject *source, GAsyncResult *res, gpointer user_dat
 static void bt_disconnect_device (VolumeALSAPlugin *vol)
 {
     // get the name of the device with the current sink number
-    char buffer[64], device[20];
-
-    if (asound_get_bt_device (device))
+    char *device = asound_get_bt_device ();
+    if (device)
     {
-        sprintf (buffer, "/org/bluez/hci0/dev_%s", device);
+        char *buffer = g_strdup_printf ("/org/bluez/hci0/dev_%s", device);
+        g_free (device);
         DEBUG ("Device to disconnect = %s", buffer);
 
         // call the disconnect method on BlueZ
         if (vol->objmanager)
         {
             GDBusInterface *interface = g_dbus_object_manager_get_interface (vol->objmanager, buffer, "org.bluez.Device1");
+            g_free (buffer);
             if (interface)
             {
                 DEBUG ("Disconnecting...");
@@ -699,24 +701,25 @@ static void asound_set_volume (VolumeALSAPlugin *vol, int volume)
 
 static gboolean asound_initialize (VolumeALSAPlugin * vol)
 {
-    char device[32];
+    char *device;
 
     // make sure existing watches are removed by calling deinit
     asound_deinitialize (vol);
 
-    asound_get_default_card (device);
-
     /* Access the "default" device. */
     snd_mixer_open (&vol->mixer, 0);
+    device = asound_default_device_name ();
     if (snd_mixer_attach (vol->mixer, device))
     {
         g_warning ("volumealsa: Couldn't attach mixer - looking for another valid device");
+        g_free (device);
         asound_find_valid_device ();
-        asound_get_default_card (device);
+        device = asound_default_device_name ();
         snd_mixer_attach (vol->mixer, device);
     }
     snd_mixer_selem_register (vol->mixer, NULL, NULL);
     snd_mixer_load (vol->mixer);
+    g_free (device);
 
     /* Find Master element, or Front element, or PCM element, or LineOut element.
      * If one of these succeeds, master_element is valid. */
@@ -744,7 +747,7 @@ static gboolean asound_initialize (VolumeALSAPlugin * vol)
     {
         vol->mixer = NULL;
         vol->master_element = NULL;
-        asound_set_default_card ("hw:-1");
+        asound_set_default_card (-1);
     }
 
     return TRUE;
@@ -773,10 +776,10 @@ static void asound_deinitialize (VolumeALSAPlugin * vol)
 
     if (vol->mixer)
     {
-        char device[32];
-        asound_get_default_card (device);
-        if (*device) snd_mixer_detach (vol->mixer, device);
+        char *device = asound_default_device_name ();
+        snd_mixer_detach (vol->mixer, device);
         snd_mixer_close (vol->mixer);
+        g_free (device);
     }
     vol->master_element = NULL;
     vol->mixer = NULL;
@@ -831,11 +834,16 @@ static void asound_find_valid_device (void)
 {
     // call this if the current ALSA device is invalid - it tries to find an alternative
     g_warning ("volumealsa: Default ALSA device not valid - resetting to internal");
-    if (!asound_set_bcm_card ())
-    {
-        int num = -1;
-        char buf[16];
 
+    int num = asound_get_bcm_device_num ();
+    if (num != -1)
+    {
+        g_warning ("volumealsa: Setting to internal device hw:%d", num);
+        asound_set_default_card (num);
+        return;
+    }
+    else
+    {
         g_warning ("volumealsa: Internal device not available - looking for first valid ALSA device...");
         while (1)
         {
@@ -846,9 +854,8 @@ static void asound_find_valid_device (void)
             }
             if (num == -1) break;
 
-            sprintf (buf, "hw:%d", num);
-            g_warning ("volumealsa: Valid ALSA device %s found", buf);
-            asound_set_default_card (buf);
+            g_warning ("volumealsa: Valid ALSA device hw:%d found", num);
+            asound_set_default_card (num);
             return;
         }
         g_warning ("volumealsa: No ALSA devices found");
@@ -940,6 +947,120 @@ static gboolean asound_mixer_event (GIOChannel *channel, GIOCondition cond, gpoi
 /* .asoundrc manipulation                                                     */
 /*----------------------------------------------------------------------------*/
 
+static int asound_get_default_card (void)
+{
+    char *user_config_file = g_build_filename (g_get_home_dir (), "/.asoundrc", NULL);
+    char *res;
+    int val;
+
+    /* first check to see if Bluetooth is in use */
+    if (find_in_section (user_config_file, "pcm.!default", "bluealsa"))
+    {
+        g_free (user_config_file);
+        return BLUEALSA_DEV;
+    }
+
+    /* if not, check for new format file */
+    res = get_string ("sed -n '/pcm.!default/,/}/{/slave.pcm/p}' %s 2>/dev/null | cut -d '\"' -f 2 | cut -d : -f 2", user_config_file);
+    if (sscanf (res, "%d", &val) == 1)
+    {
+        g_free (res);
+        g_free (user_config_file);
+        return val;
+    }
+
+    /* if not, check for old format file */
+    g_free (res);
+    res = get_string ("sed -n '/pcm.!default/,/}/{/card/p}' %s 2>/dev/null | cut -d ' ' -f 2", user_config_file);
+    if (sscanf (res, "%d", &val) == 1)
+    {
+        g_free (res);
+        g_free (user_config_file);
+        return val;
+    }
+
+    g_free (res);
+    g_free (user_config_file);
+    return 0;
+}
+
+static void asound_set_default_card (int num)
+{
+    char *user_config_file = g_build_filename (g_get_home_dir (), "/.asoundrc", NULL);
+
+    /* check file exists - write default contents if not */
+    if (!g_file_test (user_config_file, G_FILE_TEST_IS_REGULAR))
+    {
+        vsystem ("echo 'pcm.!default {\n\ttype plug\n\tslave.pcm \"hw:%d\"\n}\n\nctl.!default {\n\ttype hw\n\tcard %d\n}\n' >> %s", num, num, user_config_file);
+        g_free (user_config_file);
+        return;
+    }
+
+    /* check for new pcm.default section */
+    if (find_in_section (user_config_file, "pcm.!default", "'slave.pcm \".*\"'"))
+    {
+        /* file is in new format already, so update in place */
+        vsystem ("sed -i '/pcm.!default/,/}/ { s/slave.pcm .*/slave.pcm \"hw:%d\"/ }' %s", num, user_config_file);
+    }
+    else if (find_in_section (user_config_file, "pcm.!default", "slave.pcm"))
+    {
+        /* replace type in pcm section with type plug */
+        vsystem ("sed -i '/pcm.!default/,/}/ s/type .*/type plug/' %s", user_config_file);
+
+        /* replace slave.pcm {} section with slave.pcm "card ID" */
+        vsystem ("sed -i '/slave.pcm {/,/}/ { s/slave.pcm {/slave.pcm \"hw:%d\"/; /slave.pcm/!d }' %s", num, user_config_file);
+    }
+    else
+    {
+        /* does the file contain an old format pcm.default section? */
+        if (find_in_section (user_config_file, "pcm.!default", "type") && find_in_section (user_config_file, "pcm.!default", "card"))
+        {
+            /* old format section found; update it to the new format */
+            vsystem ("sed -i '/pcm.!default/,/}/ { s/type .*/type plug\\n\\tslave.pcm \"hw:%d\"/ }' %s", num, user_config_file);
+            vsystem ("sed -i '/pcm.!default/,/}/ { /card .*/d }' %s", user_config_file);
+        }
+        else
+        {
+            /* append a pcm.default section in the new format */
+            vsystem ("echo '\npcm.!default {\n\ttype plug\n\tslave.pcm \"hw:%d\"\n}\n' >> %s", num, user_config_file);
+        }
+    }
+
+    /* check for ctl.default section */
+    if (find_in_section (user_config_file, "ctl.!default", "type"))
+    {
+        if (find_in_section (user_config_file, "ctl.!default", "card"))
+        {
+            /* standard ctl.default section found; update both type and card */
+            vsystem ("sed -i '/ctl.!default/,/}/ { s/type .*/type hw/g; s/card .*/card %d/g; }' %s", num, user_config_file);
+        }
+        else
+        {
+            /* ctl has type but not card - probably bluetooth then, so replace type and add card */
+            vsystem ("sed -i '/ctl.!default/,/}/ { s/type .*/type hw\\n\\tcard %d/g; }' %s", num, user_config_file);
+        }
+    }
+    else
+    {
+        /* append a ctl.default section */
+        vsystem ("echo '\nctl.!default {\n\ttype hw\n\tcard %d\n}\n' >> %s", num, user_config_file);
+    }
+
+    g_free (user_config_file);
+}
+
+static char *asound_get_bt_device (void)
+{
+    char *user_config_file = g_build_filename (g_get_home_dir (), "/.asoundrc", NULL);
+    char *res = get_string ("sed -n '/pcm.!default/,/}/{/device/p}' %s 2>/dev/null | cut -d '\"' -f 2 | tr : _", user_config_file);
+    g_free (user_config_file);
+
+    if (strlen (res) == 17) return res;
+
+    g_free (res);
+    return NULL;
+}
+
 static void asound_set_bt_device (char *devname)
 {
     char *user_config_file = g_build_filename (g_get_home_dir (), "/.asoundrc", NULL);
@@ -1001,171 +1122,22 @@ static void asound_set_bt_device (char *devname)
     g_free (user_config_file);
 }
 
-static int asound_get_bt_device (char *id)
-{
-    int ret = 0;
-    char *user_config_file = g_build_filename (g_get_home_dir (), "/.asoundrc", NULL);
-
-    char *res = get_string ("sed -n '/pcm.!default/,/}/{/device/p}' %s 2>/dev/null | cut -d '\"' -f 2 | tr : _", user_config_file);
-    if (strlen (res) == 17)
-    {
-        strcpy (id, res);
-        ret = 1;
-    }
-
-    g_free (res);
-    g_free (user_config_file);
-    return ret;
-}
-
 static gboolean asound_is_current_bt_dev (const char *obj)
 {
-    char device[20];
-    if (asound_get_bt_device (device) && strstr (obj, device)) return TRUE;
-    return FALSE;
-}
-
-static gboolean asound_bt_is_default (void)
-{
-    char buffer[32];
-    asound_get_default_card (buffer);
-    if (!strcmp (buffer, "bluealsa")) return TRUE;
-    return FALSE;
-}
-
-static void asound_get_default_card (char *id)
-{
-    char *res, *res2;
-    char *user_config_file = g_build_filename (g_get_home_dir (), "/.asoundrc", NULL);
-
-    /* first check to see if Bluetooth is in use */
-    if (find_in_section (user_config_file, "pcm.!default", "bluealsa"))
-        sprintf (id, "bluealsa");
-    else
+    char *device = asound_get_bt_device ();
+    if (device)
     {
-        /* if not, check for new format file */
-        res = get_string ("sed -n '/pcm.!default/,/}/{/slave.pcm/p}' %s 2>/dev/null | cut -d '\"' -f 2", user_config_file);
-
-        if (res[0]) strcpy (id, res);
-        else
+        if (strstr (obj, device))
         {
-            /* if not, check for old format file */
-            g_free (res);
-            res = get_string ("sed -n '/pcm.!default/,/}/{/type/p}' %s 2>/dev/null | cut -d ' ' -f 2", user_config_file);
-            res2 = get_string ("sed -n '/pcm.!default/,/}/{/card/p}' %s 2>/dev/null | cut -d ' ' -f 2", user_config_file);
-
-            if (res[0] && res2[0]) sprintf (id, "%s:%s", res, res2);
-            else sprintf (id, "hw:0");
-            g_free (res);
-            g_free (res2);
+            g_free (device);
+            return TRUE;
         }
-    }
-    g_free (user_config_file);
-}
-
-static void asound_set_default_card (const char *id)
-{
-    char *user_config_file = g_build_filename (g_get_home_dir (), "/.asoundrc", NULL);
-    char idbuf[16], *card;
-
-    /* break the id string into the type (before the colon) and the card number (after the colon) */
-    strcpy (idbuf, id);
-    card = strchr (idbuf, ':') + 1;
-    *(strchr (idbuf, ':')) = 0;
-
-    /* check file exists - write default contents if not */
-    if (!g_file_test (user_config_file, G_FILE_TEST_IS_REGULAR))
-    {
-        vsystem ("echo 'pcm.!default {\n\ttype plug\n\tslave.pcm \"%s:%s\"\n}\n\nctl.!default {\n\ttype %s\n\tcard %s\n}\n' >> %s", idbuf, card, idbuf, card, user_config_file);
-        g_free (user_config_file);
-        return;
-    }
-
-    /* check for new pcm.default section */
-    if (find_in_section (user_config_file, "pcm.!default", "'slave.pcm \".*\"'"))
-    {
-        /* file is in new format already, so update in place */
-        vsystem ("sed -i '/pcm.!default/,/}/ { s/slave.pcm .*/slave.pcm \"%s:%s\"/ }' %s", idbuf, card, user_config_file);
-    }
-    else if (find_in_section (user_config_file, "pcm.!default", "slave.pcm"))
-    {
-        /* replace type in pcm section with type plug */
-        vsystem ("sed -i '/pcm.!default/,/}/ s/type .*/type plug/' %s", user_config_file);
-
-        /* replace slave.pcm {} section with slave.pcm "card ID" */
-        vsystem ("sed -i '/slave.pcm {/,/}/ { s/slave.pcm {/slave.pcm \"%s:%s\"/; /slave.pcm/!d }' %s", idbuf, card, user_config_file);
-    }
-    else
-    {
-        /* does the file contain an old format pcm.default section? */
-        if (find_in_section (user_config_file, "pcm.!default", "type") && find_in_section (user_config_file, "pcm.!default", "card"))
-        {
-            /* old format section found; update it to the new format */
-            vsystem ("sed -i '/pcm.!default/,/}/ { s/type .*/type plug\\n\\tslave.pcm \"%s:%s\"/ }' %s", idbuf, card, user_config_file);
-            vsystem ("sed -i '/pcm.!default/,/}/ { /card .*/d }' %s", user_config_file);
-        }
-        else
-        {
-            /* append a pcm.default section in the new format */
-            vsystem ("echo '\npcm.!default {\n\ttype plug\n\tslave.pcm \"%s:%s\"\n}\n' >> %s", idbuf, card, user_config_file);
-        }
-    }
-
-    /* check for ctl.default section */
-    if (find_in_section (user_config_file, "ctl.!default", "type"))
-    {
-        if (find_in_section (user_config_file, "ctl.!default", "card"))
-        {
-            /* standard ctl.default section found; update both type and card */
-            vsystem ("sed -i '/ctl.!default/,/}/ { s/type .*/type %s/g; s/card .*/card %s/g; }' %s", idbuf, card, user_config_file);
-        }
-        else
-        {
-            /* ctl has type but not card - probably bluetooth then, so replace type and add card */
-            vsystem ("sed -i '/ctl.!default/,/}/ { s/type .*/type %s\\n\\tcard %s/g; }' %s", idbuf, card, user_config_file);
-        }
-    }
-    else
-    {
-        /* append a ctl.default section */
-        vsystem ("echo '\nctl.!default {\n\ttype %s\n\tcard %s\n}\n' >> %s", idbuf, card, user_config_file);
-    }
-
-    g_free (user_config_file);
-}
-
-static gboolean asound_set_bcm_card (void)
-{
-    char bcmdev[32];
-    if (asound_get_bcm_device_id (bcmdev))
-    {
-        asound_set_default_card (bcmdev);
-        return TRUE;
+        g_free (device);
     }
     return FALSE;
 }
 
-static gboolean asound_is_default_card (int num)
-{
-    char cid[32], buf[16];
-
-    sprintf (buf, "hw:%d", num);
-    asound_get_default_card (cid);
-    if (!strcmp (cid, buf)) return TRUE;
-    return FALSE;
-}
-
-static gboolean asound_is_bcm_device (int num)
-{
-    char *name;
-    if (snd_card_get_name (num, &name)) return FALSE;
-    int res = strncmp (name, "bcm2835", 7);
-    g_free (name);
-    if (res) return FALSE;
-    return TRUE;
-}
-
-static gboolean asound_get_bcm_device_id (gchar *id)
+static int asound_get_bcm_device_num (void)
 {
     int num = -1;
 
@@ -1178,13 +1150,26 @@ static gboolean asound_get_bcm_device_id (gchar *id)
         }
         if (num == -1) break;
 
-        if (asound_is_bcm_device (num))
-        {
-            if (id) sprintf (id, "hw:%d", num);
-            return TRUE;
-        }
+        if (asound_is_bcm_device (num)) return num;
     }
-    return FALSE;
+    return -1;
+}
+
+static gboolean asound_is_bcm_device (int num)
+{
+    char *name;
+    if (snd_card_get_name (num, &name)) return FALSE;
+    int res = strncmp (name, "bcm2835", 7);
+    g_free (name);
+    if (res) return FALSE;
+    return TRUE;
+}
+
+static char *asound_default_device_name (void)
+{
+    int num = asound_get_default_card ();
+    if (num == BLUEALSA_DEV) return g_strdup_printf ("bluealsa");
+    else return g_strdup_printf ("hw:%d", num);
 }
 
 
@@ -1326,7 +1311,7 @@ static gboolean volumealsa_button_press_event (GtkWidget *widget, GdkEventButton
     {
         vol->mixer = NULL;
         vol->master_element = NULL;
-        asound_set_default_card ("hw:-1");
+        asound_set_default_card (-1);
         volumealsa_update_display (vol);
     }
 
@@ -1436,7 +1421,7 @@ static void volumealsa_build_device_menu (VolumeALSAPlugin *vol)
             int bcm = 0;
 
             /* if the onboard card is default, find currently-set output */
-            if (asound_is_default_card (card_num))
+            if (card_num == asound_get_default_card ())
             {
                 /* read back the current input on the BCM device */
                 bcm = get_value ("amixer cget numid=3 2>/dev/null | grep : | cut -d = -f 2");
@@ -1528,7 +1513,7 @@ static void volumealsa_build_device_menu (VolumeALSAPlugin *vol)
         {
             char *nam, *dev;
             snd_card_get_name (card_num, &nam);
-            dev = g_strdup_printf ("hw:%d", card_num);
+            dev = g_strdup_printf ("%d", card_num);
 
             if (!ext_dev && devices)
             {
@@ -1536,7 +1521,7 @@ static void volumealsa_build_device_menu (VolumeALSAPlugin *vol)
                 gtk_menu_shell_append (GTK_MENU_SHELL (vol->menu_popup), mi);
             }
 
-            mi = volumealsa_menu_item_add (vol, nam, dev, asound_is_default_card (card_num), G_CALLBACK (volumealsa_set_external_output));
+            mi = volumealsa_menu_item_add (vol, nam, dev, card_num == asound_get_default_card (), G_CALLBACK (volumealsa_set_external_output));
             if (asound_get_simple_ctrls (card_num) < 1)
             {
                 char *lab = g_strdup_printf ("<i>%s</i>", nam);
@@ -1584,28 +1569,31 @@ static void volumealsa_build_device_menu (VolumeALSAPlugin *vol)
 
 static void volumealsa_set_external_output (GtkWidget *widget, VolumeALSAPlugin *vol)
 {
-    /* if there is a Bluetooth device in use, disconnect it first */
-    bt_disconnect_device (vol);
+    int dev;
 
-    asound_set_default_card (widget->name);
-    asound_restart (vol);
+    if (sscanf (widget->name, "%d", &dev) == 1)
+    {
+        /* if there is a Bluetooth device in use, disconnect it first */
+        bt_disconnect_device (vol);
 
-    volumealsa_default_changed (vol);
+        asound_set_default_card (dev);
+        asound_restart (vol);
+
+        volumealsa_default_changed (vol);
+    }
 }
 
 static void volumealsa_set_internal_output (GtkWidget *widget, VolumeALSAPlugin *vol)
 {
-    char defdev[32], bcmdev[32];
-
     /* if there is a Bluetooth device in use, disconnect it first */
     bt_disconnect_device (vol);
 
     /* check that the BCM device is default... */
-    asound_get_default_card (defdev);
-    if (asound_get_bcm_device_id (bcmdev) && strcmp (defdev, bcmdev))
+    int dev = asound_get_bcm_device_num ();
+    if (dev != asound_get_default_card ())
     {
         /* ... and set it to default if not */
-        asound_set_default_card (bcmdev);
+        asound_set_default_card (dev);
         asound_restart (vol);
     }
 
@@ -1708,7 +1696,7 @@ static void volumealsa_build_popup_window (GtkWidget *p)
     /* Lock the controls if there is nothing to control... */
     gboolean def_good = FALSE;
 
-    if (asound_bt_is_default ()) def_good = TRUE;
+    if (asound_get_default_card () == BLUEALSA_DEV) def_good = TRUE;
     else
     {
         int num = -1;
@@ -1721,7 +1709,7 @@ static void volumealsa_build_popup_window (GtkWidget *p)
             }
             if (num == -1) break;
 
-            if (asound_is_default_card (num))
+            if (num == asound_get_default_card ())
             {
                 def_good = TRUE;
                 break;
@@ -1982,7 +1970,7 @@ static GtkWidget *volumealsa_constructor (LXPanel *panel, config_setting_t *sett
     gtk_container_add (GTK_CONTAINER (p), vol->tray_icon);
 
     /* Initialize ALSA if default device isn't Bluetooth */
-    if (!asound_bt_is_default ()) asound_initialize (vol);
+    if (asound_get_default_card () != BLUEALSA_DEV) asound_initialize (vol);
 
     /* Set up callbacks to see if BlueZ is on DBus */
     g_bus_watch_name (G_BUS_TYPE_SYSTEM, "org.bluez", 0, bt_cb_name_owned, bt_cb_name_unowned, vol, NULL);
