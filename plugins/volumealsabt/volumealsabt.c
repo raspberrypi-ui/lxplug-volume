@@ -1386,8 +1386,10 @@ static GtkWidget *volumealsa_menu_item_add (VolumeALSAPlugin *vol, const char *l
 static void volumealsa_build_device_menu (VolumeALSAPlugin *vol)
 {
     GtkWidget *mi;
-    gint devices = 0, card_num;
+    gint devices = 0, card_num, def_card;
     gboolean ext_dev = FALSE, bt_dev = FALSE;
+
+    def_card = asound_get_default_card ();
 
     vol->menu_popup = gtk_menu_new ();
 
@@ -1407,7 +1409,7 @@ static void volumealsa_build_device_menu (VolumeALSAPlugin *vol)
             int bcm = 0;
 
             /* if the onboard card is default, find currently-set output */
-            if (card_num == asound_get_default_card ())
+            if (card_num == def_card)
             {
                 /* read back the current input on the BCM device */
                 bcm = get_value ("amixer cget numid=3 2>/dev/null | grep : | cut -d = -f 2");
@@ -1507,7 +1509,7 @@ static void volumealsa_build_device_menu (VolumeALSAPlugin *vol)
                 gtk_menu_shell_append (GTK_MENU_SHELL (vol->menu_popup), mi);
             }
 
-            mi = volumealsa_menu_item_add (vol, nam, dev, card_num == asound_get_default_card (), G_CALLBACK (volumealsa_set_external_output));
+            mi = volumealsa_menu_item_add (vol, nam, dev, card_num == def_card, G_CALLBACK (volumealsa_set_external_output));
             if (asound_get_simple_ctrls (card_num) < 1)
             {
                 char *lab = g_strdup_printf ("<i>%s</i>", nam);
@@ -1677,8 +1679,9 @@ static void volumealsa_build_popup_window (GtkWidget *p)
 
     /* Lock the controls if there is nothing to control... */
     gboolean def_good = FALSE;
+    int def_card = asound_get_default_card ();
 
-    if (asound_get_default_card () == BLUEALSA_DEV) def_good = TRUE;
+    if (def_card == BLUEALSA_DEV) def_good = TRUE;
     else
     {
         int num = -1;
@@ -1691,7 +1694,7 @@ static void volumealsa_build_popup_window (GtkWidget *p)
             }
             if (num == -1) break;
 
-            if (num == asound_get_default_card ())
+            if (num == def_card)
             {
                 def_good = TRUE;
                 break;
