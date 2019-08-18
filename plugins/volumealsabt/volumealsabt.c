@@ -830,7 +830,6 @@ static void asound_find_valid_device (void)
     {
         g_warning ("volumealsa: Setting to internal device hw:%d", num);
         asound_set_default_card (num);
-        return;
     }
     else
     {
