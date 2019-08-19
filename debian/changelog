@@ -1,3 +1,10 @@
+lxplug-volume (0.15) buster; urgency=medium
+
+  * A lot of review and tidying of code
+  * Uses command-line parameter to message pimixer rather than DBus
+
+ -- Simon Long <simon@raspberrypi.org>  Mon, 19 Aug 2019 11:53:52 +0100
+
 lxplug-volume (0.14) buster; urgency=medium
 
   * Add selection of multiple HDMI outputs
