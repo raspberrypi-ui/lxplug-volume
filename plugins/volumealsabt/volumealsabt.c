@@ -429,6 +429,7 @@ static void bt_cb_connected (GObject *source, GAsyncResult *res, gpointer user_d
 
         // update dialog to show a warning
         if (vol->conn_dialog) volumealsa_show_connect_dialog (vol, TRUE, error->message);
+        g_error_free (error);
 
         // call initialize to fall back to a non-BT device here if on initial startup
         if (asound_get_default_card () == BLUEALSA_DEV) asound_initialize (vol);
@@ -483,15 +484,16 @@ static void bt_disconnect_device (VolumeALSAPlugin *vol)
         if (vol->objmanager)
         {
             GDBusInterface *interface = g_dbus_object_manager_get_interface (vol->objmanager, buffer, "org.bluez.Device1");
-            g_free (buffer);
             if (interface)
             {
                 DEBUG ("Disconnecting...");
                 g_dbus_proxy_call (G_DBUS_PROXY (interface), "Disconnect", NULL, G_DBUS_CALL_FLAGS_NONE, -1, NULL, bt_cb_disconnected, vol);
                 g_object_unref (interface);
+                g_free (buffer);
                 return;
             }
         }
+        g_free (buffer);
     }
 
     // if no connection found, just make the new connection
