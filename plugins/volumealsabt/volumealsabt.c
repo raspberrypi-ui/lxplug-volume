@@ -1608,12 +1608,7 @@ static void volumealsa_default_changed (VolumeALSAPlugin *vol)
 {
     volumealsa_update_display (vol);
     if (vol->menu_popup) gtk_menu_popdown (GTK_MENU (vol->menu_popup));
-
-    // to message the xfce mixer dialog, a Dbus connection is dropped and then reacquired
-    // doing this the other (more logical) way around doesn't work, as Dbus doesn't pass the message fast enough
-    static guint id = 0;
-    if (id) g_bus_unown_name (id);
-    id = g_bus_own_name (G_BUS_TYPE_SESSION, "org.lxde.volumealsa", 0, NULL, NULL, NULL, NULL, NULL);
+    vsystem ("pimixer --refresh");
 }
 
 
