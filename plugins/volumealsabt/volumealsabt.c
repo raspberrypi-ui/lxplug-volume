@@ -806,18 +806,9 @@ static gboolean asound_find_elements (VolumeALSAPlugin *vol)
     for (vol->master_element = snd_mixer_first_elem (vol->mixer); vol->master_element != NULL;
         vol->master_element = snd_mixer_elem_next (vol->master_element))
     {
-        if ((snd_mixer_selem_is_active (vol->master_element)))
-        {
-            const char *name = snd_mixer_selem_get_name (vol->master_element);
-            if (!strncasecmp (name, "Master", 6)) return TRUE;
-            if (!strncasecmp (name, "Front", 5)) return TRUE;
-            if (!strncasecmp (name, "PCM", 3)) return TRUE;
-            if (!strncasecmp (name, "LineOut", 7)) return TRUE;
-            if (!strncasecmp (name, "Digital", 7)) return TRUE;
-            if (!strncasecmp (name, "Headphone", 9)) return TRUE;
-            if (!strncasecmp (name, "Speaker", 7)) return TRUE;
-            if (!strncasecmp (name + strlen(name) - 4, "a2dp", 4)) return TRUE;
-        }
+        if (snd_mixer_selem_is_active (vol->master_element)
+            && snd_mixer_selem_has_playback_volume (vol->master_element))
+                return TRUE;
     }
     return FALSE;
 }
