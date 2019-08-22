@@ -152,7 +152,8 @@ static void asound_deinitialize (VolumeALSAPlugin *vol);
 static gboolean asound_restart (gpointer vol_gpointer);
 static gboolean asound_find_elements (VolumeALSAPlugin *vol);
 static void asound_find_valid_device (void);
-static int asound_get_simple_ctrls (int dev);
+static gboolean asound_current_dev_check (VolumeALSAPlugin *vol);
+static gboolean asound_has_volume_control (int dev);
 static gboolean asound_reset_mixer_evt_idle (VolumeALSAPlugin * vol);
 static gboolean asound_mixer_event (GIOChannel *channel, GIOCondition cond, gpointer vol_gpointer);
 
@@ -739,12 +740,7 @@ static gboolean asound_initialize (VolumeALSAPlugin * vol)
     }
     g_free (fds);
 
-    if (asound_get_simple_ctrls (-1) == -1)
-    {
-        vol->mixer = NULL;
-        vol->master_element = NULL;
-        asound_set_default_card (-1);
-    }
+    asound_current_dev_check (vol);
 
     return TRUE;
 }
@@ -844,17 +840,24 @@ static void asound_find_valid_device (void)
     }
 }
 
-/* This function is used for two things - for finding out how many controls are on the current device,
- * and for finding out if the current device is still valid (i.e. not disconnected). If it returns -1,
- * amixer info has returned no data, so the device is invalid. If it returns 0 or greater, the current
- * device is valid and has the returned number of controls. */
+static gboolean asound_current_dev_check (VolumeALSAPlugin *vol)
+{
+    if (!vsystem ("amixer info 2>/dev/null | grep -q .")) return TRUE;
+    else
+    {
+        vol->mixer = NULL;
+        vol->master_element = NULL;
+        asound_set_default_card (-1);
+        return FALSE;
+    }
+}
 
-static int asound_get_simple_ctrls (int dev)
+static gboolean asound_has_volume_control (int dev)
 {
     if (dev == -1)
-        return get_value ("amixer info 2>/dev/null | grep \"Simple ctrls\" | cut -d: -f2 | tr -d ' '");
+        return vsystem ("amixer scontents 2>/dev/null | grep -q pvolume") ? FALSE : TRUE;
     else
-        return get_value ("amixer -c %d info 2>/dev/null | grep \"Simple ctrls\" | cut -d: -f2 | tr -d ' '", dev);
+        return vsystem ("amixer -c %d scontents 2>/dev/null | grep -q pvolume", dev) ? FALSE : TRUE;
 }
 
 /* NOTE by PCMan:
@@ -1186,7 +1189,11 @@ static void volumealsa_update_display (VolumeALSAPlugin *vol)
     }
 
     /* Display current level in tooltip. */
-    char *tooltip = g_strdup_printf ("%s %d", _("Volume control"), level);
+    char *tooltip;
+    if (vol->master_element)
+        tooltip = g_strdup_printf ("%s %d", _("Volume control"), level);
+    else
+        tooltip = g_strdup_printf (_("No volume control on this device"));
     gtk_widget_set_tooltip_text (vol->plugin, tooltip);
     g_free (tooltip);
 }
@@ -1284,16 +1291,9 @@ static gboolean volumealsa_button_press_event (GtkWidget *widget, GdkEventButton
 #endif
     if (vol->stopped) return TRUE;
 
-    int ctrls = asound_get_simple_ctrls (-1);
-    if (ctrls < 0)
-    {
-        vol->mixer = NULL;
-        vol->master_element = NULL;
-        asound_set_default_card (-1);
-        volumealsa_update_display (vol);
-    }
+    if (!asound_current_dev_check (vol)) volumealsa_update_display (vol);
 
-    if (ctrls > 0 && vol->master_element == NULL)
+    if (asound_has_volume_control (-1) && vol->master_element == NULL)
     {
         // reconnect a BT device that has connected since startup...
         asound_initialize (vol);
@@ -1303,7 +1303,7 @@ static gboolean volumealsa_button_press_event (GtkWidget *widget, GdkEventButton
     if (event->button == 1)
     {
         /* left-click - show or hide volume popup */
-        if (asound_get_simple_ctrls (-1) < 1)
+        if (!asound_has_volume_control (-1))
         {
             GtkWidget *mi;
             vol->menu_popup = gtk_menu_new ();
@@ -1502,7 +1502,7 @@ static void volumealsa_build_device_menu (VolumeALSAPlugin *vol)
             }
 
             mi = volumealsa_menu_item_add (vol, nam, dev, card_num == def_card, G_CALLBACK (volumealsa_set_external_output));
-            if (asound_get_simple_ctrls (card_num) < 1)
+            if (!asound_has_volume_control (card_num))
             {
                 char *lab = g_strdup_printf ("<i>%s</i>", nam);
                 gtk_label_set_markup (GTK_LABEL (gtk_bin_get_child (GTK_BIN (mi))), lab);
