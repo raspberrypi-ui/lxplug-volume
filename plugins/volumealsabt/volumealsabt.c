@@ -717,8 +717,7 @@ static gboolean asound_initialize (VolumeALSAPlugin * vol)
     snd_mixer_load (vol->mixer);
     g_free (device);
 
-    /* Find Master element, or Front element, or PCM element, or LineOut element.
-     * If one of these succeeds, master_element is valid. */
+    /* find a valid volume control element */
     asound_find_elements (vol);
 
     /* Listen to events from ALSA. */
@@ -1185,7 +1184,7 @@ static void volumealsa_update_display (VolumeALSAPlugin *vol)
     {
         g_signal_handler_block (vol->mute_check, vol->mute_check_handler);
         gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (vol->mute_check), mute);
-        gtk_widget_set_sensitive (vol->mute_check, asound_has_mute (vol));
+        gtk_widget_set_sensitive (vol->mute_check, asound_has_mute (vol) && vol->master_element != NULL ? TRUE : FALSE);
         g_signal_handler_unblock (vol->mute_check, vol->mute_check_handler);
     }
 
@@ -1194,6 +1193,7 @@ static void volumealsa_update_display (VolumeALSAPlugin *vol)
         g_signal_handler_block (vol->volume_scale, vol->volume_scale_handler);
         gtk_range_set_value (GTK_RANGE (vol->volume_scale), level);
         g_signal_handler_unblock (vol->volume_scale, vol->volume_scale_handler);
+        gtk_widget_set_sensitive (vol->volume_scale, vol->master_element != NULL ? TRUE : FALSE);
     }
 
     /* update tooltip */
@@ -1651,36 +1651,6 @@ static void volumealsa_build_popup_window (GtkWidget *p)
     gtk_box_pack_end (GTK_BOX (box), vol->mute_check, FALSE, FALSE, 0);
     vol->mute_check_handler = g_signal_connect (vol->mute_check, "toggled", G_CALLBACK (volumealsa_popup_mute_toggled), vol);
     gtk_widget_set_can_focus (vol->mute_check, FALSE);
-
-    /* Lock the controls if there is nothing to control... */
-    gboolean def_good = FALSE;
-    int def_card = asound_get_default_card ();
-
-    if (def_card == BLUEALSA_DEV) def_good = TRUE;
-    else
-    {
-        int num = -1;
-        while (1)
-        {
-            if (snd_card_next (&num) < 0)
-            {
-                g_warning ("volumealsa: Cannot enumerate devices");
-                break;
-            }
-            if (num == -1) break;
-
-            if (num == def_card)
-            {
-                def_good = TRUE;
-                break;
-            }
-        }
-    }
-    if (!def_good)
-    {
-        gtk_widget_set_sensitive (vol->volume_scale, FALSE);
-        gtk_widget_set_sensitive (vol->mute_check, FALSE);
-    }
 }
 
 /* Handler for "value_changed" signal on popup window vertical scale. */
@@ -1811,8 +1781,8 @@ static gboolean volumealsa_control_msg (GtkWidget *plugin, const char *cmd)
     if (!strncmp (cmd, "star", 4))
     {
         asound_initialize (vol);
-        g_warning ("volumealsa: Restarted ALSA interface...");
         volumealsa_update_display (vol);
+        g_warning ("volumealsa: Restarted ALSA interface...");
         if (vol->menu_popup) gtk_menu_popdown (GTK_MENU (vol->menu_popup));
         vol->stopped = FALSE;
         return TRUE;
@@ -1821,8 +1791,8 @@ static gboolean volumealsa_control_msg (GtkWidget *plugin, const char *cmd)
     if (!strncmp (cmd, "stop", 4))
     {
         asound_deinitialize (vol);
-        g_warning ("volumealsa: Stopped ALSA interface...");
         volumealsa_update_display (vol);
+        g_warning ("volumealsa: Stopped ALSA interface...");
         if (vol->menu_popup) gtk_menu_popdown (GTK_MENU (vol->menu_popup));
         vol->stopped = TRUE;
         return TRUE;
@@ -1831,9 +1801,9 @@ static gboolean volumealsa_control_msg (GtkWidget *plugin, const char *cmd)
     if (!strncmp (cmd, "reco", 4))
     {
         asound_restart (vol);
-        volumealsa_build_popup_window (vol->plugin);
         volumealsa_update_display (vol);
-        if (vol->show_popup) gtk_widget_show_all (vol->popup_window);
+        g_warning ("volumealsa: Default device changed...");
+        if (vol->menu_popup) gtk_menu_popdown (GTK_MENU (vol->menu_popup));
         return TRUE;
     }
 
