@@ -169,7 +169,6 @@ static char *asound_default_device_name (void);
 
 /* Handlers and graphics */
 static void volumealsa_update_display (VolumeALSAPlugin *vol);
-static void volumealsa_update_icon (VolumeALSAPlugin *vol);
 static void volumealsa_theme_change (GtkWidget *widget, VolumeALSAPlugin *vol);
 static void volumealsa_open_config_dialog (GtkWidget * widget, VolumeALSAPlugin * vol);
 static void volumealsa_show_connect_dialog (VolumeALSAPlugin *vol, gboolean failed, const gchar *param);
@@ -784,7 +783,6 @@ static gboolean asound_restart (gpointer vol_gpointer)
     if (!g_main_current_source ()) return TRUE;
     if (g_source_is_destroyed (g_main_current_source ())) return FALSE;
 
-    asound_deinitialize (vol);
     if (!asound_initialize (vol))
     {
         g_warning ("volumealsa: Re-initialization failed.");
@@ -837,6 +835,7 @@ static void asound_find_valid_device (void)
             return;
         }
         g_warning ("volumealsa: No ALSA devices found");
+        asound_set_default_card (-1);
     }
 }
 
@@ -1166,13 +1165,22 @@ static void volumealsa_update_display (VolumeALSAPlugin *vol)
     textdomain (GETTEXT_PACKAGE);
 #endif
 
-    /* Mute status. */
+    /* read current mute and volume status */
     gboolean mute = asound_is_muted (vol);
     int level = asound_get_volume (vol);
     if (mute) level = 0;
 
-    volumealsa_update_icon (vol);
+    /* update icon */
+    const char *icon = "audio-volume-muted";
+    if (!mute)
+    {
+        if (level >= 66) icon = "audio-volume-high";
+        if (level >= 33) icon = "audio-volume-medium";
+        if (level > 0) icon = "audio-volume-low";
+    }
+    set_icon (vol->panel, vol->tray_icon, icon, 0);
 
+    /* update popup window controls */
     if (vol->mute_check)
     {
         g_signal_handler_block (vol->mute_check, vol->mute_check_handler);
@@ -1188,7 +1196,7 @@ static void volumealsa_update_display (VolumeALSAPlugin *vol)
         g_signal_handler_unblock (vol->volume_scale, vol->volume_scale_handler);
     }
 
-    /* Display current level in tooltip. */
+    /* update tooltip */
     char *tooltip;
     if (vol->master_element)
         tooltip = g_strdup_printf ("%s %d", _("Volume control"), level);
@@ -1198,29 +1206,9 @@ static void volumealsa_update_display (VolumeALSAPlugin *vol)
     g_free (tooltip);
 }
 
-static void volumealsa_update_icon (VolumeALSAPlugin *vol)
-{
-    gboolean mute;
-    int level;
-
-    /* Mute status. */
-    mute = asound_is_muted (vol);
-    level = asound_get_volume (vol);
-
-    /* Change icon according to mute / volume */
-    const char *icon = "audio-volume-muted";
-
-    if (mute) icon = "audio-volume-muted";
-    else if (level >= 66) icon = "audio-volume-high";
-    else if (level >= 33) icon = "audio-volume-medium";
-    else if (level > 0) icon = "audio-volume-low";
-
-    set_icon (vol->panel, vol->tray_icon, icon, 0);
-}
-
 static void volumealsa_theme_change (GtkWidget *widget, VolumeALSAPlugin *vol)
 {
-    volumealsa_update_icon (vol);
+    volumealsa_update_display (vol);
 }
 
 static void volumealsa_open_config_dialog (GtkWidget *widget, VolumeALSAPlugin *vol)
