@@ -150,7 +150,6 @@ static void asound_set_volume (VolumeALSAPlugin *vol, int volume);
 static gboolean asound_initialize (VolumeALSAPlugin *vol);
 static void asound_deinitialize (VolumeALSAPlugin *vol);
 static gboolean asound_restart (gpointer vol_gpointer);
-static gboolean asound_find_elements (VolumeALSAPlugin *vol);
 static void asound_find_valid_device (void);
 static gboolean asound_current_dev_check (VolumeALSAPlugin *vol);
 static gboolean asound_has_volume_control (int dev);
@@ -697,12 +696,14 @@ static void asound_set_volume (VolumeALSAPlugin *vol, int volume)
 
 static gboolean asound_initialize (VolumeALSAPlugin * vol)
 {
+    struct pollfd *fds;
     char *device;
+    int i;
 
-    // make sure existing watches are removed by calling deinit
+    /* make sure existing watches are removed by calling deinitialize */
     asound_deinitialize (vol);
 
-    /* Access the "default" device. */
+    /* access the default device */
     snd_mixer_open (&vol->mixer, 0);
     device = asound_default_device_name ();
     if (snd_mixer_attach (vol->mixer, device))
@@ -711,26 +712,31 @@ static gboolean asound_initialize (VolumeALSAPlugin * vol)
         g_free (device);
         asound_find_valid_device ();
         device = asound_default_device_name ();
-        snd_mixer_attach (vol->mixer, device);
+        if (snd_mixer_attach (vol->mixer, device)) return FALSE;
     }
     snd_mixer_selem_register (vol->mixer, NULL, NULL);
     snd_mixer_load (vol->mixer);
     g_free (device);
 
-    /* find a valid volume control element */
-    asound_find_elements (vol);
+    /* find a playback volume control */
+    for (vol->master_element = snd_mixer_first_elem (vol->mixer); vol->master_element != NULL;
+        vol->master_element = snd_mixer_elem_next (vol->master_element))
+    {
+        if (snd_mixer_selem_is_active (vol->master_element)
+            && snd_mixer_selem_has_playback_volume (vol->master_element))
+                break;
+    }
+    if (vol->master_element == NULL) return FALSE;
 
-    /* Listen to events from ALSA. */
-    int n_fds = snd_mixer_poll_descriptors_count (vol->mixer);
-    struct pollfd * fds = g_new0 (struct pollfd, n_fds);
+    /* listen to ALSA events */
+    vol->num_channels = snd_mixer_poll_descriptors_count (vol->mixer);
+    vol->channels = g_new0 (GIOChannel *, vol->num_channels);
+    vol->watches = g_new0 (guint, vol->num_channels);
 
-    vol->channels = g_new0 (GIOChannel *, n_fds);
-    vol->watches = g_new0 (guint, n_fds);
-    vol->num_channels = n_fds;
+    fds = g_new0 (struct pollfd, vol->num_channels);
+    snd_mixer_poll_descriptors (vol->mixer, fds, vol->num_channels);
 
-    snd_mixer_poll_descriptors (vol->mixer, fds, n_fds);
-    int i;
-    for (i = 0; i < n_fds; ++i)
+    for (i = 0; i < vol->num_channels; ++i)
     {
         GIOChannel* channel = g_io_channel_unix_new (fds[i].fd);
         vol->watches[i] = g_io_add_watch (channel, G_IO_IN | G_IO_HUP, asound_mixer_event, vol);
@@ -738,7 +744,7 @@ static gboolean asound_initialize (VolumeALSAPlugin * vol)
     }
     g_free (fds);
 
-    asound_current_dev_check (vol);
+    if (!asound_current_dev_check (vol)) return FALSE;
 
     return TRUE;
 }
@@ -773,37 +779,6 @@ static void asound_deinitialize (VolumeALSAPlugin * vol)
     }
     vol->master_element = NULL;
     vol->mixer = NULL;
-}
-
-static gboolean asound_restart (gpointer vol_gpointer)
-{
-    VolumeALSAPlugin *vol = vol_gpointer;
-
-    if (!g_main_current_source ()) return TRUE;
-    if (g_source_is_destroyed (g_main_current_source ())) return FALSE;
-
-    if (!asound_initialize (vol))
-    {
-        g_warning ("volumealsa: Re-initialization failed.");
-        return TRUE; // try again in a second
-    }
-
-    g_warning ("volumealsa: Restarted ALSA interface...");
-
-    vol->restart_idle = 0;
-    return FALSE;
-}
-
-static gboolean asound_find_elements (VolumeALSAPlugin *vol)
-{
-    for (vol->master_element = snd_mixer_first_elem (vol->mixer); vol->master_element != NULL;
-        vol->master_element = snd_mixer_elem_next (vol->master_element))
-    {
-        if (snd_mixer_selem_is_active (vol->master_element)
-            && snd_mixer_selem_has_playback_volume (vol->master_element))
-                return TRUE;
-    }
-    return FALSE;
 }
 
 static void asound_find_valid_device (void)
@@ -878,6 +853,25 @@ static gboolean asound_has_volume_control (int dev)
  * So, io callbacks for future pending events should be in the next gmain
  * iteration, and won't be affected.
  */
+
+static gboolean asound_restart (gpointer vol_gpointer)
+{
+    VolumeALSAPlugin *vol = vol_gpointer;
+
+    if (!g_main_current_source ()) return TRUE;
+    if (g_source_is_destroyed (g_main_current_source ())) return FALSE;
+
+    if (!asound_initialize (vol))
+    {
+        g_warning ("volumealsa: Re-initialization failed.");
+        return TRUE; // try again in a second
+    }
+
+    g_warning ("volumealsa: Restarted ALSA interface...");
+
+    vol->restart_idle = 0;
+    return FALSE;
+}
 
 static gboolean asound_reset_mixer_evt_idle (VolumeALSAPlugin * vol)
 {
@@ -1545,7 +1539,7 @@ static void volumealsa_set_external_output (GtkWidget *widget, VolumeALSAPlugin 
         bt_disconnect_device (vol);
 
         asound_set_default_card (dev);
-        asound_restart (vol);
+        asound_initialize (vol);
 
         volumealsa_default_changed (vol);
     }
@@ -1562,7 +1556,7 @@ static void volumealsa_set_internal_output (GtkWidget *widget, VolumeALSAPlugin 
     {
         /* ... and set it to default if not */
         asound_set_default_card (dev);
-        asound_restart (vol);
+        asound_initialize (vol);
     }
 
     /* set the output channel on the BCM device */
@@ -1800,7 +1794,7 @@ static gboolean volumealsa_control_msg (GtkWidget *plugin, const char *cmd)
 
     if (!strncmp (cmd, "reco", 4))
     {
-        asound_restart (vol);
+        asound_initialize (vol);
         volumealsa_update_display (vol);
         g_warning ("volumealsa: Default device changed...");
         if (vol->menu_popup) gtk_menu_popdown (GTK_MENU (vol->menu_popup));
