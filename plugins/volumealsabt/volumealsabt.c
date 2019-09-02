@@ -149,12 +149,12 @@ static void asound_set_volume (VolumeALSAPlugin *vol, int volume);
 /* ALSA */
 static gboolean asound_initialize (VolumeALSAPlugin *vol);
 static void asound_deinitialize (VolumeALSAPlugin *vol);
-static gboolean asound_restart (gpointer vol_gpointer);
 static void asound_find_valid_device (void);
 static gboolean asound_current_dev_check (VolumeALSAPlugin *vol);
 static gboolean asound_has_volume_control (int dev);
-static gboolean asound_reset_mixer_evt_idle (VolumeALSAPlugin * vol);
-static gboolean asound_mixer_event (GIOChannel *channel, GIOCondition cond, gpointer vol_gpointer);
+static gboolean asound_restart (gpointer user_data);
+static gboolean asound_reset_mixer_evt_idle (gpointer user_data);
+static gboolean asound_mixer_event (GIOChannel *channel, GIOCondition cond, gpointer user_data);
 
 /* .asoundrc */
 static int asound_get_default_card (void);
@@ -854,9 +854,9 @@ static gboolean asound_has_volume_control (int dev)
  * iteration, and won't be affected.
  */
 
-static gboolean asound_restart (gpointer vol_gpointer)
+static gboolean asound_restart (gpointer user_data)
 {
-    VolumeALSAPlugin *vol = vol_gpointer;
+    VolumeALSAPlugin *vol = (VolumeALSAPlugin *) user_data;
 
     if (!g_main_current_source ()) return TRUE;
     if (g_source_is_destroyed (g_main_current_source ())) return FALSE;
@@ -873,17 +873,19 @@ static gboolean asound_restart (gpointer vol_gpointer)
     return FALSE;
 }
 
-static gboolean asound_reset_mixer_evt_idle (VolumeALSAPlugin * vol)
+static gboolean asound_reset_mixer_evt_idle (gpointer user_data)
 {
+    VolumeALSAPlugin *vol = (VolumeALSAPlugin *) user_data;
+
     if (!g_source_is_destroyed (g_main_current_source ()))
         vol->mixer_evt_idle = 0;
     return FALSE;
 }
 
 /* Handler for I/O event on ALSA channel. */
-static gboolean asound_mixer_event (GIOChannel *channel, GIOCondition cond, gpointer vol_gpointer)
+static gboolean asound_mixer_event (GIOChannel *channel, GIOCondition cond, gpointer user_data)
 {
-    VolumeALSAPlugin * vol = (VolumeALSAPlugin *) vol_gpointer;
+    VolumeALSAPlugin *vol = (VolumeALSAPlugin *) user_data;
     int res = 0;
 
     if (g_source_is_destroyed (g_main_current_source ())) return FALSE;
