@@ -1170,8 +1170,8 @@ static void volumealsa_update_display (VolumeALSAPlugin *vol)
     if (!mute)
     {
         if (level >= 66) icon = "audio-volume-high";
-        if (level >= 33) icon = "audio-volume-medium";
-        if (level > 0) icon = "audio-volume-low";
+        else if (level >= 33) icon = "audio-volume-medium";
+        else if (level > 0) icon = "audio-volume-low";
     }
     set_icon (vol->panel, vol->tray_icon, icon, 0);
 
