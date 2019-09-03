@@ -152,12 +152,14 @@ static void asound_deinitialize (VolumeALSAPlugin *vol);
 static void asound_find_valid_device (void);
 static gboolean asound_current_dev_check (VolumeALSAPlugin *vol);
 static gboolean asound_has_volume_control (int dev);
+static gboolean asound_has_input (int dev);
 static gboolean asound_restart (gpointer user_data);
 static gboolean asound_reset_mixer_evt_idle (gpointer user_data);
 static gboolean asound_mixer_event (GIOChannel *channel, GIOCondition cond, gpointer user_data);
 
 /* .asoundrc */
 static int asound_get_default_card (void);
+static int asound_get_default_input (void);
 static void asound_set_default_card (int num);
 static char *asound_get_bt_device (void);
 static void asound_set_bt_device (char *devname);
@@ -177,8 +179,10 @@ static gboolean volumealsa_button_press_event (GtkWidget *widget, GdkEventButton
 
 /* Menu popup */
 static GtkWidget *volumealsa_menu_item_add (VolumeALSAPlugin *vol, const char *label, const char *name, gboolean selected, GCallback cb);
+static GtkWidget *volumealsa_input_menu_item_add (VolumeALSAPlugin *vol, GtkWidget *menu, const char *label, const char *name, gboolean selected, GCallback cb);
 static void volumealsa_build_device_menu (VolumeALSAPlugin *vol);
 static void volumealsa_set_external_output (GtkWidget *widget, VolumeALSAPlugin *vol);
+static void volumealsa_set_external_input (GtkWidget *widget, VolumeALSAPlugin *vol);
 static void volumealsa_set_internal_output (GtkWidget *widget, VolumeALSAPlugin *vol);
 static void volumealsa_set_bluetooth_output (GtkWidget *widget, VolumeALSAPlugin *vol);
 static void volumealsa_default_changed (VolumeALSAPlugin *vol);
@@ -259,7 +263,6 @@ static int vsystem (const char *fmt, ...)
 static gboolean find_in_section (char *file, char *sec, char *seek)
 {
     char *cmd = g_strdup_printf ("sed -n '/%s/,/}/p' %s 2>/dev/null | grep -q %s", sec, file, seek);
-
     int res = system (cmd);
     g_free (cmd);
     if (res == 0) return TRUE;
@@ -834,6 +837,14 @@ static gboolean asound_has_volume_control (int dev)
         return vsystem ("amixer -c %d scontents 2>/dev/null | grep -q pvolume", dev) ? FALSE : TRUE;
 }
 
+static gboolean asound_has_input (int dev)
+{
+    if (dev == -1)
+        return vsystem ("amixer scontents 2>/dev/null | grep -q cvolume") ? FALSE : TRUE;
+    else
+        return vsystem ("amixer -c %d scontents 2>/dev/null | grep -q cvolume", dev) ? FALSE : TRUE;
+}
+
 /* NOTE by PCMan:
  * This is magic! Since ALSA uses its own machanism to handle this part.
  * After polling of mixer fds, it requires that we should call
@@ -972,6 +983,31 @@ static int asound_get_default_card (void)
     return val;
 }
 
+static int asound_get_default_input (void)
+{
+    char *user_config_file = g_build_filename (g_get_home_dir (), "/.asoundrc", NULL);
+    char *res;
+    int val;
+
+    /* is there a pcm.input section? */
+    if (find_in_section (user_config_file, "pcm.input", "type"))
+    {
+        /* parse pcm.input section for card number */
+        res = get_string ("sed -n '/pcm.input/,/}/{/card/p}' %s 2>/dev/null | cut -d ' ' -f 2", user_config_file);
+        if (sscanf (res, "%d", &val) == 1) goto DONE;
+    }
+    else
+    {
+        g_free (user_config_file);
+        return 0;
+    }
+
+    val = 0;
+    DONE: g_free (res);
+    g_free (user_config_file);
+    return val;
+}
+
 static void asound_set_default_card (int num)
 {
     char *user_config_file = g_build_filename (g_get_home_dir (), "/.asoundrc", NULL);
@@ -983,15 +1019,20 @@ static void asound_set_default_card (int num)
         goto DONE;
     }
 
-    /* does .asoundrc contain the pcm.output block? if not, replace with default contents and exit */
-    if (!find_in_section (user_config_file, "pcm.output", "type"))
+    /* does .asoundrc use type asym? if not, replace file with default contents and exit */
+    if (!find_in_section (user_config_file, "pcm.!default", "asym"))
     {
         vsystem ("echo 'pcm.!default {\n\ttype asym\n\tplayback.pcm {\n\t\ttype plug\n\t\tslave.pcm \"output\"\n\t}\n\tcapture.pcm {\n\t\ttype plug\n\t\tslave.pcm \"input\"\n\t}\n}\n\npcm.output {\n\ttype hw\n\tcard %d\n}\n\nctl.!default {\n\ttype hw\n\tcard %d\n}\n' > %s", num, num, user_config_file);
         goto DONE;
     }
 
-    /* update the pcm.output block */
-    vsystem ("sed -i '/pcm.output/,/}/c pcm.output {\\n\\ttype hw\\n\\tcard %d\\n}' %s", num, user_config_file);
+    /* is there a pcm.output section? if not, append one */
+    if (!find_in_section (user_config_file, "pcm.output", "type"))
+        vsystem ("echo '\npcm.output {\n\ttype hw\n\tcard %d\n}\n' >> %s", num, user_config_file);
+
+    /* update the pcm.output block if already present */
+    else
+        vsystem ("sed -i '/pcm.output/,/}/c pcm.output {\\n\\ttype hw\\n\\tcard %d\\n}' %s", num, user_config_file);
 
     /* does the file contain the ctl.!default block? if not, add one and exit */
     if (!find_in_section (user_config_file, "ctl.!default", "type"))
@@ -1002,6 +1043,35 @@ static void asound_set_default_card (int num)
 
     /* update the ctl block */
     vsystem ("sed -i '/ctl.!default/,/}/c ctl.!default {\\n\\ttype hw\\n\\tcard %d\\n}' %s", num, user_config_file);
+
+    DONE: g_free (user_config_file);
+}
+
+static void asound_set_default_input (int num)
+{
+    char *user_config_file = g_build_filename (g_get_home_dir (), "/.asoundrc", NULL);
+
+    /* does .asoundrc exist? if not, write default contents and exit */
+    if (!g_file_test (user_config_file, G_FILE_TEST_IS_REGULAR))
+    {
+        vsystem ("echo 'pcm.!default {\n\ttype asym\n\tplayback.pcm {\n\t\ttype plug\n\t\tslave.pcm \"output\"\n\t}\n\tcapture.pcm {\n\t\ttype plug\n\t\tslave.pcm \"input\"\n\t}\n}\n\npcm.output {\n\ttype hw\n\tcard 0\n}\n\npcm.input {\n\ttype hw\n\tcard %d\n}\n\nctl.!default {\n\ttype hw\n\tcard 0\n}\n' >> %s", num, user_config_file);
+        goto DONE;
+    }
+
+    /* does .asoundrc use type asym? if not, replace file with default contents and exit */
+    if (!find_in_section (user_config_file, "pcm.!default", "asym"))
+    {
+        vsystem ("echo 'pcm.!default {\n\ttype asym\n\tplayback.pcm {\n\t\ttype plug\n\t\tslave.pcm \"output\"\n\t}\n\tcapture.pcm {\n\t\ttype plug\n\t\tslave.pcm \"input\"\n\t}\n}\n\npcm.output {\n\ttype hw\n\tcard 0\n}\n\npcm.input {\n\ttype hw\n\tcard %d\n}\n\nctl.!default {\n\ttype hw\n\tcard 0\n}\n' > %s", num, user_config_file);
+        goto DONE;
+    }
+
+    /* is there a pcm.input section? if not, append one */
+    if (!find_in_section (user_config_file, "pcm.input", "type"))
+        vsystem ("echo '\npcm.input {\n\ttype hw\n\tcard %d\n}\n' >> %s", num, user_config_file);
+
+    /* update the pcm.input block if already present */
+    else
+        vsystem ("sed -i '/pcm.input/,/}/c pcm.input {\\n\\ttype hw\\n\\tcard %d\\n}' %s", num, user_config_file);
 
     DONE: g_free (user_config_file);
 }
@@ -1312,6 +1382,11 @@ static gboolean volumealsa_button_press_event (GtkWidget *widget, GdkEventButton
 
 static GtkWidget *volumealsa_menu_item_add (VolumeALSAPlugin *vol, const char *label, const char *name, gboolean selected, GCallback cb)
 {
+    return volumealsa_input_menu_item_add (vol, vol->menu_popup, label, name, selected, cb);
+}
+
+static GtkWidget *volumealsa_input_menu_item_add (VolumeALSAPlugin *vol, GtkWidget *menu, const char *label, const char *name, gboolean selected, GCallback cb)
+{
     GtkWidget *mi = gtk_image_menu_item_new_with_label (label);
     gtk_image_menu_item_set_always_show_image (GTK_IMAGE_MENU_ITEM (mi), TRUE);
     if (selected)
@@ -1322,17 +1397,18 @@ static GtkWidget *volumealsa_menu_item_add (VolumeALSAPlugin *vol, const char *l
     }
     gtk_widget_set_name (mi, name);
     g_signal_connect (mi, "activate", cb, (gpointer) vol);
-    gtk_menu_shell_append (GTK_MENU_SHELL (vol->menu_popup), mi);
+    gtk_menu_shell_append (GTK_MENU_SHELL (menu), mi);
     return mi;
 }
 
 static void volumealsa_build_device_menu (VolumeALSAPlugin *vol)
 {
-    GtkWidget *mi;
-    gint devices = 0, card_num, def_card;
+    GtkWidget *mi, *smi;
+    gint devices = 0, inputs = 0, card_num, def_card, def_inp;
     gboolean ext_dev = FALSE, bt_dev = FALSE;
 
     def_card = asound_get_default_card ();
+    def_inp = asound_get_default_input ();
 
     vol->menu_popup = gtk_menu_new ();
 
@@ -1468,6 +1544,44 @@ static void volumealsa_build_device_menu (VolumeALSAPlugin *vol)
         }
     }
 
+    // add input selector...
+    card_num = -1;
+    while (1)
+    {
+        if (snd_card_next (&card_num) < 0)
+        {
+            g_warning ("volumealsa: Cannot enumerate devices");
+            break;
+        }
+        if (card_num == -1) break;
+
+        if (asound_has_input (card_num))
+        {
+            char *nam, *dev;
+            GtkWidget *sm;
+            snd_card_get_name (card_num, &nam);
+            dev = g_strdup_printf ("%d", card_num);
+
+            if (!inputs)
+            {
+                // create a submenu
+                sm = gtk_menu_new ();
+                smi = gtk_menu_item_new_with_label (_("Input Devices"));
+                gtk_menu_item_set_submenu (GTK_MENU_ITEM (smi), sm);
+            }
+            volumealsa_input_menu_item_add (vol, sm, nam, dev, card_num == def_inp, G_CALLBACK (volumealsa_set_external_input));
+            inputs++;
+        }
+    }
+
+    if (inputs)
+    {
+        // insert the submenu here
+        mi = gtk_separator_menu_item_new ();
+        gtk_menu_shell_append (GTK_MENU_SHELL (vol->menu_popup), mi);
+        gtk_menu_shell_append (GTK_MENU_SHELL (vol->menu_popup), smi);
+    }
+
     if (ext_dev)
     {
         mi = gtk_separator_menu_item_new ();
@@ -1508,6 +1622,19 @@ static void volumealsa_set_external_output (GtkWidget *widget, VolumeALSAPlugin 
         bt_disconnect_device (vol);
 
         asound_set_default_card (dev);
+        asound_initialize (vol);
+
+        volumealsa_default_changed (vol);
+    }
+}
+
+static void volumealsa_set_external_input (GtkWidget *widget, VolumeALSAPlugin *vol)
+{
+    int dev;
+
+    if (sscanf (widget->name, "%d", &dev) == 1)
+    {
+        asound_set_default_input (dev);
         asound_initialize (vol);
 
         volumealsa_default_changed (vol);
