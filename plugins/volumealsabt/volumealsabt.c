@@ -259,6 +259,7 @@ static int vsystem (const char *fmt, ...)
 static gboolean find_in_section (char *file, char *sec, char *seek)
 {
     char *cmd = g_strdup_printf ("sed -n '/%s/,/}/p' %s 2>/dev/null | grep -q %s", sec, file, seek);
+
     int res = system (cmd);
     g_free (cmd);
     if (res == 0) return TRUE;
@@ -932,112 +933,97 @@ static int asound_get_default_card (void)
     char *res;
     int val;
 
-    /* first check to see if Bluetooth is in use */
-    if (find_in_section (user_config_file, "pcm.!default", "bluealsa"))
+    /* is there a pcm.output section? */
+    if (find_in_section (user_config_file, "pcm.output", "type"))
     {
-        g_free (user_config_file);
-        return BLUEALSA_DEV;
+        /* look in pcm.output section for bluealsa */
+        if (find_in_section (user_config_file, "pcm.output", "bluealsa"))
+        {
+            g_free (user_config_file);
+            return BLUEALSA_DEV;
+        }
+
+        /* otherwise parse pcm.output section for card number */
+        res = get_string ("sed -n '/pcm.output/,/}/{/card/p}' %s 2>/dev/null | cut -d ' ' -f 2", user_config_file);
+        if (sscanf (res, "%d", &val) == 1) goto DONE;
+    }
+    else
+    {
+        /* first check to see if Bluetooth is in use */
+        if (find_in_section (user_config_file, "pcm.!default", "bluealsa"))
+        {
+            g_free (user_config_file);
+            return BLUEALSA_DEV;
+        }
+
+        /* if not, check for new format file */
+        res = get_string ("sed -n '/pcm.!default/,/}/{/slave.pcm/p}' %s 2>/dev/null | cut -d '\"' -f 2 | cut -d : -f 2", user_config_file);
+        if (sscanf (res, "%d", &val) == 1) goto DONE;
+        else g_free (res);
+
+        /* if not, check for old format file */
+        res = get_string ("sed -n '/pcm.!default/,/}/{/card/p}' %s 2>/dev/null | cut -d ' ' -f 2", user_config_file);
+        if (sscanf (res, "%d", &val) == 1) goto DONE;
     }
 
-    /* if not, check for new format file */
-    res = get_string ("sed -n '/pcm.!default/,/}/{/slave.pcm/p}' %s 2>/dev/null | cut -d '\"' -f 2 | cut -d : -f 2", user_config_file);
-    if (sscanf (res, "%d", &val) == 1)
-    {
-        g_free (res);
-        g_free (user_config_file);
-        return val;
-    }
-
-    /* if not, check for old format file */
-    g_free (res);
-    res = get_string ("sed -n '/pcm.!default/,/}/{/card/p}' %s 2>/dev/null | cut -d ' ' -f 2", user_config_file);
-    if (sscanf (res, "%d", &val) == 1)
-    {
-        g_free (res);
-        g_free (user_config_file);
-        return val;
-    }
-
-    g_free (res);
+    val = 0;
+    DONE: g_free (res);
     g_free (user_config_file);
-    return 0;
+    return val;
 }
 
 static void asound_set_default_card (int num)
 {
     char *user_config_file = g_build_filename (g_get_home_dir (), "/.asoundrc", NULL);
 
-    /* check file exists - write default contents if not */
+    /* does .asoundrc exist? if not, write default contents and exit */
     if (!g_file_test (user_config_file, G_FILE_TEST_IS_REGULAR))
     {
-        vsystem ("echo 'pcm.!default {\n\ttype plug\n\tslave.pcm \"hw:%d\"\n}\n\nctl.!default {\n\ttype hw\n\tcard %d\n}\n' >> %s", num, num, user_config_file);
-        g_free (user_config_file);
-        return;
+        vsystem ("echo 'pcm.!default {\n\ttype asym\n\tplayback.pcm {\n\t\ttype plug\n\t\tslave.pcm \"output\"\n\t}\n\tcapture.pcm {\n\t\ttype plug\n\t\tslave.pcm \"input\"\n\t}\n}\n\npcm.output {\n\ttype hw\n\tcard %d\n}\n\nctl.!default {\n\ttype hw\n\tcard %d\n}\n' >> %s", num, num, user_config_file);
+        goto DONE;
     }
 
-    /* check for new pcm.default section */
-    if (find_in_section (user_config_file, "pcm.!default", "'slave.pcm \".*\"'"))
+    /* does .asoundrc contain the pcm.output block? if not, replace with default contents and exit */
+    if (!find_in_section (user_config_file, "pcm.output", "type"))
     {
-        /* file is in new format already, so update in place */
-        vsystem ("sed -i '/pcm.!default/,/}/ { s/slave.pcm .*/slave.pcm \"hw:%d\"/ }' %s", num, user_config_file);
-    }
-    else if (find_in_section (user_config_file, "pcm.!default", "slave.pcm"))
-    {
-        /* replace type in pcm section with type plug */
-        vsystem ("sed -i '/pcm.!default/,/}/ s/type .*/type plug/' %s", user_config_file);
-
-        /* replace slave.pcm {} section with slave.pcm "card ID" */
-        vsystem ("sed -i '/slave.pcm {/,/}/ { s/slave.pcm {/slave.pcm \"hw:%d\"/; /slave.pcm/!d }' %s", num, user_config_file);
-    }
-    else
-    {
-        /* does the file contain an old format pcm.default section? */
-        if (find_in_section (user_config_file, "pcm.!default", "type") && find_in_section (user_config_file, "pcm.!default", "card"))
-        {
-            /* old format section found; update it to the new format */
-            vsystem ("sed -i '/pcm.!default/,/}/ { s/type .*/type plug\\n\\tslave.pcm \"hw:%d\"/ }' %s", num, user_config_file);
-            vsystem ("sed -i '/pcm.!default/,/}/ { /card .*/d }' %s", user_config_file);
-        }
-        else
-        {
-            /* append a pcm.default section in the new format */
-            vsystem ("echo '\npcm.!default {\n\ttype plug\n\tslave.pcm \"hw:%d\"\n}\n' >> %s", num, user_config_file);
-        }
+        vsystem ("echo 'pcm.!default {\n\ttype asym\n\tplayback.pcm {\n\t\ttype plug\n\t\tslave.pcm \"output\"\n\t}\n\tcapture.pcm {\n\t\ttype plug\n\t\tslave.pcm \"input\"\n\t}\n}\n\npcm.output {\n\ttype hw\n\tcard %d\n}\n\nctl.!default {\n\ttype hw\n\tcard %d\n}\n' > %s", num, num, user_config_file);
+        goto DONE;
     }
 
-    /* check for ctl.default section */
-    if (find_in_section (user_config_file, "ctl.!default", "type"))
+    /* update the pcm.output block */
+    vsystem ("sed -i '/pcm.output/,/}/c pcm.output {\\n\\ttype hw\\n\\tcard %d\\n}' %s", num, user_config_file);
+
+    /* does the file contain the ctl.!default block? if not, add one and exit */
+    if (!find_in_section (user_config_file, "ctl.!default", "type"))
     {
-        if (find_in_section (user_config_file, "ctl.!default", "card"))
-        {
-            /* standard ctl.default section found; update both type and card */
-            vsystem ("sed -i '/ctl.!default/,/}/ { s/type .*/type hw/g; s/card .*/card %d/g; }' %s", num, user_config_file);
-        }
-        else
-        {
-            /* ctl has type but not card - probably bluetooth then, so replace type and add card */
-            vsystem ("sed -i '/ctl.!default/,/}/ { s/type .*/type hw\\n\\tcard %d/g; }' %s", num, user_config_file);
-        }
-    }
-    else
-    {
-        /* append a ctl.default section */
         vsystem ("echo '\nctl.!default {\n\ttype hw\n\tcard %d\n}\n' >> %s", num, user_config_file);
+        goto DONE;
     }
 
-    g_free (user_config_file);
+    /* update the ctl block */
+    vsystem ("sed -i '/ctl.!default/,/}/c ctl.!default {\\n\\ttype hw\\n\\tcard %d\\n}' %s", num, user_config_file);
+
+    DONE: g_free (user_config_file);
 }
 
 static char *asound_get_bt_device (void)
 {
     char *user_config_file = g_build_filename (g_get_home_dir (), "/.asoundrc", NULL);
-    char *res = get_string ("sed -n '/pcm.!default/,/}/{/device/p}' %s 2>/dev/null | cut -d '\"' -f 2 | tr : _", user_config_file);
-    g_free (user_config_file);
+    char *res;
 
-    if (strlen (res) == 17) return res;
+    /* first check the pcm.output section */
+    res = get_string ("sed -n '/pcm.output/,/}/{/device/p}' %s 2>/dev/null | cut -d '\"' -f 2 | tr : _", user_config_file);
+    if (strlen (res) == 17) goto DONE;
+    else g_free (res);
 
-    g_free (res);
-    return NULL;
+    /* if nothing there, check the default block */
+    res = get_string ("sed -n '/pcm.!default/,/}/{/device/p}' %s 2>/dev/null | cut -d '\"' -f 2 | tr : _", user_config_file);
+    if (strlen (res) == 17) goto DONE;
+    else g_free (res);
+
+    res = NULL;
+    DONE: g_free (user_config_file);
+    return res;
 }
 
 static void asound_set_bt_device (char *devname)
@@ -1049,56 +1035,37 @@ static void asound_set_bt_device (char *devname)
     if (sscanf (devname, "/org/bluez/hci0/dev_%x_%x_%x_%x_%x_%x", &b1, &b2, &b3, &b4, &b5, &b6) != 6)
     {
         DEBUG ("Failed to set device - name %s invalid", devname);
-        return;
+        goto DONE;
     }
 
-    /* check file exists - write default contents if not */
+    /* does .asoundrc exist? if not, write default contents and exit */
     if (!g_file_test (user_config_file, G_FILE_TEST_IS_REGULAR))
     {
-        vsystem ("echo 'pcm.!default {\n\ttype plug\n\tslave.pcm {\n\t\ttype bluealsa\n\t\tdevice \"%02X:%02X:%02X:%02X:%02X:%02X\"\n\t\tprofile \"a2dp\"\n\t}\n}\n\nctl.!default {\n\ttype bluealsa\n}\n' >> %s", b1, b2, b3, b4, b5, b6, user_config_file);
-        g_free (user_config_file);
-        return;
+        vsystem ("echo 'pcm.!default {\n\ttype asym\n\tplayback.pcm {\n\t\ttype plug\n\t\tslave.pcm \"output\"\n\t}\n\tcapture.pcm {\n\t\ttype plug\n\t\tslave.pcm \"input\"\n\t}\n}\n\npcm.output {\n\ttype bluealsa\n\t\tdevice \"%02X:%02X:%02X:%02X:%02X:%02X\"\n\t\tprofile \"a2dp\"\n}\n\nctl.!default {\n\ttype bluealsa\n}\n' >> %s", b1, b2, b3, b4, b5, b6, user_config_file);
+        goto DONE;
     }
 
-    /* check for new pcm.default section */
-    if (find_in_section (user_config_file, "pcm.!default", "'slave.pcm \".*\"'"))
+    /* does .asoundrc contain the pcm.output block? if not, replace with default contents and exit */
+    if (!find_in_section (user_config_file, "pcm.output", "type"))
     {
-        /* replace slave.pcm "" section with bluealsa version */
-        vsystem ("sed -i '/pcm.!default/,/}/ { s/slave.pcm .*/slave.pcm {\\n\\t\\ttype bluealsa\\n\\t\\tdevice \"%02X:%02X:%02X:%02X:%02X:%02X\"\\n\\t\\tprofile \"a2dp\"\\n\\t}/ }' %s", b1, b2, b3, b4, b5, b6, user_config_file);
-    }
-    else if (find_in_section (user_config_file, "pcm.!default", "slave.pcm"))
-    {
-        /* replace slave.pcm {} section with bluealsa version */
-        vsystem ("sed -i '/slave.pcm {/,/}/ { s/slave.pcm {/slave.pcm {\\n\\t\\ttype bluealsa\\n\\t\\tdevice \"%02X:%02X:%02X:%02X:%02X:%02X\"\\n\\t\\tprofile \"a2dp\"\\n\\t}/; /slave.pcm/!d }' %s", b1, b2, b3, b4, b5, b6, user_config_file);
-    }
-    else
-    {
-        /* does the file contain an old format pcm.default section? */
-        if (find_in_section (user_config_file, "pcm.!default", "type"))
-        {
-            /* overwrite entirety of pcm.default section with bluealsa version */
-            vsystem ("sed -i '/pcm.!default/,/}/ { s/pcm.!default {/pcm.!default {\\n\\ttype plug\\n\\tslave.pcm {\\n\\t\\ttype bluealsa\\n\\t\\tdevice \"%02X:%02X:%02X:%02X:%02X:%02X\"\\n\\t\\tprofile \"a2dp\"\\n\\t}\\n}/; /pcm/!d }' %s", b1, b2, b3, b4, b5, b6, user_config_file);
-        }
-        else
-        {
-            /* append a pcm.default section */
-            vsystem ("echo '\npcm.!default {\n\ttype plug\n\tslave.pcm {\n\t\ttype bluealsa\n\t\tdevice \"%02X:%02X:%02X:%02X:%02X:%02X\"\n\t\tprofile \"a2dp\"\n\t}\n}\n' >> %s", b1, b2, b3, b4, b5, b6, user_config_file);
-        }
+        vsystem ("echo 'pcm.!default {\n\ttype asym\n\tplayback.pcm {\n\t\ttype plug\n\t\tslave.pcm \"output\"\n\t}\n\tcapture.pcm {\n\t\ttype plug\n\t\tslave.pcm \"input\"\n\t}\n}\n\npcm.output {\n\ttype bluealsa\n\t\tdevice \"%02X:%02X:%02X:%02X:%02X:%02X\"\n\t\tprofile \"a2dp\"\n}\n\nctl.!default {\n\ttype bluealsa\n}\n' > %s", b1, b2, b3, b4, b5, b6, user_config_file);
+        goto DONE;
     }
 
-    /* check for ctl.default section */
-    if (find_in_section (user_config_file, "ctl.!default", "type"))
+    /* update the pcm.output block */
+    vsystem ("sed -i '/pcm.output/,/}/c pcm.output {\\n\\ttype bluealsa\\n\\tdevice\"%02X:%02X:%02X:%02X:%02X:%02X\"\\n\\tprofile \"a2dp\"\\n}' %s", b1, b2, b3, b4, b5, b6, user_config_file);
+
+    /* does the file contain the ctl.!default block? if not, add one and exit */
+    if (!find_in_section (user_config_file, "ctl.!default", "type"))
     {
-        /* overwrite entirety of ctl.default section with bluealsa version */
-        vsystem ("sed -i '/ctl.!default/,/}/ { s/ctl.!default {/ctl.!default {\\n\\ttype bluealsa\\n}/; /ctl/!d }' %s", user_config_file);
-    }
-    else
-    {
-        /* append a ctl.default section */
         vsystem ("echo '\nctl.!default {\n\ttype bluealsa\n}\n' >> %s", user_config_file);
+        goto DONE;
     }
 
-    g_free (user_config_file);
+    /* update the ctl block */
+    vsystem ("sed -i '/ctl.!default/,/}/c ctl.!default {\\n\\ttype bluealsa\\n}' %s", user_config_file);
+
+    DONE: g_free (user_config_file);
 }
 
 static gboolean asound_is_current_bt_dev (const char *obj)
