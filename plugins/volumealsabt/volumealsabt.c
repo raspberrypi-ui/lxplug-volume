@@ -161,6 +161,7 @@ static gboolean asound_mixer_event (GIOChannel *channel, GIOCondition cond, gpoi
 static int asound_get_default_card (void);
 static int asound_get_default_input (void);
 static void asound_set_default_card (int num);
+static void asound_set_default_input (int num);
 static char *asound_get_bt_device (void);
 static void asound_set_bt_device (char *devname);
 static gboolean asound_is_current_bt_dev (const char *obj);
@@ -944,8 +945,15 @@ static int asound_get_default_card (void)
     char *res;
     int val;
 
-    /* is there a pcm.output section? */
-    if (find_in_section (user_config_file, "pcm.output", "type"))
+    /* does .asoundrc exist? if not, default device is 0 */
+    if (!g_file_test (user_config_file, G_FILE_TEST_IS_REGULAR))
+    {
+        g_free (user_config_file);
+        return 0;
+    }
+
+    /* does .asoundrc use type asym? */
+    if (find_in_section (user_config_file, "pcm.!default", "asym"))
     {
         /* look in pcm.output section for bluealsa */
         if (find_in_section (user_config_file, "pcm.output", "bluealsa"))
@@ -956,7 +964,7 @@ static int asound_get_default_card (void)
 
         /* otherwise parse pcm.output section for card number */
         res = get_string ("sed -n '/pcm.output/,/}/{/card/p}' %s 2>/dev/null | cut -d ' ' -f 2", user_config_file);
-        if (sscanf (res, "%d", &val) == 1) goto DONE;
+        if (sscanf (res, "%d", &val) != 1) val = -1;
     }
     else
     {
@@ -970,14 +978,16 @@ static int asound_get_default_card (void)
         /* if not, check for new format file */
         res = get_string ("sed -n '/pcm.!default/,/}/{/slave.pcm/p}' %s 2>/dev/null | cut -d '\"' -f 2 | cut -d : -f 2", user_config_file);
         if (sscanf (res, "%d", &val) == 1) goto DONE;
-        else g_free (res);
+        g_free (res);
 
         /* if not, check for old format file */
         res = get_string ("sed -n '/pcm.!default/,/}/{/card/p}' %s 2>/dev/null | cut -d ' ' -f 2", user_config_file);
         if (sscanf (res, "%d", &val) == 1) goto DONE;
+
+        /* nothing valid found, default device is 0 */
+        val = 0;
     }
 
-    val = 0;
     DONE: g_free (res);
     g_free (user_config_file);
     return val;
@@ -989,20 +999,36 @@ static int asound_get_default_input (void)
     char *res;
     int val;
 
-    /* is there a pcm.input section? */
-    if (find_in_section (user_config_file, "pcm.input", "type"))
-    {
-        /* parse pcm.input section for card number */
-        res = get_string ("sed -n '/pcm.input/,/}/{/card/p}' %s 2>/dev/null | cut -d ' ' -f 2", user_config_file);
-        if (sscanf (res, "%d", &val) == 1) goto DONE;
-    }
-    else
+    /* does .asoundrc exist? if not, default device is 0 */
+    if (!g_file_test (user_config_file, G_FILE_TEST_IS_REGULAR))
     {
         g_free (user_config_file);
         return 0;
     }
 
-    val = 0;
+    /* does .asoundrc use type asym? */
+    if (find_in_section (user_config_file, "pcm.!default", "asym"))
+    {
+        /* parse pcm.input section for card number */
+        res = get_string ("sed -n '/pcm.input/,/}/{/card/p}' %s 2>/dev/null | cut -d ' ' -f 2", user_config_file);
+        if (sscanf (res, "%d", &val) != 1) val = -1;
+    }
+    else
+    {
+        /* default input device is same as output pcm device */
+        /* check for new format file */
+        res = get_string ("sed -n '/pcm.!default/,/}/{/slave.pcm/p}' %s 2>/dev/null | cut -d '\"' -f 2 | cut -d : -f 2", user_config_file);
+        if (sscanf (res, "%d", &val) == 1) goto DONE;
+        g_free (res);
+
+        /* if not, check for old format file */
+        res = get_string ("sed -n '/pcm.!default/,/}/{/card/p}' %s 2>/dev/null | cut -d ' ' -f 2", user_config_file);
+        if (sscanf (res, "%d", &val) == 1) goto DONE;
+
+        /* nothing valid found, default device is 0 */
+        val = 0;
+    }
+
     DONE: g_free (res);
     g_free (user_config_file);
     return val;
@@ -1015,20 +1041,20 @@ static void asound_set_default_card (int num)
     /* does .asoundrc exist? if not, write default contents and exit */
     if (!g_file_test (user_config_file, G_FILE_TEST_IS_REGULAR))
     {
-        vsystem ("echo 'pcm.!default {\n\ttype asym\n\tplayback.pcm {\n\t\ttype plug\n\t\tslave.pcm \"output\"\n\t}\n\tcapture.pcm {\n\t\ttype plug\n\t\tslave.pcm \"input\"\n\t}\n}\n\npcm.output {\n\ttype hw\n\tcard %d\n}\n\nctl.!default {\n\ttype hw\n\tcard %d\n}\n' >> %s", num, num, user_config_file);
+        vsystem ("echo 'pcm.!default {\n\ttype asym\n\tplayback.pcm {\n\t\ttype plug\n\t\tslave.pcm \"output\"\n\t}\n\tcapture.pcm {\n\t\ttype plug\n\t\tslave.pcm \"input\"\n\t}\n}\n\npcm.output {\n\ttype hw\n\tcard %d\n}\n\nctl.!default {\n\ttype hw\n\tcard %d\n}' >> %s", num, num, user_config_file);
         goto DONE;
     }
 
     /* does .asoundrc use type asym? if not, replace file with default contents and exit */
     if (!find_in_section (user_config_file, "pcm.!default", "asym"))
     {
-        vsystem ("echo 'pcm.!default {\n\ttype asym\n\tplayback.pcm {\n\t\ttype plug\n\t\tslave.pcm \"output\"\n\t}\n\tcapture.pcm {\n\t\ttype plug\n\t\tslave.pcm \"input\"\n\t}\n}\n\npcm.output {\n\ttype hw\n\tcard %d\n}\n\nctl.!default {\n\ttype hw\n\tcard %d\n}\n' > %s", num, num, user_config_file);
+        vsystem ("echo 'pcm.!default {\n\ttype asym\n\tplayback.pcm {\n\t\ttype plug\n\t\tslave.pcm \"output\"\n\t}\n\tcapture.pcm {\n\t\ttype plug\n\t\tslave.pcm \"input\"\n\t}\n}\n\npcm.output {\n\ttype hw\n\tcard %d\n}\n\nctl.!default {\n\ttype hw\n\tcard %d\n}' > %s", num, num, user_config_file);
         goto DONE;
     }
 
     /* is there a pcm.output section? if not, append one */
     if (!find_in_section (user_config_file, "pcm.output", "type"))
-        vsystem ("echo '\npcm.output {\n\ttype hw\n\tcard %d\n}\n' >> %s", num, user_config_file);
+        vsystem ("echo '\npcm.output {\n\ttype hw\n\tcard %d\n}' >> %s", num, user_config_file);
 
     /* update the pcm.output block if already present */
     else
@@ -1037,7 +1063,7 @@ static void asound_set_default_card (int num)
     /* does the file contain the ctl.!default block? if not, add one and exit */
     if (!find_in_section (user_config_file, "ctl.!default", "type"))
     {
-        vsystem ("echo '\nctl.!default {\n\ttype hw\n\tcard %d\n}\n' >> %s", num, user_config_file);
+        vsystem ("echo '\nctl.!default {\n\ttype hw\n\tcard %d\n}' >> %s", num, user_config_file);
         goto DONE;
     }
 
@@ -1054,20 +1080,20 @@ static void asound_set_default_input (int num)
     /* does .asoundrc exist? if not, write default contents and exit */
     if (!g_file_test (user_config_file, G_FILE_TEST_IS_REGULAR))
     {
-        vsystem ("echo 'pcm.!default {\n\ttype asym\n\tplayback.pcm {\n\t\ttype plug\n\t\tslave.pcm \"output\"\n\t}\n\tcapture.pcm {\n\t\ttype plug\n\t\tslave.pcm \"input\"\n\t}\n}\n\npcm.output {\n\ttype hw\n\tcard 0\n}\n\npcm.input {\n\ttype hw\n\tcard %d\n}\n\nctl.!default {\n\ttype hw\n\tcard 0\n}\n' >> %s", num, user_config_file);
+        vsystem ("echo 'pcm.!default {\n\ttype asym\n\tplayback.pcm {\n\t\ttype plug\n\t\tslave.pcm \"output\"\n\t}\n\tcapture.pcm {\n\t\ttype plug\n\t\tslave.pcm \"input\"\n\t}\n}\n\npcm.output {\n\ttype hw\n\tcard 0\n}\n\npcm.input {\n\ttype hw\n\tcard %d\n}\n\nctl.!default {\n\ttype hw\n\tcard 0\n}' >> %s", num, user_config_file);
         goto DONE;
     }
 
     /* does .asoundrc use type asym? if not, replace file with default contents and exit */
     if (!find_in_section (user_config_file, "pcm.!default", "asym"))
     {
-        vsystem ("echo 'pcm.!default {\n\ttype asym\n\tplayback.pcm {\n\t\ttype plug\n\t\tslave.pcm \"output\"\n\t}\n\tcapture.pcm {\n\t\ttype plug\n\t\tslave.pcm \"input\"\n\t}\n}\n\npcm.output {\n\ttype hw\n\tcard 0\n}\n\npcm.input {\n\ttype hw\n\tcard %d\n}\n\nctl.!default {\n\ttype hw\n\tcard 0\n}\n' > %s", num, user_config_file);
+        vsystem ("echo 'pcm.!default {\n\ttype asym\n\tplayback.pcm {\n\t\ttype plug\n\t\tslave.pcm \"output\"\n\t}\n\tcapture.pcm {\n\t\ttype plug\n\t\tslave.pcm \"input\"\n\t}\n}\n\npcm.output {\n\ttype hw\n\tcard 0\n}\n\npcm.input {\n\ttype hw\n\tcard %d\n}\n\nctl.!default {\n\ttype hw\n\tcard 0\n}' > %s", num, user_config_file);
         goto DONE;
     }
 
     /* is there a pcm.input section? if not, append one */
     if (!find_in_section (user_config_file, "pcm.input", "type"))
-        vsystem ("echo '\npcm.input {\n\ttype hw\n\tcard %d\n}\n' >> %s", num, user_config_file);
+        vsystem ("echo '\npcm.input {\n\ttype hw\n\tcard %d\n}' >> %s", num, user_config_file);
 
     /* update the pcm.input block if already present */
     else
