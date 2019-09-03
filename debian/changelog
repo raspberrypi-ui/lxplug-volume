@@ -1,3 +1,9 @@
+lxplug-volume (0.16) buster; urgency=medium
+
+  * Add input device selection
+
+ -- Simon Long <simon@raspberrypi.org>  Tue, 03 Sep 2019 14:52:16 +0100
+
 lxplug-volume (0.15) buster; urgency=medium
 
   * A lot of review and tidying of code
