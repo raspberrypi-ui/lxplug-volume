@@ -172,7 +172,7 @@ static char *asound_default_device_name (void);
 /* Handlers and graphics */
 static void volumealsa_update_display (VolumeALSAPlugin *vol);
 static void volumealsa_theme_change (GtkWidget *widget, VolumeALSAPlugin *vol);
-static void volumealsa_open_config_dialog (GtkWidget * widget, VolumeALSAPlugin * vol);
+static void volumealsa_open_config_dialog (GtkWidget *widget, VolumeALSAPlugin *vol);
 static void volumealsa_show_connect_dialog (VolumeALSAPlugin *vol, gboolean failed, const gchar *param);
 static void volumealsa_close_connect_dialog (GtkButton *button, gpointer user_data);
 static gint volumealsa_delete_connect_dialog (GtkWidget *widget, GdkEvent *event, gpointer user_data);
@@ -699,7 +699,7 @@ static void asound_set_volume (VolumeALSAPlugin *vol, int volume)
 
 /* Initialize the ALSA interface */
 
-static gboolean asound_initialize (VolumeALSAPlugin * vol)
+static gboolean asound_initialize (VolumeALSAPlugin *vol)
 {
     struct pollfd *fds;
     char *device;
@@ -754,7 +754,7 @@ static gboolean asound_initialize (VolumeALSAPlugin * vol)
     return TRUE;
 }
 
-static void asound_deinitialize (VolumeALSAPlugin * vol)
+static void asound_deinitialize (VolumeALSAPlugin *vol)
 {
     guint i;
 
@@ -1592,7 +1592,7 @@ static void volumealsa_build_device_menu (VolumeALSAPlugin *vol)
             {
                 // create a submenu
                 sm = gtk_menu_new ();
-                smi = gtk_menu_item_new_with_label (_("Input Devices"));
+                smi = gtk_menu_item_new_with_label (_("Audio Inputs"));
                 gtk_menu_item_set_submenu (GTK_MENU_ITEM (smi), sm);
             }
             volumealsa_input_menu_item_add (vol, sm, nam, dev, card_num == def_inp, G_CALLBACK (volumealsa_set_external_input));
@@ -1728,7 +1728,7 @@ static void volumealsa_build_popup_window (GtkWidget *p)
     gtk_window_set_type_hint (GTK_WINDOW (vol->popup_window), GDK_WINDOW_TYPE_HINT_UTILITY);
 
     /* Create a scrolled window as the child of the top level window. */
-    GtkWidget * scrolledwindow = gtk_scrolled_window_new (NULL, NULL);
+    GtkWidget *scrolledwindow = gtk_scrolled_window_new (NULL, NULL);
     gtk_widget_set_name (scrolledwindow, "whitewd");
     gtk_container_set_border_width (GTK_CONTAINER (scrolledwindow), 0);
     gtk_widget_show (scrolledwindow);
@@ -1738,7 +1738,7 @@ static void volumealsa_build_popup_window (GtkWidget *p)
     gtk_scrolled_window_set_shadow_type (GTK_SCROLLED_WINDOW (scrolledwindow), GTK_SHADOW_NONE);
 
     /* Create a viewport as the child of the scrolled window. */
-    GtkWidget * viewport = gtk_viewport_new (NULL, NULL);
+    GtkWidget *viewport = gtk_viewport_new (NULL, NULL);
     gtk_container_add (GTK_CONTAINER (scrolledwindow), viewport);
     gtk_viewport_set_shadow_type (GTK_VIEWPORT (viewport), GTK_SHADOW_NONE);
     gtk_widget_show (viewport);
@@ -1746,7 +1746,7 @@ static void volumealsa_build_popup_window (GtkWidget *p)
     gtk_container_set_border_width (GTK_CONTAINER (vol->popup_window), 0);
     gtk_scrolled_window_set_shadow_type (GTK_SCROLLED_WINDOW (scrolledwindow), GTK_SHADOW_IN);
     /* Create a vertical box as the child of the viewport. */
-    GtkWidget * box = gtk_vbox_new (FALSE, 0);
+    GtkWidget *box = gtk_vbox_new (FALSE, 0);
     gtk_container_add (GTK_CONTAINER (viewport), box);
 
     /* Create a vertical scale as the child of the vertical box. */
@@ -1834,7 +1834,7 @@ static gboolean volumealsa_mouse_out (GtkWidget *widget, GdkEventButton *event, 
 
 static GtkWidget *volumealsa_configure (LXPanel *panel, GtkWidget *plugin)
 {
-    VolumeALSAPlugin * vol = lxpanel_plugin_get_data (plugin);
+    VolumeALSAPlugin *vol = lxpanel_plugin_get_data (plugin);
     char *path = NULL;
     const gchar *command_line = NULL;
     GAppInfoCreateFlags flags = G_APP_INFO_CREATE_NONE;
@@ -1914,15 +1914,6 @@ static gboolean volumealsa_control_msg (GtkWidget *plugin, const char *cmd)
         return TRUE;
     }
 
-    if (!strncmp (cmd, "reco", 4))
-    {
-        asound_initialize (vol);
-        volumealsa_update_display (vol);
-        g_warning ("volumealsa: Default device changed...");
-        if (vol->menu_popup) gtk_menu_popdown (GTK_MENU (vol->menu_popup));
-        return TRUE;
-    }
-
     if (!strncmp (cmd, "mute", 4))
     {
         asound_set_mute (vol, asound_is_muted (vol) ? 0 : 1);
@@ -1974,7 +1965,7 @@ static gboolean volumealsa_control_msg (GtkWidget *plugin, const char *cmd)
 static GtkWidget *volumealsa_constructor (LXPanel *panel, config_setting_t *settings)
 {
     /* Allocate and initialize plugin context and set into Plugin private data pointer. */
-    VolumeALSAPlugin * vol = g_new0 (VolumeALSAPlugin, 1);
+    VolumeALSAPlugin *vol = g_new0 (VolumeALSAPlugin, 1);
     GtkWidget *p;
 
 #ifdef ENABLE_NLS

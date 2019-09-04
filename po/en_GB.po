@@ -60,8 +60,8 @@ msgid "HDMI"
 msgstr "HDMI"
 
 #: ../plugins/volumealsabt/volumealsabt.c:1595
-msgid "Input Devices"
-msgstr "Input Devices"
+msgid "Audio Inputs"
+msgstr "Audio Inputs"
 
 #: ../plugins/volumealsabt/volumealsabt.c:1616
 msgid "USB Device Settings..."
