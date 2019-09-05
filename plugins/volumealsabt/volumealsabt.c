@@ -1303,7 +1303,7 @@ static void asound_set_bt_device (char *devname)
 
     /* is there a pcm.output section? if not, append one */
     if (!find_in_section (user_config_file, "pcm.output", "type"))
-        vsystem ("echo '\npcm.output {\n\ttype bluealsa\n\tdevice \"%02X:%02X:%02X:%02X:%02X:%02X\"\n\tprofile \"a2dp\"\n}' > %s", b1, b2, b3, b4, b5, b6, user_config_file);
+        vsystem ("echo '\npcm.output {\n\ttype bluealsa\n\tdevice \"%02X:%02X:%02X:%02X:%02X:%02X\"\n\tprofile \"a2dp\"\n}' >> %s", b1, b2, b3, b4, b5, b6, user_config_file);
 
     /* update the pcm.output block if already present */
     else
@@ -1348,7 +1348,7 @@ static void asound_set_bt_input (char *devname)
 
     /* is there a pcm.input section? if not, append one */
     if (!find_in_section (user_config_file, "pcm.input", "type"))
-        vsystem ("echo '\npcm.input {\n\ttype bluealsa\n\tdevice \"%02X:%02X:%02X:%02X:%02X:%02X\"\n\tprofile \"sco\"\n}' > %s", b1, b2, b3, b4, b5, b6, user_config_file);
+        vsystem ("echo '\npcm.input {\n\ttype bluealsa\n\tdevice \"%02X:%02X:%02X:%02X:%02X:%02X\"\n\tprofile \"sco\"\n}' >> %s", b1, b2, b3, b4, b5, b6, user_config_file);
 
     /* update the pcm.input block if already present */
     else
