@@ -454,9 +454,6 @@ static void bt_cb_connected (GObject *source, GAsyncResult *res, gpointer user_d
         // update dialog to show a warning
         if (vol->conn_dialog) volumealsa_show_connect_dialog (vol, TRUE, error->message);
         g_error_free (error);
-
-        // call initialize to fall back to a non-BT device here if on initial startup
-        if (asound_get_default_card () == BLUEALSA_DEV) asound_initialize (vol);
     }
     else
     {
@@ -468,9 +465,6 @@ static void bt_cb_connected (GObject *source, GAsyncResult *res, gpointer user_d
         else
             asound_set_bt_device (vol->bt_conname);
 
-        // reinit alsa to configure mixer
-        asound_initialize (vol);
-
         // close the connection dialog
         volumealsa_close_connect_dialog (NULL, vol);
     }
@@ -479,8 +473,23 @@ static void bt_cb_connected (GObject *source, GAsyncResult *res, gpointer user_d
     g_free (vol->bt_conname);
     vol->bt_conname = NULL;
 
-    // update the display whether we succeeded or not, as a failure will have caused a fallback to ALSA
-    volumealsa_default_changed (vol);
+    // connect to second device if there is one...
+    if (vol->bt_reconname)
+    {
+        vol->bt_conname = vol->bt_reconname;
+        vol->bt_reconname = NULL;
+        vol->bt_input = !vol->bt_input;
+        DEBUG ("Reconnecting to original %s device %s...", vol->bt_input ? "input" : "output", vol->bt_conname);
+        bt_connect_device (vol);
+    }
+    else
+    {
+        // reinit alsa to configure mixer
+        asound_initialize (vol);
+
+        // update the display whether we succeeded or not, as a failure will have caused a fallback to ALSA
+        volumealsa_default_changed (vol);
+    }
 }
 
 static void bt_reconnect_devices (VolumeALSAPlugin *vol)
@@ -554,31 +563,38 @@ static void bt_disconnect_device (VolumeALSAPlugin *vol)
     char *device = asound_get_bt_device ();
     if (device)
     {
-        // don't disconnect a device which is also the input
-        char *idevice = asound_get_bt_input ();
-        if (g_strcmp0 (device, idevice))
-        {
-            char *buffer = g_strdup_printf ("/org/bluez/hci0/dev_%s", device);
-            g_free (device);
-            DEBUG ("Device to disconnect = %s", buffer);
+        // shutting everything down when disconnecting Bluetooth devices prevents spurious amixer events...
+        asound_deinitialize (vol);
 
-            // call the disconnect method on BlueZ
-            if (vol->objmanager)
-            {
-                GDBusInterface *interface = g_dbus_object_manager_get_interface (vol->objmanager, buffer, "org.bluez.Device1");
-                if (interface)
-                {
-                    DEBUG ("Disconnecting...");
-                    g_dbus_proxy_call (G_DBUS_PROXY (interface), "Disconnect", NULL, G_DBUS_CALL_FLAGS_NONE, -1, NULL, bt_cb_disconnected, vol);
-                    g_object_unref (interface);
-                    g_free (buffer);
-                    g_free (idevice);
-                    return;
-                }
-            }
-            g_free (buffer);
-        } else DEBUG ("Same device used for input - not disconnecting");
+        // if the same device is used for input, remember it and reconnect at end...
+        char *idevice = asound_get_bt_input ();
+        g_free (vol->bt_reconname);
+        if (!g_strcmp0 (device, idevice))
+        {
+            vol->bt_reconname = g_strdup_printf ("/org/bluez/hci0/dev_%s", idevice);
+            DEBUG ("Temporarily disconnecting shared device %s", vol->bt_reconname);
+        }
+        else vol->bt_reconname = NULL;
         g_free (idevice);
+
+        char *buffer = g_strdup_printf ("/org/bluez/hci0/dev_%s", device);
+        g_free (device);
+        DEBUG ("Output device to disconnect = %s", buffer);
+
+        // call the disconnect method on BlueZ
+        if (vol->objmanager)
+        {
+            GDBusInterface *interface = g_dbus_object_manager_get_interface (vol->objmanager, buffer, "org.bluez.Device1");
+            if (interface)
+            {
+                DEBUG ("Disconnecting...");
+                g_dbus_proxy_call (G_DBUS_PROXY (interface), "Disconnect", NULL, G_DBUS_CALL_FLAGS_NONE, -1, NULL, bt_cb_disconnected, vol);
+                g_object_unref (interface);
+                g_free (buffer);
+                return;
+            }
+        }
+        g_free (buffer);
     }
 
     // if no connection found, just make the new connection
@@ -595,31 +611,38 @@ static void bt_disconnect_input (VolumeALSAPlugin *vol)
     char *device = asound_get_bt_input ();
     if (device)
     {
-        // don't disconnect a device which is also the input
-        char *odevice = asound_get_bt_device ();
-        if (g_strcmp0 (device, odevice))
-        {
-            char *buffer = g_strdup_printf ("/org/bluez/hci0/dev_%s", device);
-            g_free (device);
-            DEBUG ("Device to disconnect = %s", buffer);
+        // shutting everything down when disconnecting Bluetooth devices prevents spurious amixer events...
+        asound_deinitialize (vol);
 
-            // call the disconnect method on BlueZ
-            if (vol->objmanager)
-            {
-                GDBusInterface *interface = g_dbus_object_manager_get_interface (vol->objmanager, buffer, "org.bluez.Device1");
-                if (interface)
-                {
-                    DEBUG ("Disconnecting...");
-                    g_dbus_proxy_call (G_DBUS_PROXY (interface), "Disconnect", NULL, G_DBUS_CALL_FLAGS_NONE, -1, NULL, bt_cb_disconnected, vol);
-                    g_object_unref (interface);
-                    g_free (buffer);
-                    g_free (odevice);
-                    return;
-                }
-            }
-            g_free (buffer);
-        } else DEBUG ("Same device used for output - not disconnecting");
+        // if the same device is used for output, remember it and reconnect at end...
+        char *odevice = asound_get_bt_input ();
+        g_free (vol->bt_reconname);
+        if (!g_strcmp0 (device, odevice))
+        {
+            vol->bt_reconname = g_strdup_printf ("/org/bluez/hci0/dev_%s", odevice);
+            DEBUG ("Temporarily disconnecting shared device %s", vol->bt_reconname);
+        }
+        else vol->bt_reconname = NULL;
         g_free (odevice);
+
+        char *buffer = g_strdup_printf ("/org/bluez/hci0/dev_%s", device);
+        g_free (device);
+        DEBUG ("Input device to disconnect = %s", buffer);
+
+        // call the disconnect method on BlueZ
+        if (vol->objmanager)
+        {
+            GDBusInterface *interface = g_dbus_object_manager_get_interface (vol->objmanager, buffer, "org.bluez.Device1");
+            if (interface)
+            {
+                DEBUG ("Disconnecting...");
+                g_dbus_proxy_call (G_DBUS_PROXY (interface), "Disconnect", NULL, G_DBUS_CALL_FLAGS_NONE, -1, NULL, bt_cb_disconnected, vol);
+                g_object_unref (interface);
+                g_free (buffer);
+                return;
+            }
+        }
+        g_free (buffer);
     }
 
     // if no connection found, just make the new connection
@@ -1049,12 +1072,8 @@ static gboolean asound_mixer_event (GIOChannel *channel, GIOCondition cond, gpoi
         if (vol->mixer) res = snd_mixer_handle_events (vol->mixer);
     }
 
-    if (cond & G_IO_IN)
-    {
-        /* the status of mixer is changed. update of display is needed. */
-        /* don't do this if res > 1, as that seems to happen if a BT device has disconnected... */
-        if (res < 2) volumealsa_update_display (vol);
-    }
+    /* the status of mixer is changed. update of display is needed. */
+    if (cond & G_IO_IN) volumealsa_update_display (vol);
 
     if ((cond & G_IO_HUP) || (res < 0))
     {
