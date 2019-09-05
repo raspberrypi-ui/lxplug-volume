@@ -615,7 +615,7 @@ static void bt_disconnect_input (VolumeALSAPlugin *vol)
         asound_deinitialize (vol);
 
         // if the same device is used for output, remember it and reconnect at end...
-        char *odevice = asound_get_bt_input ();
+        char *odevice = asound_get_bt_device ();
         g_free (vol->bt_reconname);
         if (!g_strcmp0 (device, odevice))
         {
