@@ -103,6 +103,7 @@ typedef struct {
     /* Bluetooth interface */
     GDBusObjectManager *objmanager;     /* BlueZ object manager */
     char *bt_conname;                   /* BlueZ name of device - just used during connection */
+    char *bt_reconname;                 /* BlueZ name of second device - used during reconnection */
     gboolean bt_input;                  /* Is the device being connected as an input or an output? */
     GtkWidget *conn_dialog;             /* Connection dialog box */
     GtkWidget *conn_label;              /* Dialog box text field */
@@ -131,6 +132,8 @@ static void bt_cb_name_owned (GDBusConnection *connection, const gchar *name, co
 static void bt_cb_name_unowned (GDBusConnection *connection, const gchar *name, gpointer user_data);
 static void bt_connect_device (VolumeALSAPlugin *vol);
 static void bt_cb_connected (GObject *source, GAsyncResult *res, gpointer user_data);
+static void bt_reconnect_devices (VolumeALSAPlugin *vol);
+static void bt_cb_reconnected (GObject *source, GAsyncResult *res, gpointer user_data);
 static void bt_cb_trusted (GObject *source, GAsyncResult *res, gpointer user_data);
 static void bt_disconnect_device (VolumeALSAPlugin *vol);
 static void bt_disconnect_input (VolumeALSAPlugin *vol);
@@ -385,17 +388,27 @@ static void bt_cb_name_owned (GDBusConnection *connection, const gchar *name, co
         g_signal_connect (vol->objmanager, "object-removed", G_CALLBACK (bt_cb_object_removed), vol);
     }
 
-    /* Check whether a Bluetooth audio device is the current default - connect to it if it is */
+    /* Check whether a Bluetooth audio device is the current default output or input - connect to one or both if so */
     char *device = asound_get_bt_device ();
-    if (device)
+    char *idevice = asound_get_bt_input ();
+    if (device || idevice)
     {
         /* Reconnect the current Bluetooth audio device */
         if (vol->bt_conname) g_free (vol->bt_conname);
-        vol->bt_conname = g_strdup_printf ("/org/bluez/hci0/dev_%s", device);
+        if (vol->bt_reconname) g_free (vol->bt_reconname);
+        if (device) vol->bt_conname = g_strdup_printf ("/org/bluez/hci0/dev_%s", device);
+        else if (idevice) vol->bt_conname = g_strdup_printf ("/org/bluez/hci0/dev_%s", idevice);
+
+        if (device && idevice && g_strcmp0 (device, idevice))
+            vol->bt_reconname = g_strdup_printf ("/org/bluez/hci0/dev_%s", idevice);
+        else
+            vol->bt_reconname = NULL;
+
         g_free (device);
+        g_free (idevice);
 
         DEBUG ("Connecting to %s...", vol->bt_conname);
-        bt_connect_device (vol);
+        bt_reconnect_devices (vol);
     }
 }
 
@@ -468,6 +481,57 @@ static void bt_cb_connected (GObject *source, GAsyncResult *res, gpointer user_d
 
     // update the display whether we succeeded or not, as a failure will have caused a fallback to ALSA
     volumealsa_default_changed (vol);
+}
+
+static void bt_reconnect_devices (VolumeALSAPlugin *vol)
+{
+    GDBusInterface *interface = g_dbus_object_manager_get_interface (vol->objmanager, vol->bt_conname, "org.bluez.Device1");
+    if (interface)
+    {
+        // trust and connect
+        g_dbus_proxy_call (G_DBUS_PROXY (interface), "org.freedesktop.DBus.Properties.Set", g_variant_new ("(ssv)",
+            g_dbus_proxy_get_interface_name (G_DBUS_PROXY (interface)), "Trusted", g_variant_new_boolean (TRUE)), G_DBUS_CALL_FLAGS_NONE, -1, NULL, bt_cb_trusted, vol);
+        g_dbus_proxy_call (G_DBUS_PROXY (interface), "Connect", NULL, G_DBUS_CALL_FLAGS_NONE, -1, NULL, bt_cb_reconnected, vol);
+        g_object_unref (interface);
+    }
+    else
+    {
+        DEBUG ("Couldn't get device interface from object manager");
+        if (vol->conn_dialog) volumealsa_show_connect_dialog (vol, TRUE, _("Could not get BlueZ interface"));
+    }
+}
+
+static void bt_cb_reconnected (GObject *source, GAsyncResult *res, gpointer user_data)
+{
+    VolumeALSAPlugin *vol = (VolumeALSAPlugin *) user_data;
+    GError *error = NULL;
+
+    GVariant *var = g_dbus_proxy_call_finish (G_DBUS_PROXY (source), res, &error);
+    if (var) g_variant_unref (var);
+
+    if (error) DEBUG ("Connect error %s", error->message);
+    else DEBUG ("Connected OK");
+
+    // delete the connection information
+    g_free (vol->bt_conname);
+    vol->bt_conname = NULL;
+
+    // connect to second device if there is one...
+    if (vol->bt_reconname)
+    {
+        vol->bt_conname = vol->bt_reconname;
+        vol->bt_reconname = NULL;
+        DEBUG ("Connecting to second device %s...", vol->bt_conname);
+        bt_reconnect_devices (vol);
+    }
+    else
+    {
+        // reinit alsa to configure mixer
+        asound_initialize (vol);
+
+        // update the display whether we succeeded or not, as a failure will have caused a fallback to ALSA
+        volumealsa_default_changed (vol);
+    }
 }
 
 static void bt_cb_trusted (GObject *source, GAsyncResult *res, gpointer user_data)
