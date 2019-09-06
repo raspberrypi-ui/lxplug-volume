@@ -117,6 +117,11 @@ typedef struct {
 
 #define BLUEALSA_DEV (-99)
 
+#define BT_SERV_AUDIO_SOURCE    "0000110A"
+#define BT_SERV_AUDIO_SINK      "0000110B"
+#define BT_SERV_HSP             "00001108"
+#define BT_SERV_HFP             "0000111E"
+
 /* Helpers */
 static char *get_string (const char *fmt, ...);
 static int get_value (const char *fmt, ...);
@@ -137,8 +142,7 @@ static void bt_cb_reconnected (GObject *source, GAsyncResult *res, gpointer user
 static void bt_cb_trusted (GObject *source, GAsyncResult *res, gpointer user_data);
 static void bt_disconnect_device (VolumeALSAPlugin *vol, gboolean is_input);
 static void bt_cb_disconnected (GObject *source, GAsyncResult *res, gpointer user_data);
-static gboolean bt_is_audio_sink (VolumeALSAPlugin *vol, const gchar *path);
-static gboolean bt_is_audio_source (VolumeALSAPlugin *vol, const gchar *path);
+static gboolean bt_has_service (VolumeALSAPlugin *vol, const gchar *path, const gchar *service);
 
 /* Volume and mute */
 static long lrint_dir (double x, int dir);
@@ -171,8 +175,7 @@ static char *asound_get_bt_device (void);
 static char *asound_get_bt_input (void);
 static void asound_set_bt_device (char *devname);
 static void asound_set_bt_input (char *devname);
-static gboolean asound_is_current_bt_dev (const char *obj);
-static gboolean asound_is_current_bt_input (const char *obj);
+static gboolean asound_is_current_bt_dev (const char *obj, gboolean is_input);
 static int asound_get_bcm_device_num (void);
 static gboolean asound_is_bcm_device (int num);
 static char *asound_default_device_name (void);
@@ -211,7 +214,6 @@ static void volumealsa_panel_configuration_changed (LXPanel *panel, GtkWidget *p
 static gboolean volumealsa_control_msg (GtkWidget *plugin, const char *cmd);
 static GtkWidget *volumealsa_constructor (LXPanel *panel, config_setting_t *settings);
 static void volumealsa_destructor (gpointer user_data);
-
 
 /*----------------------------------------------------------------------------*/
 /* Generic helper functions                                                   */
@@ -346,7 +348,7 @@ static void bt_cb_object_added (GDBusObjectManager *manager, GDBusObject *object
 {
     VolumeALSAPlugin *vol = (VolumeALSAPlugin *) user_data;
     const char *obj = g_dbus_object_get_object_path (object);
-    if (asound_is_current_bt_dev (obj) || asound_is_current_bt_input (obj))
+    if (asound_is_current_bt_dev (obj, FALSE) || asound_is_current_bt_dev (obj, TRUE))
     {
         DEBUG ("Selected Bluetooth audio device has connected");
         asound_initialize (vol);
@@ -358,7 +360,7 @@ static void bt_cb_object_removed (GDBusObjectManager *manager, GDBusObject *obje
 {
     VolumeALSAPlugin *vol = (VolumeALSAPlugin *) user_data;
     const char *obj = g_dbus_object_get_object_path (object);
-    if (asound_is_current_bt_dev (obj) || asound_is_current_bt_input (obj))
+    if (asound_is_current_bt_dev (obj, FALSE) || asound_is_current_bt_dev (obj, TRUE))
     {
         DEBUG ("Selected Bluetooth audio device has disconnected");
         asound_initialize (vol);
@@ -630,7 +632,7 @@ static void bt_cb_disconnected (GObject *source, GAsyncResult *res, gpointer use
     }
 }
 
-static gboolean bt_is_audio_sink (VolumeALSAPlugin *vol, const gchar *path)
+static gboolean bt_has_service (VolumeALSAPlugin *vol, const gchar *path, const gchar *service)
 {
     GDBusInterface *interface = g_dbus_object_manager_get_interface (vol->objmanager, path, "org.bluez.Device1");
     GVariant *elem, *var = g_dbus_proxy_get_cached_property (G_DBUS_PROXY (interface), "UUIDs");
@@ -639,24 +641,7 @@ static gboolean bt_is_audio_sink (VolumeALSAPlugin *vol, const gchar *path)
     while ((elem = g_variant_iter_next_value (&iter)))
     {
         const char *uuid = g_variant_get_string (elem, NULL);
-        if (!strncasecmp (uuid, "0000110B", 8)) return TRUE;
-        g_variant_unref (elem);
-    }
-    g_variant_unref (var);
-    g_object_unref (interface);
-    return FALSE;
-}
-
-static gboolean bt_is_audio_source (VolumeALSAPlugin *vol, const gchar *path)
-{
-    GDBusInterface *interface = g_dbus_object_manager_get_interface (vol->objmanager, path, "org.bluez.Device1");
-    GVariant *elem, *var = g_dbus_proxy_get_cached_property (G_DBUS_PROXY (interface), "UUIDs");
-    GVariantIter iter;
-    g_variant_iter_init (&iter, var);
-    while ((elem = g_variant_iter_next_value (&iter)))
-    {
-        const char *uuid = g_variant_get_string (elem, NULL);
-        if (!strncasecmp (uuid, "00001108", 8)) return TRUE;  // 1108 = HSP; 110A = audio source; 111E = HFP?
+        if (!strncasecmp (uuid, service, 8)) return TRUE;
         g_variant_unref (elem);
     }
     g_variant_unref (var);
@@ -1327,22 +1312,10 @@ static void asound_set_bt_input (char *devname)
     DONE: g_free (user_config_file);
 }
 
-static gboolean asound_is_current_bt_dev (const char *obj)
+static gboolean asound_is_current_bt_dev (const char *obj, gboolean is_input)
 {
     gboolean res = FALSE;
-    char *device = asound_get_bt_device ();
-    if (device)
-    {
-        if (strstr (obj, device)) res = TRUE;
-        g_free (device);
-    }
-    return res;
-}
-
-static gboolean asound_is_current_bt_input (const char *obj)
-{
-    gboolean res = FALSE;
-    char *device = asound_get_bt_input ();
+    char *device = is_input ? asound_get_bt_input () : asound_get_bt_device ();
     if (device)
     {
         if (strstr (obj, device)) res = TRUE;
@@ -1675,7 +1648,7 @@ static void volumealsa_build_device_menu (VolumeALSAPlugin *vol)
                 GDBusInterface *interface = G_DBUS_INTERFACE (interfaces->data);
                 if (g_strcmp0 (g_dbus_proxy_get_interface_name (G_DBUS_PROXY (interface)), "org.bluez.Device1") == 0)
                 {
-                    if (bt_is_audio_sink (vol, g_dbus_proxy_get_object_path (G_DBUS_PROXY (interface))))
+                    if (bt_has_service (vol, g_dbus_proxy_get_object_path (G_DBUS_PROXY (interface)), BT_SERV_AUDIO_SINK))
                     {
                         GVariant *name = g_dbus_proxy_get_cached_property (G_DBUS_PROXY (interface), "Alias");
                         GVariant *icon = g_dbus_proxy_get_cached_property (G_DBUS_PROXY (interface), "Icon");
@@ -1689,7 +1662,7 @@ static void volumealsa_build_device_menu (VolumeALSAPlugin *vol)
                                 gtk_menu_shell_append (GTK_MENU_SHELL (vol->menu_popup), mi);
                             }
 
-                            volumealsa_menu_item_add (vol, g_variant_get_string (name, NULL), objpath, asound_is_current_bt_dev (objpath), G_CALLBACK (volumealsa_set_bluetooth_output));
+                            volumealsa_menu_item_add (vol, g_variant_get_string (name, NULL), objpath, asound_is_current_bt_dev (objpath, FALSE), G_CALLBACK (volumealsa_set_bluetooth_output));
                             bt_dev = TRUE;
                             devices++;
                         }
@@ -1761,7 +1734,7 @@ static void volumealsa_build_device_menu (VolumeALSAPlugin *vol)
                 GDBusInterface *interface = G_DBUS_INTERFACE (interfaces->data);
                 if (g_strcmp0 (g_dbus_proxy_get_interface_name (G_DBUS_PROXY (interface)), "org.bluez.Device1") == 0)
                 {
-                    if (bt_is_audio_source (vol, g_dbus_proxy_get_object_path (G_DBUS_PROXY (interface))))
+                    if (bt_has_service (vol, g_dbus_proxy_get_object_path (G_DBUS_PROXY (interface)), BT_SERV_HSP))
                     {
                         GVariant *name = g_dbus_proxy_get_cached_property (G_DBUS_PROXY (interface), "Alias");
                         GVariant *icon = g_dbus_proxy_get_cached_property (G_DBUS_PROXY (interface), "Icon");
@@ -1776,7 +1749,7 @@ static void volumealsa_build_device_menu (VolumeALSAPlugin *vol)
                                 smi = gtk_menu_item_new_with_label (_("Audio Inputs"));
                                 gtk_menu_item_set_submenu (GTK_MENU_ITEM (smi), sm);
                             }
-                            volumealsa_input_menu_item_add (vol, sm, g_variant_get_string (name, NULL), objpath, asound_is_current_bt_input (objpath), G_CALLBACK (volumealsa_set_bluetooth_input));
+                            volumealsa_input_menu_item_add (vol, sm, g_variant_get_string (name, NULL), objpath, asound_is_current_bt_dev (objpath, TRUE), G_CALLBACK (volumealsa_set_bluetooth_input));
                             inputs++;
                         }
                         g_variant_unref (name);
