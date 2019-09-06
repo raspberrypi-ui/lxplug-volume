@@ -1024,7 +1024,7 @@ static gboolean asound_mixer_event (GIOChannel *channel, GIOCondition cond, gpoi
     }
 
     /* the status of mixer is changed. update of display is needed. */
-    if (cond & G_IO_IN) volumealsa_update_display (vol);
+    if (cond & G_IO_IN && res < 2) volumealsa_update_display (vol);
 
     if ((cond & G_IO_HUP) || (res < 0))
     {
