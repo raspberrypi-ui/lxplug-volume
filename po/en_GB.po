@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: lxplug_volumealsabt 0.1\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2019-09-03 14:49+0100\n"
+"POT-Creation-Date: 2019-09-06 10:02+0100\n"
 "PO-Revision-Date: 2018-04-12 08:15+0100\n"
 "Last-Translator: Simon Long <simon@raspberrypi.org>\n"
 "Language-Team: English (British)\n"
@@ -17,66 +17,72 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=(n != 1);\n"
 
-#: ../plugins/volumealsabt/volumealsabt.c:418
+#: ../plugins/volumealsabt/volumealsabt.c:438
+#: ../plugins/volumealsabt/volumealsabt.c:509
 msgid "Could not get BlueZ interface"
 msgstr "Could not get BlueZ interface"
 
-#: ../plugins/volumealsabt/volumealsabt.c:1261
-#: ../plugins/volumealsabt/volumealsabt.c:1998
+#: ../plugins/volumealsabt/volumealsabt.c:1405
+#: ../plugins/volumealsabt/volumealsabt.c:2196
 msgid "Volume control"
 msgstr "Volume control"
 
-#: ../plugins/volumealsabt/volumealsabt.c:1263
-#: ../plugins/volumealsabt/volumealsabt.c:1357
-#: ../plugins/volumealsabt/volumealsabt.c:1562
+#: ../plugins/volumealsabt/volumealsabt.c:1407
+#: ../plugins/volumealsabt/volumealsabt.c:1501
+#: ../plugins/volumealsabt/volumealsabt.c:1775
 #, c-format
 msgid "No volume control on this device"
 msgstr "No volume control on this device"
 
-#: ../plugins/volumealsabt/volumealsabt.c:1285
+#: ../plugins/volumealsabt/volumealsabt.c:1429
 msgid "Connecting Audio Device"
 msgstr "Connecting Audio Device"
 
-#: ../plugins/volumealsabt/volumealsabt.c:1290
+#: ../plugins/volumealsabt/volumealsabt.c:1434
 #, c-format
 msgid "Connecting to Bluetooth audio device '%s'..."
 msgstr "Connecting to Bluetooth audio device '%s'..."
 
-#: ../plugins/volumealsabt/volumealsabt.c:1301
+#: ../plugins/volumealsabt/volumealsabt.c:1445
 #, c-format
 msgid "Failed to connect to device - %s. Try to connect again."
 msgstr "Failed to connect to device - %s. Try to connect again."
 
-#: ../plugins/volumealsabt/volumealsabt.c:1303
+#: ../plugins/volumealsabt/volumealsabt.c:1447
 msgid "_OK"
 msgstr "_OK"
 
-#: ../plugins/volumealsabt/volumealsabt.c:1470
+#: ../plugins/volumealsabt/volumealsabt.c:1683
 msgid "Analog"
 msgstr "Analog"
 
-#: ../plugins/volumealsabt/volumealsabt.c:1474
+#: ../plugins/volumealsabt/volumealsabt.c:1687
 msgid "HDMI"
 msgstr "HDMI"
 
-#: ../plugins/volumealsabt/volumealsabt.c:1595
+#. insert submenus
+#: ../plugins/volumealsabt/volumealsabt.c:1789
+msgid "Audio Outputs"
+msgstr "Audio Outputs"
+
+#: ../plugins/volumealsabt/volumealsabt.c:1796
 msgid "Audio Inputs"
 msgstr "Audio Inputs"
 
-#: ../plugins/volumealsabt/volumealsabt.c:1616
-msgid "USB Device Settings..."
-msgstr "USB Device Settings..."
+#: ../plugins/volumealsabt/volumealsabt.c:1806
+msgid "Audio Device Settings..."
+msgstr "Audio Device Settings..."
 
-#: ../plugins/volumealsabt/volumealsabt.c:1623
+#: ../plugins/volumealsabt/volumealsabt.c:1813
 msgid "No audio devices found"
 msgstr "No audio devices found"
 
 #. Create a check button as the child of the vertical box.
-#: ../plugins/volumealsabt/volumealsabt.c:1766
+#: ../plugins/volumealsabt/volumealsabt.c:1973
 msgid "Mute"
 msgstr "Mute"
 
-#: ../plugins/volumealsabt/volumealsabt.c:1873
+#: ../plugins/volumealsabt/volumealsabt.c:2080
 msgid ""
 "Error, you need to install an application to configure the sound "
 "(pavucontrol, alsamixer ...)"
@@ -84,10 +90,10 @@ msgstr ""
 "Error, you need to install an application to configure the sound "
 "(pavucontrol, alsamixer ...)"
 
-#: ../plugins/volumealsabt/volumealsabt.c:2053
+#: ../plugins/volumealsabt/volumealsabt.c:2251
 msgid "Volume Control (ALSA/BT)"
 msgstr "Volume Control (ALSA/BT)"
 
-#: ../plugins/volumealsabt/volumealsabt.c:2054
+#: ../plugins/volumealsabt/volumealsabt.c:2252
 msgid "Display and control volume for ALSA and Bluetooth devices"
 msgstr "Display and control volume for ALSA and Bluetooth devices"
