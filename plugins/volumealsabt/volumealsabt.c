@@ -771,7 +771,6 @@ static int asound_get_volume (VolumeALSAPlugin *vol)
 {
     if (vol->master_element == NULL || snd_mixer_elem_get_type (vol->master_element) != SND_MIXER_ELEM_SIMPLE) return 0;
     if (!snd_mixer_selem_has_playback_channel (vol->master_element, SND_MIXER_SCHN_FRONT_LEFT)) return 0;
-    if (!snd_mixer_selem_has_playback_channel (vol->master_element, SND_MIXER_SCHN_FRONT_RIGHT)) return 0;
     if (!snd_mixer_selem_has_playback_volume (vol->master_element)) return 0;
 
     double aleft = get_normalized_volume (vol->master_element, SND_MIXER_SCHN_FRONT_LEFT);
@@ -785,7 +784,6 @@ static void asound_set_volume (VolumeALSAPlugin *vol, int volume)
 {
     if (vol->master_element == NULL || snd_mixer_elem_get_type (vol->master_element) != SND_MIXER_ELEM_SIMPLE) return;
     if (!snd_mixer_selem_has_playback_channel (vol->master_element, SND_MIXER_SCHN_FRONT_LEFT)) return;
-    if (!snd_mixer_selem_has_playback_channel (vol->master_element, SND_MIXER_SCHN_FRONT_RIGHT)) return;
     if (!snd_mixer_selem_has_playback_volume (vol->master_element)) return;
 
     int dir = volume - asound_get_volume (vol);
@@ -810,16 +808,23 @@ static gboolean asound_initialize (VolumeALSAPlugin *vol)
     /* make sure existing watches are removed by calling deinitialize */
     asound_deinitialize (vol);
 
+    DEBUG ("Initializing...");
     /* access the default device */
     snd_mixer_open (&vol->mixer, 0);
     device = asound_default_device_name ();
+    DEBUG ("Attaching to device %s...", device);
     if (snd_mixer_attach (vol->mixer, device))
     {
         g_warning ("volumealsa: Couldn't attach mixer - looking for another valid device");
         g_free (device);
         asound_find_valid_device ();
         device = asound_default_device_name ();
-        if (snd_mixer_attach (vol->mixer, device)) return FALSE;
+        DEBUG ("Attaching to device %s...", device);
+        if (snd_mixer_attach (vol->mixer, device))
+        {
+            g_warning ("volumealsa: Couldn't attach mixer to fallback - initialization failed");
+            return FALSE;
+        }
     }
     snd_mixer_selem_register (vol->mixer, NULL, NULL);
     snd_mixer_load (vol->mixer);
@@ -833,7 +838,11 @@ static gboolean asound_initialize (VolumeALSAPlugin *vol)
             && snd_mixer_selem_has_playback_volume (vol->master_element))
                 break;
     }
-    if (vol->master_element == NULL) return FALSE;
+    if (vol->master_element == NULL)
+    {
+        g_warning ("volumealsa: Couldn't find playback volume element - initialization failed");
+        return FALSE;
+    }
 
     /* listen to ALSA events */
     vol->num_channels = snd_mixer_poll_descriptors_count (vol->mixer);
@@ -860,6 +869,7 @@ static void asound_deinitialize (VolumeALSAPlugin *vol)
 {
     guint i;
 
+    DEBUG ("Deinitializing...");
     if (vol->mixer_evt_idle != 0)
     {
         g_source_remove (vol->mixer_evt_idle);
@@ -1370,6 +1380,13 @@ static void volumealsa_update_display (VolumeALSAPlugin *vol)
     // need to rebind here for tooltip update
     textdomain (GETTEXT_PACKAGE);
 #endif
+
+    /* check that the mixer is still valid; if not, clear everything */
+    if (vol->master_element == NULL || snd_mixer_elem_get_type (vol->master_element) != SND_MIXER_ELEM_SIMPLE)
+    {
+        DEBUG ("Deinitializing due to bad mixer");
+        asound_deinitialize (vol);
+    }
 
     /* read current mute and volume status */
     gboolean mute = asound_is_muted (vol);
