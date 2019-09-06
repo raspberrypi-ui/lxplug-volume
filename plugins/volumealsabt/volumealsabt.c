@@ -738,41 +738,41 @@ static int set_normalized_volume (snd_mixer_elem_t *elem, snd_mixer_selem_channe
 /* Get the presence of the mute control from the sound system. */
 static gboolean asound_has_mute (VolumeALSAPlugin *vol)
 {
-    return ((vol->master_element != NULL) ? snd_mixer_selem_has_playback_switch (vol->master_element) : FALSE);
+    if (vol->master_element == NULL || snd_mixer_elem_get_type (vol->master_element) != SND_MIXER_ELEM_SIMPLE) return FALSE;
+
+    return snd_mixer_selem_has_playback_switch (vol->master_element);
 }
 
 /* Get the condition of the mute control from the sound system. */
 static gboolean asound_is_muted (VolumeALSAPlugin *vol)
 {
+    if (vol->master_element == NULL || snd_mixer_elem_get_type (vol->master_element) != SND_MIXER_ELEM_SIMPLE) return FALSE;
+
     /* The switch is on if sound is not muted, and off if the sound is muted.
      * Initialize so that the sound appears unmuted if the control does not exist. */
     int value = 1;
-    if (vol->master_element != NULL)
-        snd_mixer_selem_get_playback_switch (vol->master_element, 0, &value);
+    snd_mixer_selem_get_playback_switch (vol->master_element, 0, &value);
     return (value == 0);
 }
 
 static void asound_set_mute (VolumeALSAPlugin *vol, gboolean mute)
 {
-    if (vol->master_element != NULL)
-    {
-        int chn;
-        for (chn = 0; chn <= SND_MIXER_SCHN_LAST; chn++)
+    if (vol->master_element == NULL || snd_mixer_elem_get_type (vol->master_element) != SND_MIXER_ELEM_SIMPLE) return;
+
+    int chn;
+    for (chn = 0; chn <= SND_MIXER_SCHN_LAST; chn++)
             snd_mixer_selem_set_playback_switch (vol->master_element, chn, mute ? 0 : 1);
-    }
 }
 
 /* Get the volume from the sound system.
  * This implementation returns the average of the Front Left and Front Right channels. */
 static int asound_get_volume (VolumeALSAPlugin *vol)
 {
-    double aleft = 0;
-    double aright = 0;
-    if (vol->master_element != NULL)
-    {
-        aleft = get_normalized_volume (vol->master_element, SND_MIXER_SCHN_FRONT_LEFT);
-        aright = get_normalized_volume (vol->master_element, SND_MIXER_SCHN_FRONT_RIGHT);
-    }
+    if (vol->master_element == NULL || snd_mixer_elem_get_type (vol->master_element) != SND_MIXER_ELEM_SIMPLE) return 0;
+
+    double aleft = 0, aright = 0;
+    aleft = get_normalized_volume (vol->master_element, SND_MIXER_SCHN_FRONT_LEFT);
+    aright = get_normalized_volume (vol->master_element, SND_MIXER_SCHN_FRONT_RIGHT);
     return (int) round ((aleft + aright) * 50);
 }
 
@@ -780,14 +780,12 @@ static int asound_get_volume (VolumeALSAPlugin *vol)
  * This implementation sets the Front Left and Front Right channels to the specified value. */
 static void asound_set_volume (VolumeALSAPlugin *vol, int volume)
 {
+    if (vol->master_element == NULL || snd_mixer_elem_get_type (vol->master_element) != SND_MIXER_ELEM_SIMPLE) return;
+
     int dir = volume - asound_get_volume (vol);
     double vol_perc = (double) volume / 100;
-
-    if (vol->master_element != NULL)
-    {
-        set_normalized_volume (vol->master_element, SND_MIXER_SCHN_FRONT_LEFT, vol_perc, dir);
-        set_normalized_volume (vol->master_element, SND_MIXER_SCHN_FRONT_RIGHT, vol_perc, dir);
-    }
+    set_normalized_volume (vol->master_element, SND_MIXER_SCHN_FRONT_LEFT, vol_perc, dir);
+    set_normalized_volume (vol->master_element, SND_MIXER_SCHN_FRONT_RIGHT, vol_perc, dir);
 }
 
 
@@ -1387,7 +1385,7 @@ static void volumealsa_update_display (VolumeALSAPlugin *vol)
     {
         g_signal_handler_block (vol->mute_check, vol->mute_check_handler);
         gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (vol->mute_check), mute);
-        gtk_widget_set_sensitive (vol->mute_check, asound_has_mute (vol) && vol->master_element != NULL ? TRUE : FALSE);
+        gtk_widget_set_sensitive (vol->mute_check, asound_has_mute (vol) ? TRUE : FALSE);
         g_signal_handler_unblock (vol->mute_check, vol->mute_check_handler);
     }
 
@@ -1396,12 +1394,12 @@ static void volumealsa_update_display (VolumeALSAPlugin *vol)
         g_signal_handler_block (vol->volume_scale, vol->volume_scale_handler);
         gtk_range_set_value (GTK_RANGE (vol->volume_scale), level);
         g_signal_handler_unblock (vol->volume_scale, vol->volume_scale_handler);
-        gtk_widget_set_sensitive (vol->volume_scale, vol->master_element != NULL ? TRUE : FALSE);
+        gtk_widget_set_sensitive (vol->volume_scale, (vol->master_element && snd_mixer_elem_get_type (vol->master_element) == SND_MIXER_ELEM_SIMPLE));
     }
 
     /* update tooltip */
     char *tooltip;
-    if (vol->master_element)
+    if (vol->master_element && snd_mixer_elem_get_type (vol->master_element) == SND_MIXER_ELEM_SIMPLE)
         tooltip = g_strdup_printf ("%s %d", _("Volume control"), level);
     else
         tooltip = g_strdup_printf (_("No volume control on this device"));
