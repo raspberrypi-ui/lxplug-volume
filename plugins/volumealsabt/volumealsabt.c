@@ -692,7 +692,7 @@ static double get_normalized_volume (snd_mixer_elem_t *elem, snd_mixer_selem_cha
     err = snd_mixer_selem_get_playback_dB (elem, channel, &value);
     if (err < 0) return 0;
 
-    if (use_linear_dB_scale (min, max)) return (value - min) / (double)(max - min);
+    if (use_linear_dB_scale (min, max)) return (value - min) / (double) (max - min);
 
     normalized = exp10 ((value - max) / 6000.0);
     if (min != SND_CTL_TLV_DB_GAIN_MUTE)
@@ -713,14 +713,14 @@ static int set_normalized_volume (snd_mixer_elem_t *elem, snd_mixer_selem_channe
     err = snd_mixer_selem_get_playback_dB_range (elem, &min, &max);
     if (err < 0 || min >= max)
     {
-        err = snd_mixer_selem_get_playback_volume_range(elem, &min, &max);
+        err = snd_mixer_selem_get_playback_volume_range (elem, &min, &max);
         if (err < 0) return err;
 
         value = lrint_dir (volume * (max - min), dir) + min;
         return snd_mixer_selem_set_playback_volume (elem, channel, value);
     }
 
-    if (use_linear_dB_scale(min, max))
+    if (use_linear_dB_scale (min, max))
     {
         value = lrint_dir (volume * (max - min), dir) + min;
         return snd_mixer_selem_set_playback_dB (elem, channel, value, dir);
@@ -747,21 +747,22 @@ static gboolean asound_has_mute (VolumeALSAPlugin *vol)
 static gboolean asound_is_muted (VolumeALSAPlugin *vol)
 {
     if (vol->master_element == NULL || snd_mixer_elem_get_type (vol->master_element) != SND_MIXER_ELEM_SIMPLE) return FALSE;
+    if (!snd_mixer_selem_has_playback_channel (vol->master_element, SND_MIXER_SCHN_FRONT_LEFT)) return FALSE;
+    if (!snd_mixer_selem_has_playback_switch (vol->master_element)) return FALSE;
 
     /* The switch is on if sound is not muted, and off if the sound is muted.
      * Initialize so that the sound appears unmuted if the control does not exist. */
     int value = 1;
-    snd_mixer_selem_get_playback_switch (vol->master_element, 0, &value);
+    snd_mixer_selem_get_playback_switch (vol->master_element, SND_MIXER_SCHN_FRONT_LEFT, &value);
     return (value == 0);
 }
 
 static void asound_set_mute (VolumeALSAPlugin *vol, gboolean mute)
 {
     if (vol->master_element == NULL || snd_mixer_elem_get_type (vol->master_element) != SND_MIXER_ELEM_SIMPLE) return;
+    if (!snd_mixer_selem_has_playback_switch (vol->master_element)) return;
 
-    int chn;
-    for (chn = 0; chn <= SND_MIXER_SCHN_LAST; chn++)
-            snd_mixer_selem_set_playback_switch (vol->master_element, chn, mute ? 0 : 1);
+    snd_mixer_selem_set_playback_switch_all (vol->master_element, mute ? 0 : 1);
 }
 
 /* Get the volume from the sound system.
@@ -769,10 +770,12 @@ static void asound_set_mute (VolumeALSAPlugin *vol, gboolean mute)
 static int asound_get_volume (VolumeALSAPlugin *vol)
 {
     if (vol->master_element == NULL || snd_mixer_elem_get_type (vol->master_element) != SND_MIXER_ELEM_SIMPLE) return 0;
+    if (!snd_mixer_selem_has_playback_channel (vol->master_element, SND_MIXER_SCHN_FRONT_LEFT)) return 0;
+    if (!snd_mixer_selem_has_playback_channel (vol->master_element, SND_MIXER_SCHN_FRONT_RIGHT)) return 0;
+    if (!snd_mixer_selem_has_playback_volume (vol->master_element)) return 0;
 
-    double aleft = 0, aright = 0;
-    aleft = get_normalized_volume (vol->master_element, SND_MIXER_SCHN_FRONT_LEFT);
-    aright = get_normalized_volume (vol->master_element, SND_MIXER_SCHN_FRONT_RIGHT);
+    double aleft = get_normalized_volume (vol->master_element, SND_MIXER_SCHN_FRONT_LEFT);
+    double aright = get_normalized_volume (vol->master_element, SND_MIXER_SCHN_FRONT_RIGHT);
     return (int) round ((aleft + aright) * 50);
 }
 
@@ -781,6 +784,9 @@ static int asound_get_volume (VolumeALSAPlugin *vol)
 static void asound_set_volume (VolumeALSAPlugin *vol, int volume)
 {
     if (vol->master_element == NULL || snd_mixer_elem_get_type (vol->master_element) != SND_MIXER_ELEM_SIMPLE) return;
+    if (!snd_mixer_selem_has_playback_channel (vol->master_element, SND_MIXER_SCHN_FRONT_LEFT)) return;
+    if (!snd_mixer_selem_has_playback_channel (vol->master_element, SND_MIXER_SCHN_FRONT_RIGHT)) return;
+    if (!snd_mixer_selem_has_playback_volume (vol->master_element)) return;
 
     int dir = volume - asound_get_volume (vol);
     double vol_perc = (double) volume / 100;
