@@ -1129,6 +1129,15 @@ static int asound_get_default_input (void)
     return val;
 }
 
+/* Standard text blocks used in .asoundrc for ALSA (_A) and Bluetooth (_B) devices */
+#define PREFIX      "pcm.!default {\n\ttype asym\n\tplayback.pcm {\n\t\ttype plug\n\t\tslave.pcm \"output\"\n\t}\n\tcapture.pcm {\n\t\ttype plug\n\t\tslave.pcm \"input\"\n\t}\n}"
+#define OUTPUT_A    "\npcm.output {\n\ttype hw\n\tcard %d\n}"
+#define INPUT_A     "\npcm.input {\n\ttype hw\n\tcard %d\n}"
+#define CTL_A       "\nctl.!default {\n\ttype hw\n\tcard %d\n}"
+#define OUTPUT_B    "\npcm.output {\n\ttype bluealsa\n\tdevice \"%02X:%02X:%02X:%02X:%02X:%02X\"\n\tprofile \"a2dp\"\n}"
+#define INPUT_B     "\npcm.input {\n\ttype bluealsa\n\tdevice \"%02X:%02X:%02X:%02X:%02X:%02X\"\n\tprofile \"sco\"\n}"
+#define CTL_B       "\nctl.!default {\n\ttype bluealsa\n}"
+
 static void asound_set_default_card (int num)
 {
     char *user_config_file = g_build_filename (g_get_home_dir (), "/.asoundrc", NULL);
@@ -1136,30 +1145,26 @@ static void asound_set_default_card (int num)
     /* does .asoundrc exist? if not, write default contents and exit */
     if (!g_file_test (user_config_file, G_FILE_TEST_IS_REGULAR))
     {
-        vsystem ("echo 'pcm.!default {\n\ttype asym\n\tplayback.pcm {\n\t\ttype plug\n\t\tslave.pcm \"output\"\n\t}\n\tcapture.pcm {\n\t\ttype plug\n\t\tslave.pcm \"input\"\n\t}\n}\n\npcm.output {\n\ttype hw\n\tcard %d\n}\n\nctl.!default {\n\ttype hw\n\tcard %d\n}' >> %s", num, num, user_config_file);
+        vsystem ("echo '" PREFIX "\n" OUTPUT_A "\n" CTL_A "' >> %s", num, num, user_config_file);
         goto DONE;
     }
 
     /* does .asoundrc use type asym? if not, replace file with default contents and exit */
     if (!find_in_section (user_config_file, "pcm.!default", "asym"))
     {
-        vsystem ("echo 'pcm.!default {\n\ttype asym\n\tplayback.pcm {\n\t\ttype plug\n\t\tslave.pcm \"output\"\n\t}\n\tcapture.pcm {\n\t\ttype plug\n\t\tslave.pcm \"input\"\n\t}\n}\n\npcm.output {\n\ttype hw\n\tcard %d\n}\n\nctl.!default {\n\ttype hw\n\tcard %d\n}' > %s", num, num, user_config_file);
+        vsystem ("echo '" PREFIX "\n" OUTPUT_A "\n" CTL_A "' > %s", num, num, user_config_file);
         goto DONE;
     }
 
-    /* is there a pcm.output section? if not, append one */
+    /* is there a pcm.output section? update it if so; if not, append one */
     if (!find_in_section (user_config_file, "pcm.output", "type"))
-        vsystem ("echo '\npcm.output {\n\ttype hw\n\tcard %d\n}' >> %s", num, user_config_file);
-
-    /* update the pcm.output block if already present */
+        vsystem ("echo '" OUTPUT_A "' >> %s", num, user_config_file);
     else
         vsystem ("sed -i '/pcm.output/,/}/c pcm.output {\\n\\ttype hw\\n\\tcard %d\\n}' %s", num, user_config_file);
 
-    /* is there a ctl.!default section? if not, append one */
+    /* is there a ctl.!default section? update it if so; if not, append one */
     if (!find_in_section (user_config_file, "ctl.!default", "type"))
-        vsystem ("echo '\nctl.!default {\n\ttype hw\n\tcard %d\n}' >> %s", num, user_config_file);
-
-    /* update the ctl block if already present */
+        vsystem ("echo '" CTL_A "' >> %s", num, user_config_file);
     else
         vsystem ("sed -i '/ctl.!default/,/}/c ctl.!default {\\n\\ttype hw\\n\\tcard %d\\n}' %s", num, user_config_file);
 
@@ -1173,22 +1178,20 @@ static void asound_set_default_input (int num)
     /* does .asoundrc exist? if not, write default contents and exit */
     if (!g_file_test (user_config_file, G_FILE_TEST_IS_REGULAR))
     {
-        vsystem ("echo 'pcm.!default {\n\ttype asym\n\tplayback.pcm {\n\t\ttype plug\n\t\tslave.pcm \"output\"\n\t}\n\tcapture.pcm {\n\t\ttype plug\n\t\tslave.pcm \"input\"\n\t}\n}\n\npcm.output {\n\ttype hw\n\tcard 0\n}\n\npcm.input {\n\ttype hw\n\tcard %d\n}\n\nctl.!default {\n\ttype hw\n\tcard 0\n}' >> %s", num, user_config_file);
+        vsystem ("echo '" PREFIX "\n" OUTPUT_A "\n" INPUT_A "\n" CTL_A "' >> %s", 0, num, user_config_file);
         goto DONE;
     }
 
     /* does .asoundrc use type asym? if not, replace file with default contents and exit */
     if (!find_in_section (user_config_file, "pcm.!default", "asym"))
     {
-        vsystem ("echo 'pcm.!default {\n\ttype asym\n\tplayback.pcm {\n\t\ttype plug\n\t\tslave.pcm \"output\"\n\t}\n\tcapture.pcm {\n\t\ttype plug\n\t\tslave.pcm \"input\"\n\t}\n}\n\npcm.output {\n\ttype hw\n\tcard 0\n}\n\npcm.input {\n\ttype hw\n\tcard %d\n}\n\nctl.!default {\n\ttype hw\n\tcard 0\n}' > %s", num, user_config_file);
+        vsystem ("echo '" PREFIX "\n" OUTPUT_A "\n" INPUT_A "\n" CTL_A"' > %s", 0, num, user_config_file);
         goto DONE;
     }
 
-    /* is there a pcm.input section? if not, append one */
+    /* is there a pcm.input section? update it if so; if not, append one */
     if (!find_in_section (user_config_file, "pcm.input", "type"))
-        vsystem ("echo '\npcm.input {\n\ttype hw\n\tcard %d\n}' >> %s", num, user_config_file);
-
-    /* update the pcm.input block if already present */
+        vsystem ("echo '" INPUT_A "' >> %s", num, user_config_file);
     else
         vsystem ("sed -i '/pcm.input/,/}/c pcm.input {\\n\\ttype hw\\n\\tcard %d\\n}' %s", num, user_config_file);
 
@@ -1245,30 +1248,26 @@ static void asound_set_bt_device (char *devname)
     /* does .asoundrc exist? if not, write default contents and exit */
     if (!g_file_test (user_config_file, G_FILE_TEST_IS_REGULAR))
     {
-        vsystem ("echo 'pcm.!default {\n\ttype asym\n\tplayback.pcm {\n\t\ttype plug\n\t\tslave.pcm \"output\"\n\t}\n\tcapture.pcm {\n\t\ttype plug\n\t\tslave.pcm \"input\"\n\t}\n}\n\npcm.output {\n\ttype bluealsa\n\tdevice \"%02X:%02X:%02X:%02X:%02X:%02X\"\n\tprofile \"a2dp\"\n}\n\nctl.!default {\n\ttype bluealsa\n}' >> %s", b1, b2, b3, b4, b5, b6, user_config_file);
+        vsystem ("echo '" PREFIX "\n" OUTPUT_B "\n" CTL_B "' >> %s", b1, b2, b3, b4, b5, b6, user_config_file);
         goto DONE;
     }
 
     /* does .asoundrc use type asym? if not, replace file with default contents and exit */
     if (!find_in_section (user_config_file, "pcm.!default", "asym"))
     {
-        vsystem ("echo 'pcm.!default {\n\ttype asym\n\tplayback.pcm {\n\t\ttype plug\n\t\tslave.pcm \"output\"\n\t}\n\tcapture.pcm {\n\t\ttype plug\n\t\tslave.pcm \"input\"\n\t}\n}\n\npcm.output {\n\ttype bluealsa\n\tdevice \"%02X:%02X:%02X:%02X:%02X:%02X\"\n\tprofile \"a2dp\"\n}\n\nctl.!default {\n\ttype bluealsa\n}' > %s", b1, b2, b3, b4, b5, b6, user_config_file);
+        vsystem ("echo '" PREFIX "\n" OUTPUT_B "\n" CTL_B "' > %s", b1, b2, b3, b4, b5, b6, user_config_file);
         goto DONE;
     }
 
-    /* is there a pcm.output section? if not, append one */
+    /* is there a pcm.output section? update it if so; if not, append one */
     if (!find_in_section (user_config_file, "pcm.output", "type"))
-        vsystem ("echo '\npcm.output {\n\ttype bluealsa\n\tdevice \"%02X:%02X:%02X:%02X:%02X:%02X\"\n\tprofile \"a2dp\"\n}' >> %s", b1, b2, b3, b4, b5, b6, user_config_file);
-
-    /* update the pcm.output block if already present */
+        vsystem ("echo '" OUTPUT_B "' >> %s", b1, b2, b3, b4, b5, b6, user_config_file);
     else
         vsystem ("sed -i '/pcm.output/,/}/c pcm.output {\\n\\ttype bluealsa\\n\\tdevice\"%02X:%02X:%02X:%02X:%02X:%02X\"\\n\\tprofile \"a2dp\"\\n}' %s", b1, b2, b3, b4, b5, b6, user_config_file);
 
-    /* is there a ctl.!default section? if not, append one */
+    /* is there a ctl.!default section? update it if so; if not, append one */
     if (!find_in_section (user_config_file, "ctl.!default", "type"))
-        vsystem ("echo '\nctl.!default {\n\ttype bluealsa\n}' >> %s", user_config_file);
-
-    /* update the ctl block if already present */
+        vsystem ("echo '" CTL_B "' >> %s", user_config_file);
     else
         vsystem ("sed -i '/ctl.!default/,/}/c ctl.!default {\\n\\ttype bluealsa\\n}' %s", user_config_file);
 
@@ -1290,22 +1289,20 @@ static void asound_set_bt_input (char *devname)
     /* does .asoundrc exist? if not, write default contents and exit */
     if (!g_file_test (user_config_file, G_FILE_TEST_IS_REGULAR))
     {
-        vsystem ("echo 'pcm.!default {\n\ttype asym\n\tplayback.pcm {\n\t\ttype plug\n\t\tslave.pcm \"output\"\n\t}\n\tcapture.pcm {\n\t\ttype plug\n\t\tslave.pcm \"input\"\n\t}\n}\n\npcm.output {\n\ttype hw\n\tcard 0\n}\n\npcm.input {\n\ttype bluealsa\n\tdevice \"%02X:%02X:%02X:%02X:%02X:%02X\"\n\tprofile \"sco\"\n}\n\nctl.!default {\n\ttype hw\n\tcard 0\n}' >> %s", b1, b2, b3, b4, b5, b6, user_config_file);
+        vsystem ("echo '" PREFIX "\n" OUTPUT_A "\n" INPUT_B "\n" CTL_A "' >> %s", 0, b1, b2, b3, b4, b5, b6, 0, user_config_file);
         goto DONE;
     }
 
     /* does .asoundrc use type asym? if not, replace file with default contents and exit */
     if (!find_in_section (user_config_file, "pcm.!default", "asym"))
     {
-        vsystem ("echo 'pcm.!default {\n\ttype asym\n\tplayback.pcm {\n\t\ttype plug\n\t\tslave.pcm \"output\"\n\t}\n\tcapture.pcm {\n\t\ttype plug\n\t\tslave.pcm \"input\"\n\t}\n}\n\npcm.output {\n\ttype hw\n\tcard 0\n}\n\npcm.input {\n\ttype bluealsa\n\tdevice \"%02X:%02X:%02X:%02X:%02X:%02X\"\n\tprofile \"sco\"\n}\n\nctl.!default {\n\ttype hw\n\tcard 0\n}' > %s", b1, b2, b3, b4, b5, b6, user_config_file);
+        vsystem ("echo '" PREFIX "\n" OUTPUT_A "\n" INPUT_B "\n" CTL_A "' > %s", 0, b1, b2, b3, b4, b5, b6, 0, user_config_file);
         goto DONE;
     }
 
-    /* is there a pcm.input section? if not, append one */
+    /* is there a pcm.input section? update it if so; if not, append one */
     if (!find_in_section (user_config_file, "pcm.input", "type"))
-        vsystem ("echo '\npcm.input {\n\ttype bluealsa\n\tdevice \"%02X:%02X:%02X:%02X:%02X:%02X\"\n\tprofile \"sco\"\n}' >> %s", b1, b2, b3, b4, b5, b6, user_config_file);
-
-    /* update the pcm.input block if already present */
+        vsystem ("echo '" INPUT_B "' >> %s", b1, b2, b3, b4, b5, b6, user_config_file);
     else
         vsystem ("sed -i '/pcm.input/,/}/c pcm.input {\\n\\ttype bluealsa\\n\\tdevice\"%02X:%02X:%02X:%02X:%02X:%02X\"\\n\\tprofile \"sco\"\\n}' %s", b1, b2, b3, b4, b5, b6, user_config_file);
 
