@@ -1034,7 +1034,11 @@ static gboolean asound_mixer_event (GIOChannel *channel, GIOCondition cond, gpoi
     if (vol->mixer_evt_idle == 0)
     {
         vol->mixer_evt_idle = g_idle_add_full (G_PRIORITY_DEFAULT, (GSourceFunc) asound_reset_mixer_evt_idle, vol, NULL);
-        if (vol->mixer) res = snd_mixer_handle_events (vol->mixer);
+        if (vol->mixer)
+        {
+            res = snd_mixer_handle_events (vol->mixer);
+            if (res < 0) g_warning ("volumealsa: failed to handle mixer event");
+        }
     }
 
     /* the status of mixer is changed. update of display is needed. */
@@ -1292,7 +1296,7 @@ static void asound_set_bt_device (char *devname)
     if (!find_in_section (user_config_file, "pcm.output", "type"))
         vsystem ("echo '" OUTPUT_B "' >> %s", b1, b2, b3, b4, b5, b6, user_config_file);
     else
-        vsystem ("sed -i '/pcm.output/,/}/c pcm.output {\\n\\ttype bluealsa\\n\\tdevice\"%02X:%02X:%02X:%02X:%02X:%02X\"\\n\\tprofile \"a2dp\"\\n}' %s", b1, b2, b3, b4, b5, b6, user_config_file);
+        vsystem ("sed -i '/pcm.output/,/}/c pcm.output {\\n\\ttype bluealsa\\n\\tdevice \"%02X:%02X:%02X:%02X:%02X:%02X\"\\n\\tprofile \"a2dp\"\\n}' %s", b1, b2, b3, b4, b5, b6, user_config_file);
 
     /* is there a ctl.!default section? update it if so; if not, append one */
     if (!find_in_section (user_config_file, "ctl.!default", "type"))
@@ -1333,7 +1337,7 @@ static void asound_set_bt_input (char *devname)
     if (!find_in_section (user_config_file, "pcm.input", "type"))
         vsystem ("echo '" INPUT_B "' >> %s", b1, b2, b3, b4, b5, b6, user_config_file);
     else
-        vsystem ("sed -i '/pcm.input/,/}/c pcm.input {\\n\\ttype bluealsa\\n\\tdevice\"%02X:%02X:%02X:%02X:%02X:%02X\"\\n\\tprofile \"sco\"\\n}' %s", b1, b2, b3, b4, b5, b6, user_config_file);
+        vsystem ("sed -i '/pcm.input/,/}/c pcm.input {\\n\\ttype bluealsa\\n\\tdevice \"%02X:%02X:%02X:%02X:%02X:%02X\"\\n\\tprofile \"sco\"\\n}' %s", b1, b2, b3, b4, b5, b6, user_config_file);
 
     DONE: g_free (user_config_file);
 }
