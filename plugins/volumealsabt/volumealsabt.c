@@ -155,9 +155,10 @@ static int asound_get_volume (VolumeALSAPlugin *vol);
 static void asound_set_volume (VolumeALSAPlugin *vol, int volume);
 
 /* ALSA */
+static gboolean asound_setup_mixer (VolumeALSAPlugin *vol, const char *dev);
 static gboolean asound_initialize (VolumeALSAPlugin *vol);
 static void asound_deinitialize (VolumeALSAPlugin *vol);
-static void asound_find_valid_device (void);
+static int asound_find_valid_device (void);
 static gboolean asound_current_dev_check (VolumeALSAPlugin *vol);
 static gboolean asound_has_volume_control (int dev);
 static gboolean asound_has_input (int dev);
@@ -196,7 +197,6 @@ static void volumealsa_set_external_input (GtkWidget *widget, VolumeALSAPlugin *
 static void volumealsa_set_internal_output (GtkWidget *widget, VolumeALSAPlugin *vol);
 static void volumealsa_set_bluetooth_output (GtkWidget *widget, VolumeALSAPlugin *vol);
 static void volumealsa_set_bluetooth_input (GtkWidget *widget, VolumeALSAPlugin *vol);
-static void volumealsa_default_changed (VolumeALSAPlugin *vol);
 
 /* Volume popup */
 static void volumealsa_build_popup_window (GtkWidget *p);
@@ -485,9 +485,7 @@ static void bt_cb_connected (GObject *source, GAsyncResult *res, gpointer user_d
     {
         // reinit alsa to configure mixer
         asound_initialize (vol);
-
-        // update the display whether we succeeded or not, as a failure will have caused a fallback to ALSA
-        volumealsa_default_changed (vol);
+        volumealsa_update_display (vol);
     }
 }
 
@@ -536,9 +534,7 @@ static void bt_cb_reconnected (GObject *source, GAsyncResult *res, gpointer user
     {
         // reinit alsa to configure mixer
         asound_initialize (vol);
-
-        // update the display whether we succeeded or not, as a failure will have caused a fallback to ALSA
-        volumealsa_default_changed (vol);
+        volumealsa_update_display (vol);
     }
 }
 
@@ -564,6 +560,7 @@ static void bt_disconnect_device (VolumeALSAPlugin *vol, gboolean is_input)
     {
         // shutting everything down when disconnecting Bluetooth devices prevents spurious amixer events...
         asound_deinitialize (vol);
+        volumealsa_update_display (vol);
 
         // if the same device is used for input, remember it and reconnect at end...
         char *odevice = is_input ? asound_get_bt_device () : asound_get_bt_input ();
@@ -849,11 +846,15 @@ static gboolean asound_initialize (VolumeALSAPlugin *vol)
     {
         g_warning ("volumealsa: Could not attach mixer - looking for other valid device");
         g_free (device);
-        asound_find_valid_device ();
+        if (asound_find_valid_device () == -1)
+        {
+            g_warning ("volumealsa: No valid ALSA devices found");
+            return TRUE;
+        }
         device = asound_default_device_name ();
         if (!asound_setup_mixer (vol, device))
         {
-            g_warning ("volumealsa: Could not attach mixer to fallback - no devices are valid");
+            g_warning ("volumealsa: Could not attach mixer to fallback device");
             g_free (device);
             return FALSE;
         }
@@ -913,7 +914,7 @@ static void asound_deinitialize (VolumeALSAPlugin *vol)
     vol->mixer = NULL;
 }
 
-static void asound_find_valid_device (void)
+static int asound_find_valid_device (void)
 {
     // call this if the current ALSA device is invalid - it tries to find an alternative
     g_warning ("volumealsa: Default ALSA device not valid - resetting to internal");
@@ -923,6 +924,7 @@ static void asound_find_valid_device (void)
     {
         g_warning ("volumealsa: Setting to internal device hw:%d", num);
         asound_set_default_card (num);
+        return num;
     }
     else
     {
@@ -938,11 +940,12 @@ static void asound_find_valid_device (void)
 
             g_warning ("volumealsa: Valid ALSA device hw:%d found", num);
             asound_set_default_card (num);
-            return;
+            return num;
         }
         g_warning ("volumealsa: No ALSA devices found");
         asound_set_default_card (-1);
     }
+    return -1;
 }
 
 static gboolean asound_current_dev_check (VolumeALSAPlugin *vol)
@@ -950,8 +953,7 @@ static gboolean asound_current_dev_check (VolumeALSAPlugin *vol)
     if (!vsystem ("amixer info 2>/dev/null | grep -q .")) return TRUE;
     else
     {
-        vol->mixer = NULL;
-        vol->master_element = NULL;
+        asound_deinitialize (vol);
         asound_set_default_card (-1);
         return FALSE;
     }
@@ -967,10 +969,7 @@ static gboolean asound_has_volume_control (int dev)
 
 static gboolean asound_has_input (int dev)
 {
-    if (dev == -1)
-        return vsystem ("amixer scontents 2>/dev/null | grep -q cvolume") ? FALSE : TRUE;
-    else
-        return vsystem ("amixer -c %d scontents 2>/dev/null | grep -q cvolume", dev) ? FALSE : TRUE;
+    return vsystem ("amixer -c %d scontents 2>/dev/null | grep -q cvolume", dev) ? FALSE : TRUE;
 }
 
 /* NOTE by PCMan:
@@ -1008,6 +1007,7 @@ static gboolean asound_restart (gpointer user_data)
     }
 
     g_warning ("volumealsa: Restarted ALSA interface...");
+    volumealsa_update_display (vol);
 
     vol->restart_idle = 0;
     return FALSE;
@@ -1037,7 +1037,7 @@ static gboolean asound_mixer_event (GIOChannel *channel, GIOCondition cond, gpoi
     }
 
     /* the status of mixer is changed. update of display is needed. */
-    if (cond & G_IO_IN && res < 2) volumealsa_update_display (vol);
+    if (cond & G_IO_IN && res > 0) volumealsa_update_display (vol);
 
     if ((cond & G_IO_HUP) || (res < 0))
     {
@@ -1197,6 +1197,7 @@ static void asound_set_default_card (int num)
         vsystem ("sed -i '/ctl.!default/,/}/c ctl.!default {\\n\\ttype hw\\n\\tcard %d\\n}' %s", num, user_config_file);
 
     DONE: g_free (user_config_file);
+    vsystem ("pimixer --refresh");
 }
 
 static void asound_set_default_input (int num)
@@ -1300,6 +1301,7 @@ static void asound_set_bt_device (char *devname)
         vsystem ("sed -i '/ctl.!default/,/}/c ctl.!default {\\n\\ttype bluealsa\\n}' %s", user_config_file);
 
     DONE: g_free (user_config_file);
+    vsystem ("pimixer --refresh");
 }
 
 static void asound_set_bt_input (char *devname)
@@ -1396,16 +1398,13 @@ static void volumealsa_update_display (VolumeALSAPlugin *vol)
     textdomain (GETTEXT_PACKAGE);
 #endif
 
-    /* check that the mixer is still valid; if not, clear everything */
-    if (vol->master_element == NULL)
-    {
-        DEBUG ("Bad master element");
-        return;
-    }
+    /* if popup menu is on display, hide it */
+    if (vol->menu_popup) gtk_menu_popdown (GTK_MENU (vol->menu_popup));
 
-    if (snd_mixer_elem_get_type (vol->master_element) != SND_MIXER_ELEM_SIMPLE)
+    /* check that the mixer is still valid */
+    if (vol->master_element == NULL || snd_mixer_elem_get_type (vol->master_element) != SND_MIXER_ELEM_SIMPLE)
     {
-        DEBUG ("Wrong mixer type %d", snd_mixer_elem_get_type (vol->master_element));
+        DEBUG ("Master element not valid");
         return;
     }
 
@@ -1880,9 +1879,9 @@ static void volumealsa_set_external_output (GtkWidget *widget, VolumeALSAPlugin 
         bt_disconnect_device (vol, FALSE);
 
         asound_set_default_card (dev);
-        asound_initialize (vol);
 
-        volumealsa_default_changed (vol);
+        asound_initialize (vol);
+        volumealsa_update_display (vol);
     }
 }
 
@@ -1896,9 +1895,9 @@ static void volumealsa_set_external_input (GtkWidget *widget, VolumeALSAPlugin *
         bt_disconnect_device (vol, TRUE);
 
         asound_set_default_input (dev);
-        asound_initialize (vol);
 
-        volumealsa_default_changed (vol);
+        asound_initialize (vol);
+        volumealsa_update_display (vol);
     }
 }
 
@@ -1919,7 +1918,7 @@ static void volumealsa_set_internal_output (GtkWidget *widget, VolumeALSAPlugin 
     /* set the output channel on the BCM device */
     vsystem ("amixer -q cset numid=3 %s 2>/dev/null", widget->name);
 
-    volumealsa_default_changed (vol);
+    volumealsa_update_display (vol);
 }
 
 static void volumealsa_set_bluetooth_output (GtkWidget *widget, VolumeALSAPlugin *vol)
@@ -1946,13 +1945,6 @@ static void volumealsa_set_bluetooth_input (GtkWidget *widget, VolumeALSAPlugin 
     vol->bt_input = TRUE;
 
     bt_disconnect_device (vol, TRUE);
-}
-
-static void volumealsa_default_changed (VolumeALSAPlugin *vol)
-{
-    volumealsa_update_display (vol);
-    if (vol->menu_popup) gtk_menu_popdown (GTK_MENU (vol->menu_popup));
-    vsystem ("pimixer --refresh");
 }
 
 
@@ -2148,7 +2140,6 @@ static gboolean volumealsa_control_msg (GtkWidget *plugin, const char *cmd)
         asound_initialize (vol);
         volumealsa_update_display (vol);
         g_warning ("volumealsa: Restarted ALSA interface...");
-        if (vol->menu_popup) gtk_menu_popdown (GTK_MENU (vol->menu_popup));
         vol->stopped = FALSE;
         return TRUE;
     }
@@ -2158,7 +2149,6 @@ static gboolean volumealsa_control_msg (GtkWidget *plugin, const char *cmd)
         asound_deinitialize (vol);
         volumealsa_update_display (vol);
         g_warning ("volumealsa: Stopped ALSA interface...");
-        if (vol->menu_popup) gtk_menu_popdown (GTK_MENU (vol->menu_popup));
         vol->stopped = TRUE;
         return TRUE;
     }
@@ -2275,6 +2265,7 @@ static void volumealsa_destructor (gpointer user_data)
 
     /* If the dialog box is open, dismiss it. */
     if (vol->popup_window != NULL) gtk_widget_destroy (vol->popup_window);
+    if (vol->menu_popup != NULL) gtk_widget_destroy (vol->menu_popup);
 
     if (vol->restart_idle) g_source_remove (vol->restart_idle);
 
