@@ -817,7 +817,6 @@ static gboolean asound_setup_mixer (VolumeALSAPlugin *vol, const char *dev)
                             DEBUG ("Device attached successfully");
                             vol->master_element = elem;
                             vol->mixer = mixer;
-                            DEBUG ("Mixer = %lx Element = %lx", vol->mixer, vol->master_element);
                             return TRUE;
                         }
                     }
@@ -1034,11 +1033,7 @@ static gboolean asound_mixer_event (GIOChannel *channel, GIOCondition cond, gpoi
     if (vol->mixer_evt_idle == 0)
     {
         vol->mixer_evt_idle = g_idle_add_full (G_PRIORITY_DEFAULT, (GSourceFunc) asound_reset_mixer_evt_idle, vol, NULL);
-        if (vol->mixer)
-        {
-            res = snd_mixer_handle_events (vol->mixer);
-            if (res < 0) g_warning ("volumealsa: failed to handle mixer event");
-        }
+        if (vol->mixer) res = snd_mixer_handle_events (vol->mixer);
     }
 
     /* the status of mixer is changed. update of display is needed. */
