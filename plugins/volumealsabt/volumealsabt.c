@@ -139,7 +139,7 @@ static void bt_cb_connected (GObject *source, GAsyncResult *res, gpointer user_d
 static void bt_reconnect_devices (VolumeALSAPlugin *vol);
 static void bt_cb_reconnected (GObject *source, GAsyncResult *res, gpointer user_data);
 static void bt_cb_trusted (GObject *source, GAsyncResult *res, gpointer user_data);
-static void bt_disconnect_device (VolumeALSAPlugin *vol, gboolean is_input);
+static void bt_disconnect_device (VolumeALSAPlugin *vol, char *device);
 static void bt_cb_disconnected (GObject *source, GAsyncResult *res, gpointer user_data);
 static gboolean bt_has_service (VolumeALSAPlugin *vol, const gchar *path, const gchar *service);
 
@@ -423,6 +423,7 @@ static void bt_cb_name_unowned (GDBusConnection *connection, const gchar *name, 
 static void bt_connect_device (VolumeALSAPlugin *vol)
 {
     GDBusInterface *interface = g_dbus_object_manager_get_interface (vol->objmanager, vol->bt_conname, "org.bluez.Device1");
+    DEBUG ("Connecting device %s...", vol->bt_conname);
     if (interface)
     {
         // trust and connect
@@ -552,53 +553,23 @@ static void bt_cb_trusted (GObject *source, GAsyncResult *res, gpointer user_dat
     else DEBUG ("Trusted OK");
 }
 
-static void bt_disconnect_device (VolumeALSAPlugin *vol, gboolean is_input)
+static void bt_disconnect_device (VolumeALSAPlugin *vol, char *device)
 {
-    // get the name of the device with the current sink number
-    char *device = is_input ? asound_get_bt_input () : asound_get_bt_device ();
-    if (device)
+    char *buffer = g_strdup_printf ("/org/bluez/hci0/dev_%s", device);
+    GDBusInterface *interface = g_dbus_object_manager_get_interface (vol->objmanager, buffer, "org.bluez.Device1");
+    DEBUG ("Disconnecting device %s...", buffer);
+    if (interface)
     {
-        // shutting everything down when disconnecting Bluetooth devices prevents spurious amixer events...
-        asound_deinitialize (vol);
-        volumealsa_update_display (vol);
-
-        // if the same device is used for input, remember it and reconnect at end...
-        char *odevice = is_input ? asound_get_bt_device () : asound_get_bt_input ();
-        g_free (vol->bt_reconname);
-        if (!g_strcmp0 (device, odevice))
-        {
-            vol->bt_reconname = g_strdup_printf ("/org/bluez/hci0/dev_%s", odevice);
-            DEBUG ("Temporarily disconnecting shared device %s", vol->bt_reconname);
-        }
-        else vol->bt_reconname = NULL;
-        g_free (odevice);
-
-        char *buffer = g_strdup_printf ("/org/bluez/hci0/dev_%s", device);
-        g_free (device);
-        DEBUG ("%s device to disconnect = %s", is_input ? "Input" : "Output", buffer);
-
         // call the disconnect method on BlueZ
-        if (vol->objmanager)
-        {
-            GDBusInterface *interface = g_dbus_object_manager_get_interface (vol->objmanager, buffer, "org.bluez.Device1");
-            if (interface)
-            {
-                DEBUG ("Disconnecting...");
-                g_dbus_proxy_call (G_DBUS_PROXY (interface), "Disconnect", NULL, G_DBUS_CALL_FLAGS_NONE, -1, NULL, bt_cb_disconnected, vol);
-                g_object_unref (interface);
-                g_free (buffer);
-                return;
-            }
-        }
-        g_free (buffer);
+        g_dbus_proxy_call (G_DBUS_PROXY (interface), "Disconnect", NULL, G_DBUS_CALL_FLAGS_NONE, -1, NULL, bt_cb_disconnected, vol);
+        g_object_unref (interface);
     }
-
-    // if no connection found, just make the new connection
-    if (vol->bt_conname)
+    else
     {
-        DEBUG ("Nothing to disconnect - connecting to %s...", vol->bt_conname);
-        bt_connect_device (vol);
+        DEBUG ("Couldn't get device interface from object manager");
+        if (vol->conn_dialog) volumealsa_show_connect_dialog (vol, TRUE, _("Could not get BlueZ interface"));
     }
+    g_free (buffer);
 }
 
 static void bt_cb_disconnected (GObject *source, GAsyncResult *res, gpointer user_data)
@@ -1875,13 +1846,21 @@ static void volumealsa_set_external_output (GtkWidget *widget, VolumeALSAPlugin 
 
     if (sscanf (widget->name, "%d", &dev) == 1)
     {
-        /* if there is a Bluetooth device in use, disconnect it first */
-        bt_disconnect_device (vol, FALSE);
+        /* if there is a Bluetooth device in use, get its name so we can disconnect it */
+        char *device = asound_get_bt_device ();
 
         asound_set_default_card (dev);
-
         asound_initialize (vol);
         volumealsa_update_display (vol);
+
+        /* disconnect old Bluetooth device if it is not also input */
+        if (device)
+        {
+            char *dev2 = asound_get_bt_input ();
+            if (g_strcmp0 (device, dev2)) bt_disconnect_device (vol, device);
+            if (dev2) g_free (dev2);
+            g_free (device);
+        }
     }
 }
 
@@ -1891,20 +1870,28 @@ static void volumealsa_set_external_input (GtkWidget *widget, VolumeALSAPlugin *
 
     if (sscanf (widget->name, "%d", &dev) == 1)
     {
-        /* if there is a Bluetooth device in use, disconnect it first */
-        bt_disconnect_device (vol, TRUE);
+        /* if there is a Bluetooth device in use, get its name so we can disconnect it */
+        char *device = asound_get_bt_input ();
 
         asound_set_default_input (dev);
-
         asound_initialize (vol);
         volumealsa_update_display (vol);
+
+        /* disconnect old Bluetooth device if it is not also output */
+        if (device)
+        {
+            char *dev2 = asound_get_bt_device ();
+            if (g_strcmp0 (device, dev2)) bt_disconnect_device (vol, device);
+            if (dev2) g_free (dev2);
+            g_free (device);
+        }
     }
 }
 
 static void volumealsa_set_internal_output (GtkWidget *widget, VolumeALSAPlugin *vol)
 {
-    /* if there is a Bluetooth device in use, disconnect it first */
-    bt_disconnect_device (vol, FALSE);
+    /* if there is a Bluetooth device in use, get its name so we can disconnect it */
+    char *device = asound_get_bt_device ();
 
     /* check that the BCM device is default... */
     int dev = asound_get_bcm_device_num ();
@@ -1919,32 +1906,103 @@ static void volumealsa_set_internal_output (GtkWidget *widget, VolumeALSAPlugin 
     vsystem ("amixer -q cset numid=3 %s 2>/dev/null", widget->name);
 
     volumealsa_update_display (vol);
+
+    /* disconnect old Bluetooth device if it is not also input */
+    if (device)
+    {
+        char *dev2 = asound_get_bt_input ();
+        if (g_strcmp0 (device, dev2)) bt_disconnect_device (vol, device);
+        if (dev2) g_free (dev2);
+        g_free (device);
+    }
 }
 
 static void volumealsa_set_bluetooth_output (GtkWidget *widget, VolumeALSAPlugin *vol)
 {
-    // show the connection dialog
-    volumealsa_show_connect_dialog (vol, FALSE, gtk_menu_item_get_label (GTK_MENU_ITEM (widget)));
+    char *odevice = asound_get_bt_device ();
 
-    // store the name of the BlueZ device to connect to once the disconnect has happened
-    if (vol->bt_conname) g_free (vol->bt_conname);
-    vol->bt_conname = g_strndup (widget->name, 64);
-    vol->bt_input = FALSE;
+    // is this device already connected and attached - might want to force reconnect here?
+    if (!g_strcmp0 (widget->name + 20, odevice))
+    {
+        g_free (odevice);
+        return;
+    }
 
-    bt_disconnect_device (vol, FALSE);
+    char *idevice = asound_get_bt_input ();
+
+    // check to see if this device is already connected
+    if (!g_strcmp0 (widget->name + 20, idevice))
+    {
+        DEBUG ("Device %s is already connected", widget->name);
+        asound_set_bt_device (widget->name);
+        asound_initialize (vol);
+        volumealsa_update_display (vol);
+
+        /* disconnect old Bluetooth output device */
+        if (odevice) bt_disconnect_device (vol, odevice);
+    }
+    else
+    {
+        DEBUG ("Need to connect device %s", widget->name);
+        // store the name of the BlueZ device to connect to
+        if (vol->bt_conname) g_free (vol->bt_conname);
+        vol->bt_conname = g_strdup (widget->name);
+        vol->bt_input = FALSE;
+
+        // show the connection dialog
+        volumealsa_show_connect_dialog (vol, FALSE, gtk_menu_item_get_label (GTK_MENU_ITEM (widget)));
+
+        // disconnect the current output device unless it is also the input device; otherwise just connect the new device
+        if (odevice && g_strcmp0 (idevice, odevice)) bt_disconnect_device (vol, odevice);
+        else bt_connect_device (vol);
+    }
+
+    if (idevice) g_free (idevice);
+    if (odevice) g_free (odevice);
 }
 
 static void volumealsa_set_bluetooth_input (GtkWidget *widget, VolumeALSAPlugin *vol)
 {
-    // show the connection dialog
-    volumealsa_show_connect_dialog (vol, FALSE, gtk_menu_item_get_label (GTK_MENU_ITEM (widget)));
+    char *idevice = asound_get_bt_input ();
 
-    // store the name of the BlueZ device to connect to once the disconnect has happened
-    if (vol->bt_conname) g_free (vol->bt_conname);
-    vol->bt_conname = g_strndup (widget->name, 64);
-    vol->bt_input = TRUE;
+    // is this device already connected and attached - might want to force reconnect here?
+    if (!g_strcmp0 (widget->name + 20, idevice))
+    {
+        g_free (idevice);
+        return;
+    }
 
-    bt_disconnect_device (vol, TRUE);
+    char *odevice = asound_get_bt_device ();
+
+    // check to see if this device is already connected
+    if (!g_strcmp0 (widget->name + 20, odevice))
+    {
+        DEBUG ("Device %s is already connected\n", widget->name);
+        asound_set_bt_input (widget->name);
+        asound_initialize (vol);
+        volumealsa_update_display (vol);
+
+        /* disconnect old Bluetooth input device */
+        if (idevice) bt_disconnect_device (vol, idevice);
+    }
+    else
+    {
+        DEBUG ("Need to connect device %s", widget->name);
+        // store the name of the BlueZ device to connect to
+        if (vol->bt_conname) g_free (vol->bt_conname);
+        vol->bt_conname = g_strdup (widget->name);
+        vol->bt_input = TRUE;
+
+        // show the connection dialog
+        volumealsa_show_connect_dialog (vol, FALSE, gtk_menu_item_get_label (GTK_MENU_ITEM (widget)));
+
+        // disconnect the current input device unless it is also the output device; otherwise just connect the new device
+        if (idevice && g_strcmp0 (idevice, odevice)) bt_disconnect_device (vol, idevice);
+        else bt_connect_device (vol);
+    }
+
+    if (idevice) g_free (idevice);
+    if (odevice) g_free (odevice);
 }
 
 
