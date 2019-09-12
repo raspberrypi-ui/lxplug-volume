@@ -395,16 +395,11 @@ static void bt_cb_name_owned (GDBusConnection *connection, const gchar *name, co
         /* Reconnect the current Bluetooth audio device */
         if (vol->bt_conname) g_free (vol->bt_conname);
         if (vol->bt_reconname) g_free (vol->bt_reconname);
-        if (device) vol->bt_conname = g_strdup_printf ("/org/bluez/hci0/dev_%s", device);
-        else if (idevice) vol->bt_conname = g_strdup_printf ("/org/bluez/hci0/dev_%s", idevice);
+        if (device) vol->bt_conname = device;
+        else if (idevice) vol->bt_conname = idevice;
 
-        if (device && idevice && g_strcmp0 (device, idevice))
-            vol->bt_reconname = g_strdup_printf ("/org/bluez/hci0/dev_%s", idevice);
-        else
-            vol->bt_reconname = NULL;
-
-        g_free (device);
-        g_free (idevice);
+        if (device && idevice && g_strcmp0 (device, idevice)) vol->bt_reconname = idevice;
+        else vol->bt_reconname = NULL;
 
         DEBUG ("Connecting to %s...", vol->bt_conname);
         bt_reconnect_devices (vol);
@@ -555,9 +550,8 @@ static void bt_cb_trusted (GObject *source, GAsyncResult *res, gpointer user_dat
 
 static void bt_disconnect_device (VolumeALSAPlugin *vol, char *device)
 {
-    char *buffer = g_strdup_printf ("/org/bluez/hci0/dev_%s", device);
-    GDBusInterface *interface = g_dbus_object_manager_get_interface (vol->objmanager, buffer, "org.bluez.Device1");
-    DEBUG ("Disconnecting device %s...", buffer);
+    GDBusInterface *interface = g_dbus_object_manager_get_interface (vol->objmanager, device, "org.bluez.Device1");
+    DEBUG ("Disconnecting device %s...", device);
     if (interface)
     {
         // call the disconnect method on BlueZ
@@ -569,7 +563,6 @@ static void bt_disconnect_device (VolumeALSAPlugin *vol, char *device)
         DEBUG ("Couldn't get device interface from object manager");
         if (vol->conn_dialog) volumealsa_show_connect_dialog (vol, TRUE, _("Could not get BlueZ interface"));
     }
-    g_free (buffer);
 }
 
 static void bt_cb_disconnected (GObject *source, GAsyncResult *res, gpointer user_data)
@@ -1201,7 +1194,7 @@ static void asound_set_default_input (int num)
 static char *asound_get_bt_device (void)
 {
     char *user_config_file = g_build_filename (g_get_home_dir (), "/.asoundrc", NULL);
-    char *res;
+    char *res, *ret = NULL;
 
     /* first check the pcm.output section */
     res = get_string ("sed -n '/pcm.output/,/}/{/device/p}' %s 2>/dev/null | cut -d '\"' -f 2 | tr : _", user_config_file);
@@ -1215,13 +1208,18 @@ static char *asound_get_bt_device (void)
 
     res = NULL;
     DONE: g_free (user_config_file);
-    return res;
+    if (res)
+    {
+        ret = g_strdup_printf ("/org/bluez/hci0/dev_%s", res);
+        g_free (res);
+    }
+    return ret;
 }
 
 static char *asound_get_bt_input (void)
 {
     char *user_config_file = g_build_filename (g_get_home_dir (), "/.asoundrc", NULL);
-    char *res;
+    char *res, *ret = NULL;
 
     /* check the pcm.input section */
     res = get_string ("sed -n '/pcm.input/,/}/{/device/p}' %s 2>/dev/null | cut -d '\"' -f 2 | tr : _", user_config_file);
@@ -1230,7 +1228,12 @@ static char *asound_get_bt_input (void)
 
     res = NULL;
     DONE: g_free (user_config_file);
-    return res;
+    if (res)
+    {
+        ret = g_strdup_printf ("/org/bluez/hci0/dev_%s", res);
+        g_free (res);
+    }
+    return ret;
 }
 
 static void asound_set_bt_device (char *devname)
@@ -1316,7 +1319,7 @@ static gboolean asound_is_current_bt_dev (const char *obj, gboolean is_input)
     char *device = is_input ? asound_get_bt_input () : asound_get_bt_device ();
     if (device)
     {
-        if (strstr (obj, device)) res = TRUE;
+        if (!g_strcmp0 (obj, device)) res = TRUE;
         g_free (device);
     }
     return res;
@@ -1922,7 +1925,7 @@ static void volumealsa_set_bluetooth_output (GtkWidget *widget, VolumeALSAPlugin
     char *odevice = asound_get_bt_device ();
 
     // is this device already connected and attached - might want to force reconnect here?
-    if (!g_strcmp0 (widget->name + 20, odevice))
+    if (!g_strcmp0 (widget->name, odevice))
     {
         g_free (odevice);
         return;
@@ -1931,7 +1934,7 @@ static void volumealsa_set_bluetooth_output (GtkWidget *widget, VolumeALSAPlugin
     char *idevice = asound_get_bt_input ();
 
     // check to see if this device is already connected
-    if (!g_strcmp0 (widget->name + 20, idevice))
+    if (!g_strcmp0 (widget->name, idevice))
     {
         DEBUG ("Device %s is already connected", widget->name);
         asound_set_bt_device (widget->name);
@@ -1966,7 +1969,7 @@ static void volumealsa_set_bluetooth_input (GtkWidget *widget, VolumeALSAPlugin 
     char *idevice = asound_get_bt_input ();
 
     // is this device already connected and attached - might want to force reconnect here?
-    if (!g_strcmp0 (widget->name + 20, idevice))
+    if (!g_strcmp0 (widget->name, idevice))
     {
         g_free (idevice);
         return;
@@ -1975,7 +1978,7 @@ static void volumealsa_set_bluetooth_input (GtkWidget *widget, VolumeALSAPlugin 
     char *odevice = asound_get_bt_device ();
 
     // check to see if this device is already connected
-    if (!g_strcmp0 (widget->name + 20, odevice))
+    if (!g_strcmp0 (widget->name, odevice))
     {
         DEBUG ("Device %s is already connected\n", widget->name);
         asound_set_bt_input (widget->name);
