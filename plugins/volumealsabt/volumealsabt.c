@@ -136,9 +136,9 @@ static void bt_cb_name_owned (GDBusConnection *connection, const gchar *name, co
 static void bt_cb_name_unowned (GDBusConnection *connection, const gchar *name, gpointer user_data);
 static void bt_connect_device (VolumeALSAPlugin *vol);
 static void bt_cb_connected (GObject *source, GAsyncResult *res, gpointer user_data);
+static void bt_cb_trusted (GObject *source, GAsyncResult *res, gpointer user_data);
 static void bt_reconnect_devices (VolumeALSAPlugin *vol);
 static void bt_cb_reconnected (GObject *source, GAsyncResult *res, gpointer user_data);
-static void bt_cb_trusted (GObject *source, GAsyncResult *res, gpointer user_data);
 static void bt_disconnect_device (VolumeALSAPlugin *vol, char *device);
 static void bt_cb_disconnected (GObject *source, GAsyncResult *res, gpointer user_data);
 static gboolean bt_has_service (VolumeALSAPlugin *vol, const gchar *path, const gchar *service);
@@ -412,7 +412,11 @@ static void bt_cb_name_unowned (GDBusConnection *connection, const gchar *name, 
     DEBUG ("Name %s unowned on DBus", name);
 
     if (vol->objmanager) g_object_unref (vol->objmanager);
+    if (vol->bt_conname) g_free (vol->bt_conname);
+    if (vol->bt_reconname) g_free (vol->bt_reconname);
     vol->objmanager = NULL;
+    vol->bt_conname = NULL;
+    vol->bt_reconname = NULL;
 }
 
 static void bt_connect_device (VolumeALSAPlugin *vol)
@@ -422,8 +426,9 @@ static void bt_connect_device (VolumeALSAPlugin *vol)
     if (interface)
     {
         // trust and connect
-        g_dbus_proxy_call (G_DBUS_PROXY (interface), "org.freedesktop.DBus.Properties.Set", g_variant_new ("(ssv)",
-            g_dbus_proxy_get_interface_name (G_DBUS_PROXY (interface)), "Trusted", g_variant_new_boolean (TRUE)), G_DBUS_CALL_FLAGS_NONE, -1, NULL, bt_cb_trusted, vol);
+        g_dbus_proxy_call (G_DBUS_PROXY (interface), "org.freedesktop.DBus.Properties.Set", 
+            g_variant_new ("(ssv)", g_dbus_proxy_get_interface_name (G_DBUS_PROXY (interface)), "Trusted", g_variant_new_boolean (TRUE)),
+            G_DBUS_CALL_FLAGS_NONE, -1, NULL, bt_cb_trusted, vol);
         g_dbus_proxy_call (G_DBUS_PROXY (interface), "Connect", NULL, G_DBUS_CALL_FLAGS_NONE, -1, NULL, bt_cb_connected, vol);
         g_object_unref (interface);
     }
@@ -431,6 +436,8 @@ static void bt_connect_device (VolumeALSAPlugin *vol)
     {
         DEBUG ("Couldn't get device interface from object manager");
         if (vol->conn_dialog) volumealsa_show_connect_dialog (vol, TRUE, _("Could not get BlueZ interface"));
+        if (vol->bt_conname) g_free (vol->bt_conname);
+        vol->bt_conname = NULL;
     }
 }
 
@@ -455,10 +462,8 @@ static void bt_cb_connected (GObject *source, GAsyncResult *res, gpointer user_d
         DEBUG ("Connected OK");
 
         // update asoundrc with connection details
-        if (vol->bt_input)
-            asound_set_bt_input (vol->bt_conname);
-        else
-            asound_set_bt_device (vol->bt_conname);
+        if (vol->bt_input) asound_set_bt_input (vol->bt_conname);
+        else asound_set_bt_device (vol->bt_conname);
 
         // close the connection dialog
         volumealsa_close_connect_dialog (NULL, vol);
@@ -468,21 +473,23 @@ static void bt_cb_connected (GObject *source, GAsyncResult *res, gpointer user_d
     g_free (vol->bt_conname);
     vol->bt_conname = NULL;
 
-    // connect to second device if there is one...
-    if (vol->bt_reconname)
+    // reinit alsa to configure mixer
+    asound_initialize (vol);
+    volumealsa_update_display (vol);
+}
+
+static void bt_cb_trusted (GObject *source, GAsyncResult *res, gpointer user_data)
+{
+    GError *error = NULL;
+    GVariant *var = g_dbus_proxy_call_finish (G_DBUS_PROXY (source), res, &error);
+    if (var) g_variant_unref (var);
+
+    if (error)
     {
-        vol->bt_conname = vol->bt_reconname;
-        vol->bt_reconname = NULL;
-        vol->bt_input = !vol->bt_input;
-        DEBUG ("Reconnecting to original %s device %s...", vol->bt_input ? "input" : "output", vol->bt_conname);
-        bt_connect_device (vol);
+        DEBUG ("Trusting error %s", error->message);
+        g_error_free (error);
     }
-    else
-    {
-        // reinit alsa to configure mixer
-        asound_initialize (vol);
-        volumealsa_update_display (vol);
-    }
+    else DEBUG ("Trusted OK");
 }
 
 static void bt_reconnect_devices (VolumeALSAPlugin *vol)
@@ -491,8 +498,9 @@ static void bt_reconnect_devices (VolumeALSAPlugin *vol)
     if (interface)
     {
         // trust and connect
-        g_dbus_proxy_call (G_DBUS_PROXY (interface), "org.freedesktop.DBus.Properties.Set", g_variant_new ("(ssv)",
-            g_dbus_proxy_get_interface_name (G_DBUS_PROXY (interface)), "Trusted", g_variant_new_boolean (TRUE)), G_DBUS_CALL_FLAGS_NONE, -1, NULL, bt_cb_trusted, vol);
+        g_dbus_proxy_call (G_DBUS_PROXY (interface), "org.freedesktop.DBus.Properties.Set", 
+            g_variant_new ("(ssv)", g_dbus_proxy_get_interface_name (G_DBUS_PROXY (interface)), "Trusted", g_variant_new_boolean (TRUE)),
+            G_DBUS_CALL_FLAGS_NONE, -1, NULL, bt_cb_trusted, vol);
         g_dbus_proxy_call (G_DBUS_PROXY (interface), "Connect", NULL, G_DBUS_CALL_FLAGS_NONE, -1, NULL, bt_cb_reconnected, vol);
         g_object_unref (interface);
     }
@@ -500,6 +508,10 @@ static void bt_reconnect_devices (VolumeALSAPlugin *vol)
     {
         DEBUG ("Couldn't get device interface from object manager");
         if (vol->conn_dialog) volumealsa_show_connect_dialog (vol, TRUE, _("Could not get BlueZ interface"));
+        if (vol->bt_conname) g_free (vol->bt_conname);
+        if (vol->bt_reconname) g_free (vol->bt_reconname);
+        vol->bt_conname = NULL;
+        vol->bt_reconname = NULL;
     }
 }
 
@@ -534,20 +546,6 @@ static void bt_cb_reconnected (GObject *source, GAsyncResult *res, gpointer user
     }
 }
 
-static void bt_cb_trusted (GObject *source, GAsyncResult *res, gpointer user_data)
-{
-    GError *error = NULL;
-    GVariant *var = g_dbus_proxy_call_finish (G_DBUS_PROXY (source), res, &error);
-    if (var) g_variant_unref (var);
-
-    if (error)
-    {
-        DEBUG ("Trusting error %s", error->message);
-        g_error_free (error);
-    }
-    else DEBUG ("Trusted OK");
-}
-
 static void bt_disconnect_device (VolumeALSAPlugin *vol, char *device)
 {
     GDBusInterface *interface = g_dbus_object_manager_get_interface (vol->objmanager, device, "org.bluez.Device1");
@@ -562,6 +560,8 @@ static void bt_disconnect_device (VolumeALSAPlugin *vol, char *device)
     {
         DEBUG ("Couldn't get device interface from object manager");
         if (vol->conn_dialog) volumealsa_show_connect_dialog (vol, TRUE, _("Could not get BlueZ interface"));
+        if (vol->bt_conname) g_free (vol->bt_conname);
+        vol->bt_conname = NULL;
     }
 }
 
@@ -2276,6 +2276,7 @@ static GtkWidget *volumealsa_constructor (LXPanel *panel, config_setting_t *sett
 #endif
 
     vol->bt_conname = NULL;
+    vol->bt_reconname = NULL;
     vol->master_element = NULL;
 
     /* Allocate top level widget and set into Plugin widget pointer. */
