@@ -383,8 +383,8 @@ static void bt_cb_name_owned (GDBusConnection *connection, const gchar *name, co
     else
     {
         /* register callbacks for devices being added or removed */
-        g_signal_connect (vol->objmanager, "object-added", G_CALLBACK (bt_cb_object_added), vol);
-        g_signal_connect (vol->objmanager, "object-removed", G_CALLBACK (bt_cb_object_removed), vol);
+        //g_signal_connect (vol->objmanager, "object-added", G_CALLBACK (bt_cb_object_added), vol);
+        //g_signal_connect (vol->objmanager, "object-removed", G_CALLBACK (bt_cb_object_removed), vol);
     }
 
     /* Check whether a Bluetooth audio device is the current default output or input - connect to one or both if so */
@@ -1319,7 +1319,7 @@ static gboolean asound_is_current_bt_dev (const char *obj, gboolean is_input)
     char *device = is_input ? asound_get_bt_input () : asound_get_bt_device ();
     if (device)
     {
-        if (!g_strcmp0 (obj, device)) res = TRUE;
+        if (strstr (obj, device)) res = TRUE;
         g_free (device);
     }
     return res;
@@ -1898,16 +1898,12 @@ static void volumealsa_set_internal_output (GtkWidget *widget, VolumeALSAPlugin 
 
     /* check that the BCM device is default... */
     int dev = asound_get_bcm_device_num ();
-    if (dev != asound_get_default_card ())
-    {
-        /* ... and set it to default if not */
-        asound_set_default_card (dev);
-        asound_initialize (vol);
-    }
+    if (dev != asound_get_default_card ()) asound_set_default_card (dev);
 
     /* set the output channel on the BCM device */
     vsystem ("amixer -q cset numid=3 %s 2>/dev/null", widget->name);
 
+    asound_initialize (vol);
     volumealsa_update_display (vol);
 
     /* disconnect old Bluetooth device if it is not also input */
@@ -1927,6 +1923,18 @@ static void volumealsa_set_bluetooth_output (GtkWidget *widget, VolumeALSAPlugin
     // is this device already connected and attached - might want to force reconnect here?
     if (!g_strcmp0 (widget->name, odevice))
     {
+        DEBUG ("Reconnect device %s", widget->name);
+        // store the name of the BlueZ device to connect to
+        if (vol->bt_conname) g_free (vol->bt_conname);
+        vol->bt_conname = g_strdup (widget->name);
+        vol->bt_input = FALSE;
+
+        // show the connection dialog
+        volumealsa_show_connect_dialog (vol, FALSE, gtk_menu_item_get_label (GTK_MENU_ITEM (widget)));
+
+        // disconnect the current input device unless it is also the output device; otherwise just connect the new device
+        bt_disconnect_device (vol, odevice);
+
         g_free (odevice);
         return;
     }
@@ -1971,6 +1979,18 @@ static void volumealsa_set_bluetooth_input (GtkWidget *widget, VolumeALSAPlugin 
     // is this device already connected and attached - might want to force reconnect here?
     if (!g_strcmp0 (widget->name, idevice))
     {
+        DEBUG ("Reconnect device %s", widget->name);
+        // store the name of the BlueZ device to connect to
+        if (vol->bt_conname) g_free (vol->bt_conname);
+        vol->bt_conname = g_strdup (widget->name);
+        vol->bt_input = TRUE;
+
+        // show the connection dialog
+        volumealsa_show_connect_dialog (vol, FALSE, gtk_menu_item_get_label (GTK_MENU_ITEM (widget)));
+
+        // disconnect the current input device unless it is also the output device; otherwise just connect the new device
+        bt_disconnect_device (vol, idevice);
+
         g_free (idevice);
         return;
     }
