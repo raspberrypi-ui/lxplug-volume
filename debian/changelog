@@ -1,3 +1,9 @@
+lxplug-volume (0.17) buster; urgency=medium
+
+  * Add Bluetooth input devices
+
+ -- Simon Long <simon@raspberrypi.org>  Fri, 13 Sep 2019 11:17:07 +0100
+
 lxplug-volume (0.16) buster; urgency=medium
 
   * Add input device selection
