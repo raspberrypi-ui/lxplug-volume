@@ -1175,10 +1175,22 @@ static void asound_set_default_input (int num)
         goto DONE;
     }
 
-    /* does .asoundrc use type asym? if not, replace file with default contents and exit */
+    /* does .asoundrc use type asym? if not, replace file with default contents and current output, and exit */
     if (!find_in_section (user_config_file, "pcm.!default", "asym"))
     {
-        vsystem ("echo '" PREFIX "\n" OUTPUT_A "\n" INPUT_A "\n" CTL_A"' > %s", 0, num, 0, user_config_file);
+        int dev = asound_get_default_card ();
+        if (dev != BLUEALSA_DEV)
+            vsystem ("echo '" PREFIX "\n" OUTPUT_A "\n" INPUT_A "\n" CTL_A "' > %s", dev, num, dev, user_config_file);
+        else
+        {
+            unsigned int b1, b2, b3, b4, b5, b6;
+            char *btdev = asound_get_bt_device ();
+            if (btdev && sscanf (btdev, "/org/bluez/hci0/dev_%x_%x_%x_%x_%x_%x", &b1, &b2, &b3, &b4, &b5, &b6) == 6)
+                vsystem ("echo '" PREFIX "\n" OUTPUT_B "\n" INPUT_A "\n" CTL_B "' > %s", b1, b2, b3, b4, b5, b6, num, user_config_file);
+            else
+                vsystem ("echo '" PREFIX "\n" OUTPUT_A "\n" INPUT_A "\n" CTL_A "' > %s", 0, num, 0, user_config_file);
+            if (btdev) g_free (btdev);
+        }
         goto DONE;
     }
 
@@ -1297,10 +1309,22 @@ static void asound_set_bt_input (char *devname)
         goto DONE;
     }
 
-    /* does .asoundrc use type asym? if not, replace file with default contents and exit */
+    /* does .asoundrc use type asym? if not, replace file with default contents and current output, and exit */
     if (!find_in_section (user_config_file, "pcm.!default", "asym"))
     {
-        vsystem ("echo '" PREFIX "\n" OUTPUT_A "\n" INPUT_B "\n" CTL_A "' > %s", 0, b1, b2, b3, b4, b5, b6, 0, user_config_file);
+        int dev = asound_get_default_card ();
+        if (dev != BLUEALSA_DEV)
+            vsystem ("echo '" PREFIX "\n" OUTPUT_A "\n" INPUT_B "\n" CTL_A "' > %s", dev, b1, b2, b3, b4, b5, b6, dev, user_config_file);
+        else
+        {
+            unsigned int c1, c2, c3, c4, c5, c6;
+            char *btdev = asound_get_bt_device ();
+            if (btdev && sscanf (btdev, "/org/bluez/hci0/dev_%x_%x_%x_%x_%x_%x", &c1, &c2, &c3, &c4, &c5, &c6) == 6)
+                vsystem ("echo '" PREFIX "\n" OUTPUT_B "\n" INPUT_B "\n" CTL_B "' > %s", c1, c2, c3, c4, c5, c6, b1, b2, b3, b4, b5, b6, user_config_file);
+            else
+                vsystem ("echo '" PREFIX "\n" OUTPUT_A "\n" INPUT_B "\n" CTL_A "' > %s", 0, b1, b2, b3, b4, b5, b6, 0, user_config_file);
+            if (btdev) g_free (btdev);
+        }
         goto DONE;
     }
 
