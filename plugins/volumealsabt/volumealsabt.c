@@ -1959,6 +1959,9 @@ static void volumealsa_set_internal_output (GtkWidget *widget, VolumeALSAPlugin 
 
 static void volumealsa_set_bluetooth_output (GtkWidget *widget, VolumeALSAPlugin *vol)
 {
+    asound_deinitialize (vol);
+    volumealsa_update_display (vol);
+
     char *odevice = asound_get_bt_device ();
 
     // is this device already connected and attached - might want to force reconnect here?
@@ -1973,7 +1976,7 @@ static void volumealsa_set_bluetooth_output (GtkWidget *widget, VolumeALSAPlugin
         // show the connection dialog
         volumealsa_show_connect_dialog (vol, FALSE, gtk_menu_item_get_label (GTK_MENU_ITEM (widget)));
 
-        // disconnect the current input device unless it is also the output device; otherwise just connect the new device
+        // disconnect the device prior to reconnect
         bt_disconnect_device (vol, odevice);
 
         g_free (odevice);
