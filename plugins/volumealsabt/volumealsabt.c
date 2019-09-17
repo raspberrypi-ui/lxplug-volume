@@ -1542,12 +1542,23 @@ static gboolean volumealsa_button_press_event (GtkWidget *widget, GdkEventButton
 
     if (!asound_current_dev_check (vol)) volumealsa_update_display (vol);
 
-    if (asound_has_volume_control (-1) && vol->master_element == NULL)
+#if 0
+    if (vol->master_element == NULL && asound_get_default_card () == BLUEALSA_DEV && vol->objmanager)
     {
-        // reconnect a BT device that has connected since startup...
-        asound_initialize (vol);
-        volumealsa_update_display (vol);
+        /* the mixer is unattached, and there is a default Bluetooth output device - try connecting it... */
+        DEBUG ("No mixer with Bluetooth device - try to reconnect");
+        char *dev = asound_get_bt_device ();
+        if (dev)
+        {
+            if (!bt_is_connected (vol, dev))
+            {
+                vol->bt_conname = dev;
+                bt_connect_device (vol);
+            }
+            else g_free (dev);
+        }
     }
+#endif
 
     if (event->button == 1)
     {
