@@ -558,10 +558,12 @@ static void bt_disconnect_device (VolumeALSAPlugin *vol, char *device)
     }
     else
     {
-        DEBUG ("Couldn't get device interface from object manager");
-        if (vol->conn_dialog) volumealsa_show_connect_dialog (vol, TRUE, _("Could not get BlueZ interface"));
-        if (vol->bt_conname) g_free (vol->bt_conname);
-        vol->bt_conname = NULL;
+        DEBUG ("Couldn't get device interface from object manager - device probably already disconnected");
+        if (vol->bt_conname)
+        {
+            DEBUG ("Connecting to %s...", vol->bt_conname);
+            bt_connect_device (vol);
+        }
     }
 }
 
