@@ -2301,6 +2301,29 @@ static gboolean volumealsa_control_msg (GtkWidget *plugin, const char *cmd)
         return TRUE;
     }
 
+    if (!strncmp (cmd, "hw:", 3))
+    {
+        int dev;
+        if (sscanf (cmd, "hw:%d", &dev) == 1)
+        {
+            /* if there is a Bluetooth device in use, get its name so we can disconnect it */
+            char *device = asound_get_bt_device ();
+            char *idevice = asound_get_bt_input ();
+
+            asound_set_default_card (dev);
+            asound_set_default_input (dev);
+            asound_initialize (vol);
+            volumealsa_update_display (vol);
+
+            /* disconnect Bluetooth devices */
+            if (device) bt_disconnect_device (vol, device);
+            if (idevice && g_strcmp0 (device, idevice)) bt_disconnect_device (vol, idevice);
+            if (device) g_free (device);
+            if (idevice) g_free (idevice);
+        }
+        return TRUE;
+    }
+
     return FALSE;
 }
 
