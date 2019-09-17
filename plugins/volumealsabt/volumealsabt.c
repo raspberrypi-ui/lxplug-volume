@@ -1391,25 +1391,27 @@ static char *asound_default_device_name (void)
 /* Do a full redraw of the display. */
 static void volumealsa_update_display (VolumeALSAPlugin *vol)
 {
+    gboolean mute;
+    int level;
 #ifdef ENABLE_NLS
     // need to rebind here for tooltip update
     textdomain (GETTEXT_PACKAGE);
 #endif
 
-    /* if popup menu is on display, hide it */
-    if (vol->menu_popup) gtk_menu_popdown (GTK_MENU (vol->menu_popup));
-
     /* check that the mixer is still valid */
     if (vol->master_element == NULL || snd_mixer_elem_get_type (vol->master_element) != SND_MIXER_ELEM_SIMPLE)
     {
         DEBUG ("Master element not valid");
-        return;
+        mute = TRUE;
+        level = 0;
     }
-
-    /* read current mute and volume status */
-    gboolean mute = asound_is_muted (vol);
-    int level = asound_get_volume (vol);
-    if (mute) level = 0;
+    else
+    {
+        /* read current mute and volume status */
+        mute = asound_is_muted (vol);
+        level = asound_get_volume (vol);
+        if (mute) level = 0;
+    }
 
     /* update icon */
     const char *icon = "audio-volume-muted";
