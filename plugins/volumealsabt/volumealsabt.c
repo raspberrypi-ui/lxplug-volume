@@ -142,6 +142,7 @@ static void bt_cb_reconnected (GObject *source, GAsyncResult *res, gpointer user
 static void bt_disconnect_device (VolumeALSAPlugin *vol, char *device);
 static void bt_cb_disconnected (GObject *source, GAsyncResult *res, gpointer user_data);
 static gboolean bt_has_service (VolumeALSAPlugin *vol, const gchar *path, const gchar *service);
+static gboolean bt_is_connected (VolumeALSAPlugin *vol, const gchar *path);
 
 /* Volume and mute */
 static long lrint_dir (double x, int dir);
@@ -610,6 +611,16 @@ static gboolean bt_has_service (VolumeALSAPlugin *vol, const gchar *path, const 
     return FALSE;
 }
 
+static gboolean bt_is_connected (VolumeALSAPlugin *vol, const gchar *path)
+{
+    GDBusInterface *interface = g_dbus_object_manager_get_interface (vol->objmanager, path, "org.bluez.Device1");
+    GVariant *var = g_dbus_proxy_get_cached_property (G_DBUS_PROXY (interface), "Connected");
+    gboolean res = g_variant_get_boolean (var);
+    g_variant_unref (var);
+    g_object_unref (interface);
+    return res;
+}
+
 
 /*----------------------------------------------------------------------------*/
 /* Volume and mute control                                                    */
@@ -808,22 +819,26 @@ static gboolean asound_initialize (VolumeALSAPlugin *vol)
 
     DEBUG ("Initializing...");
     device = asound_default_device_name ();
-    if (!asound_setup_mixer (vol, device))
+
+    /* if the default device is a Bluetooth device, check it is actually connected... */
+    if (!g_strcmp0 (device, "bluealsa"))
     {
-        g_warning ("volumealsa: Could not attach mixer - looking for other valid device");
-        g_free (device);
-        if (asound_find_valid_device () == -1)
+        char *btdev = asound_get_bt_device ();
+        i = bt_is_connected (vol, btdev);
+        g_free (btdev);
+        if (!i)
         {
-            g_warning ("volumealsa: No valid ALSA devices found");
+            g_warning ("volumealsa: Default Bluetooth output device not connected - cannot attach mixer");
+            g_free (device);
             return TRUE;
         }
-        device = asound_default_device_name ();
-        if (!asound_setup_mixer (vol, device))
-        {
-            g_warning ("volumealsa: Could not attach mixer to fallback device");
-            g_free (device);
-            return FALSE;
-        }
+    }
+
+    if (!asound_setup_mixer (vol, device))
+    {
+        g_warning ("volumealsa: Device invalid - cannot attach mixer");
+        g_free (device);
+        return TRUE;
     }
     g_free (device);
 
