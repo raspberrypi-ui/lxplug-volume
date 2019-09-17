@@ -402,7 +402,7 @@ static void bt_cb_name_owned (GDBusConnection *connection, const gchar *name, co
         if (device && idevice && g_strcmp0 (device, idevice)) vol->bt_reconname = idevice;
         else vol->bt_reconname = NULL;
 
-        DEBUG ("Connecting to %s...", vol->bt_conname);
+        DEBUG ("Reconnecting devices");
         bt_reconnect_devices (vol);
     }
 }
@@ -495,24 +495,30 @@ static void bt_cb_trusted (GObject *source, GAsyncResult *res, gpointer user_dat
 
 static void bt_reconnect_devices (VolumeALSAPlugin *vol)
 {
-    GDBusInterface *interface = g_dbus_object_manager_get_interface (vol->objmanager, vol->bt_conname, "org.bluez.Device1");
-    if (interface)
+    while (vol->bt_conname)
     {
-        // trust and connect
-        g_dbus_proxy_call (G_DBUS_PROXY (interface), "org.freedesktop.DBus.Properties.Set", 
-            g_variant_new ("(ssv)", g_dbus_proxy_get_interface_name (G_DBUS_PROXY (interface)), "Trusted", g_variant_new_boolean (TRUE)),
-            G_DBUS_CALL_FLAGS_NONE, -1, NULL, bt_cb_trusted, vol);
-        g_dbus_proxy_call (G_DBUS_PROXY (interface), "Connect", NULL, G_DBUS_CALL_FLAGS_NONE, -1, NULL, bt_cb_reconnected, vol);
-        g_object_unref (interface);
-    }
-    else
-    {
-        DEBUG ("Couldn't get device interface from object manager");
-        if (vol->conn_dialog) volumealsa_show_connect_dialog (vol, TRUE, _("Could not get BlueZ interface"));
-        if (vol->bt_conname) g_free (vol->bt_conname);
-        if (vol->bt_reconname) g_free (vol->bt_reconname);
-        vol->bt_conname = NULL;
-        vol->bt_reconname = NULL;
+        GDBusInterface *interface = g_dbus_object_manager_get_interface (vol->objmanager, vol->bt_conname, "org.bluez.Device1");
+        DEBUG ("Reconnecting %s...", vol->bt_conname);
+        if (interface)
+        {
+            // trust and connect
+            g_dbus_proxy_call (G_DBUS_PROXY (interface), "org.freedesktop.DBus.Properties.Set",
+                g_variant_new ("(ssv)", g_dbus_proxy_get_interface_name (G_DBUS_PROXY (interface)), "Trusted", g_variant_new_boolean (TRUE)),
+                G_DBUS_CALL_FLAGS_NONE, -1, NULL, bt_cb_trusted, vol);
+            g_dbus_proxy_call (G_DBUS_PROXY (interface), "Connect", NULL, G_DBUS_CALL_FLAGS_NONE, -1, NULL, bt_cb_reconnected, vol);
+            g_object_unref (interface);
+            break;
+        }
+
+        DEBUG ("Couldn't get device interface from object manager - device not available to reconnect");
+        g_free (vol->bt_conname);
+
+        if (vol->bt_reconname)
+        {
+            vol->bt_conname = vol->bt_reconname;
+            vol->bt_reconname = NULL;
+        }
+        else vol->bt_conname = NULL;
     }
 }
 
