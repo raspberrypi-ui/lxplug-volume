@@ -1920,8 +1920,6 @@ static void volumealsa_set_external_input (GtkWidget *widget, VolumeALSAPlugin *
         char *device = asound_get_bt_input ();
 
         asound_set_default_input (dev);
-        asound_initialize (vol);
-        volumealsa_update_display (vol);
 
         /* disconnect old Bluetooth device if it is not also output */
         if (device)
@@ -2045,8 +2043,6 @@ static void volumealsa_set_bluetooth_input (GtkWidget *widget, VolumeALSAPlugin 
     {
         DEBUG ("Device %s is already connected\n", widget->name);
         asound_set_bt_input (widget->name);
-        asound_initialize (vol);
-        volumealsa_update_display (vol);
 
         /* disconnect old Bluetooth input device */
         if (idevice) bt_disconnect_device (vol, idevice);
