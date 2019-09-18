@@ -107,6 +107,8 @@ typedef struct {
     GtkWidget *conn_dialog;             /* Connection dialog box */
     GtkWidget *conn_label;              /* Dialog box text field */
     GtkWidget *conn_ok;                 /* Dialog box button */
+    GDBusProxy *baproxy;                /* Proxy for BlueALSA */
+    gulong basignal;                    /* ID of g-signal handler on BlueALSA */
 
     /* HDMI devices */
     guint hdmis;                        /* Number of HDMI devices */
@@ -134,6 +136,9 @@ static void bt_cb_object_added (GDBusObjectManager *manager, GDBusObject *object
 static void bt_cb_object_removed (GDBusObjectManager *manager, GDBusObject *object, gpointer user_data);
 static void bt_cb_name_owned (GDBusConnection *connection, const gchar *name, const gchar *owner, gpointer user_data);
 static void bt_cb_name_unowned (GDBusConnection *connection, const gchar *name, gpointer user_data);
+static void bt_cb_ba_name_owned (GDBusConnection *connection, const gchar *name, const gchar *owner, gpointer user_data);
+static void bt_cb_ba_name_unowned (GDBusConnection *connection, const gchar *name, gpointer user_data);
+static void bt_cb_ba_signal (GDBusProxy *prox, gchar *sender, gchar *signal, GVariant *params, gpointer user_data);
 static void bt_connect_device (VolumeALSAPlugin *vol);
 static void bt_cb_connected (GObject *source, GAsyncResult *res, gpointer user_data);
 static void bt_cb_trusted (GObject *source, GAsyncResult *res, gpointer user_data);
@@ -418,6 +423,44 @@ static void bt_cb_name_unowned (GDBusConnection *connection, const gchar *name, 
     vol->objmanager = NULL;
     vol->bt_conname = NULL;
     vol->bt_reconname = NULL;
+}
+
+static void bt_cb_ba_name_owned (GDBusConnection *connection, const gchar *name, const gchar *owner, gpointer user_data)
+{
+    VolumeALSAPlugin *vol = (VolumeALSAPlugin *) user_data;
+    DEBUG ("Name %s owned on DBus", name);
+
+    GError *error = NULL;
+    vol->baproxy = g_dbus_proxy_new_for_bus_sync (G_BUS_TYPE_SYSTEM, 0, NULL, "org.bluealsa", "/org/bluealsa", "org.bluealsa.Manager1", NULL, &error);
+
+    if (error)
+    {
+        DEBUG ("Error getting proxy - %s", error->message);
+        g_error_free (error);
+    }
+    else vol->basignal = g_signal_connect (vol->baproxy, "g-signal",  G_CALLBACK (bt_cb_ba_signal), vol);
+}
+
+static void bt_cb_ba_name_unowned (GDBusConnection *connection, const gchar *name, gpointer user_data)
+{
+    VolumeALSAPlugin *vol = (VolumeALSAPlugin *) user_data;
+    DEBUG ("Name %s unowned on DBus", name);
+    g_signal_handler_disconnect (vol->baproxy, vol->basignal);
+    g_object_unref (vol->baproxy);
+}
+
+static void bt_cb_ba_signal (GDBusProxy *prox, gchar *sender, gchar *signal, GVariant *params, gpointer user_data)
+{
+    VolumeALSAPlugin *vol = (VolumeALSAPlugin *) user_data;
+    if (!g_strcmp0 (signal, "PCMAdded") || !g_strcmp0 (signal, "PCMRemoved"))
+    {
+        DEBUG ("PCMs changed - %s", signal);
+        if (asound_get_default_card () == BLUEALSA_DEV)
+        {
+            asound_initialize (vol);
+            volumealsa_update_display (vol);
+        }
+    }
 }
 
 static void bt_connect_device (VolumeALSAPlugin *vol)
@@ -2400,6 +2443,7 @@ static GtkWidget *volumealsa_constructor (LXPanel *panel, config_setting_t *sett
 
     /* Set up callbacks to see if BlueZ is on DBus */
     g_bus_watch_name (G_BUS_TYPE_SYSTEM, "org.bluez", 0, bt_cb_name_owned, bt_cb_name_unowned, vol, NULL);
+    g_bus_watch_name (G_BUS_TYPE_SYSTEM, "org.bluealsa", 0, bt_cb_ba_name_owned, bt_cb_ba_name_unowned, vol, NULL);
     
     /* Initialize volume scale */
     volumealsa_build_popup_window (p);
