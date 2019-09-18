@@ -389,26 +389,27 @@ static void bt_cb_name_owned (GDBusConnection *connection, const gchar *name, co
     else
     {
         /* register callbacks for devices being added or removed */
-        //g_signal_connect (vol->objmanager, "object-added", G_CALLBACK (bt_cb_object_added), vol);
-        //g_signal_connect (vol->objmanager, "object-removed", G_CALLBACK (bt_cb_object_removed), vol);
-    }
+        // now taken care of by monitoring PCMAdded / PCMRemoved signals on org.bluealsa
+        // g_signal_connect (vol->objmanager, "object-added", G_CALLBACK (bt_cb_object_added), vol);
+        // g_signal_connect (vol->objmanager, "object-removed", G_CALLBACK (bt_cb_object_removed), vol);
 
-    /* Check whether a Bluetooth audio device is the current default output or input - connect to one or both if so */
-    char *device = asound_get_bt_device ();
-    char *idevice = asound_get_bt_input ();
-    if (device || idevice)
-    {
-        /* Reconnect the current Bluetooth audio device */
-        if (vol->bt_conname) g_free (vol->bt_conname);
-        if (vol->bt_reconname) g_free (vol->bt_reconname);
-        if (device) vol->bt_conname = device;
-        else if (idevice) vol->bt_conname = idevice;
+        /* Check whether a Bluetooth audio device is the current default output or input - connect to one or both if so */
+        char *device = asound_get_bt_device ();
+        char *idevice = asound_get_bt_input ();
+        if (device || idevice)
+        {
+            /* Reconnect the current Bluetooth audio device */
+            if (vol->bt_conname) g_free (vol->bt_conname);
+            if (vol->bt_reconname) g_free (vol->bt_reconname);
+            if (device) vol->bt_conname = device;
+            else if (idevice) vol->bt_conname = idevice;
 
-        if (device && idevice && g_strcmp0 (device, idevice)) vol->bt_reconname = idevice;
-        else vol->bt_reconname = NULL;
+            if (device && idevice && g_strcmp0 (device, idevice)) vol->bt_reconname = idevice;
+            else vol->bt_reconname = NULL;
 
-        DEBUG ("Reconnecting devices");
-        bt_reconnect_devices (vol);
+            DEBUG ("Reconnecting devices");
+            bt_reconnect_devices (vol);
+        }
     }
 }
 
