@@ -97,3 +97,12 @@ msgstr "Volume Control (ALSA/BT)"
 #: ../plugins/volumealsabt/volumealsabt.c:2252
 msgid "Display and control volume for ALSA and Bluetooth devices"
 msgstr "Display and control volume for ALSA and Bluetooth devices"
+
+msgid "Headphones"
+msgstr "Analog"
+
+msgid "HDMI 1"
+msgstr "HDMI-1"
+
+msgid "HDMI 2"
+msgstr "HDMI-2"

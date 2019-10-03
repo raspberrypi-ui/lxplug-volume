@@ -183,7 +183,7 @@ static void asound_set_bt_device (char *devname);
 static void asound_set_bt_input (char *devname);
 static gboolean asound_is_current_bt_dev (const char *obj, gboolean is_input);
 static int asound_get_bcm_device_num (void);
-static gboolean asound_is_bcm_device (int num);
+static int asound_is_bcm_device (int num);
 static char *asound_default_device_name (void);
 
 /* Handlers and graphics */
@@ -1434,13 +1434,20 @@ static int asound_get_bcm_device_num (void)
     return -1;
 }
 
-static gboolean asound_is_bcm_device (int num)
+static int asound_is_bcm_device (int num)
 {
     char *name;
     if (snd_card_get_name (num, &name)) return FALSE;
     int res = strncmp (name, "bcm2835", 7);
+    if (!strncmp (name, "bcm2835", 7))
+    {
+        if (!g_strcmp0 (name, "bcm2835 ALSA")) res = 1;
+        else res = 2;
+    }
+    else res = 0;
     g_free (name);
-    return res == 0 ? TRUE : FALSE;
+
+    return res;
 }
 
 static char *asound_default_device_name (void)
@@ -1681,7 +1688,38 @@ static GtkWidget *volumealsa_menu_item_add (VolumeALSAPlugin *vol, GtkWidget *me
     }
     gtk_widget_set_name (mi, name);
     g_signal_connect (mi, "activate", cb, (gpointer) vol);
-    gtk_menu_shell_append (GTK_MENU_SHELL (menu), mi);
+
+    // count the list first - we need indices...
+    int count = 0;
+    GList *l = g_list_first (gtk_container_get_children (GTK_CONTAINER (menu)));
+    while (l)
+    {
+        count++;
+        l = l->next;
+    }
+
+    // find the start point of the last section - either a separator or the beginning of the list
+    l = g_list_last (gtk_container_get_children (GTK_CONTAINER (menu)));
+    while (l)
+    {
+        if (G_OBJECT_TYPE (l->data) == GTK_TYPE_SEPARATOR_MENU_ITEM) break;
+        count--;
+        l = l->prev;
+    }
+
+    // if l is NULL, init to element after start; if l is non-NULL, init to element after separator
+    if (!l) l = gtk_container_get_children (GTK_CONTAINER (menu));
+    else l = l->next;
+
+    // loop forward from the first element, comparing against the new label
+    while (l)
+    {
+        if (strcmp (label, gtk_menu_item_get_label (GTK_MENU_ITEM (l->data))) < 0) break;
+        count++;
+        l = l->next;
+    }
+
+    gtk_menu_shell_insert (GTK_MENU_SHELL (menu), mi, count);
     return mi;
 }
 
@@ -1781,8 +1819,11 @@ static void volumealsa_build_device_menu (VolumeALSAPlugin *vol)
         }
         if (card_num == -1) break;
 
-        if (asound_is_bcm_device (card_num))
+        int res = asound_is_bcm_device (card_num);
+
+        if (res == 1)
         {
+            /* old scheme with single ALSA device for all internal outputs */
             int bcm = 0;
 
             /* if the onboard card is default, find currently-set output */
@@ -1813,6 +1854,20 @@ static void volumealsa_build_device_menu (VolumeALSAPlugin *vol)
                 devices = 3;
             }
             break;
+        }
+
+        if (res == 2)
+        {
+            /* new scheme with separate devices for each internal input */
+            char *nam, *dev;
+            snd_card_get_name (card_num, &nam);
+            dev = g_strdup_printf ("%d", card_num);
+
+            mi = volumealsa_menu_item_add (vol, om, _(nam + 8), dev, card_num == def_card, G_CALLBACK (volumealsa_set_external_output));
+
+            g_free (nam);
+            g_free (dev);
+            devices++;
         }
     }
 
