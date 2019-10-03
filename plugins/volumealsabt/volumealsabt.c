@@ -1714,7 +1714,7 @@ static GtkWidget *volumealsa_menu_item_add (VolumeALSAPlugin *vol, GtkWidget *me
     // loop forward from the first element, comparing against the new label
     while (l)
     {
-        if (strcmp (label, gtk_menu_item_get_label (GTK_MENU_ITEM (l->data))) < 0) break;
+        if (g_strcmp0 (label, gtk_menu_item_get_label (GTK_MENU_ITEM (l->data))) < 0) break;
         count++;
         l = l->next;
     }
