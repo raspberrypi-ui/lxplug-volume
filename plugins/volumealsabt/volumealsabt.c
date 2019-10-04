@@ -1863,7 +1863,12 @@ static void volumealsa_build_device_menu (VolumeALSAPlugin *vol)
             snd_card_get_name (card_num, &nam);
             dev = g_strdup_printf ("%d", card_num);
 
-            mi = volumealsa_menu_item_add (vol, om, _(nam + 8), dev, card_num == def_card, G_CALLBACK (volumealsa_set_external_output));
+            if (!g_strcmp0 (nam, "bcm2835 HDMI 1"))
+                mi = volumealsa_menu_item_add (vol, om, vol->hdmis == 1 ? _("HDMI") : vol->mon_names[0], dev, card_num == def_card, G_CALLBACK (volumealsa_set_external_output));
+            else if (!g_strcmp0 (nam, "bcm2835 HDMI 2"))
+                mi = volumealsa_menu_item_add (vol, om, vol->hdmis == 1 ? _("HDMI") : vol->mon_names[1], dev, card_num == def_card, G_CALLBACK (volumealsa_set_external_output));
+            else
+                mi = volumealsa_menu_item_add (vol, om, _("Analog"), dev, card_num == def_card, G_CALLBACK (volumealsa_set_external_output));
 
             g_free (nam);
             g_free (dev);
