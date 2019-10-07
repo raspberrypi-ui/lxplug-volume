@@ -1,3 +1,9 @@
+lxplug-volume (0.18) buster; urgency=medium
+
+  * Alphabetically sort devices in menu; support individual internal ALSA devices
+
+ -- Simon Long <simon@raspberrypi.org>  Mon, 07 Oct 2019 13:36:06 +0100
+
 lxplug-volume (0.17) buster; urgency=medium
 
   * Add Bluetooth input devices
