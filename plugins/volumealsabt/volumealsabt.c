@@ -154,7 +154,6 @@ static gboolean bt_is_connected (VolumeALSAPlugin *vol, const gchar *path);
 
 /* Volume and mute */
 static long lrint_dir (double x, int dir);
-static inline gboolean use_linear_dB_scale (long dBmin, long dBmax);
 static int get_normalized_volume (snd_mixer_elem_t *elem, gboolean capture);
 static int set_normalized_volume (snd_mixer_elem_t *elem, int volume, int dir, gboolean capture);
 static gboolean asound_has_mute (VolumeALSAPlugin *vol);
@@ -2334,20 +2333,22 @@ static gboolean volumealsa_mouse_out (GtkWidget *widget, GdkEventButton *event, 
 /* Options dialog                                                             */
 /*----------------------------------------------------------------------------*/
 
-gboolean playback_slider_change_event (GtkRange *range, GtkScrollType scroll, gdouble value, gpointer user_data)
+void playback_range_change_event (GtkRange *range, gpointer user_data)
 {
     snd_mixer_elem_t *elem = (snd_mixer_elem_t *) user_data;
 
-    int volume = (int) value;
+    int volume = (int) gtk_range_get_value (range);
     set_normalized_volume (elem, volume, volume - get_normalized_volume (elem, FALSE), FALSE);
+    gtk_range_set_value (range, get_normalized_volume (elem, FALSE));
 }
 
-gboolean capture_slider_change_event (GtkRange *range, GtkScrollType scroll, gdouble value, gpointer user_data)
+gboolean capture_range_change_event (GtkRange *range, gpointer user_data)
 {
     snd_mixer_elem_t *elem = (snd_mixer_elem_t *) user_data;
 
-    int volume = (int) value;
+    int volume = (int) gtk_range_get_value (range);
     set_normalized_volume (elem, volume, volume - get_normalized_volume (elem, TRUE), TRUE);
+    gtk_range_set_value (range, get_normalized_volume (elem, FALSE));
 }
 
 void playback_switch_toggled_event (GtkToggleButton *togglebutton, gpointer user_data)
@@ -2404,14 +2405,14 @@ static void show_options (VolumeALSAPlugin *vol)
                 gtk_table_resize (GTK_TABLE (vol->options_play), 3, cols + 1);
             }
             lbl = gtk_label_new (snd_mixer_selem_get_name (elem));
-            gtk_table_attach (GTK_TABLE (vol->options_play), lbl, cols, cols + 1, 2, 3, GTK_EXPAND, GTK_SHRINK, 5, 5);
+            gtk_table_attach (GTK_TABLE (vol->options_play), lbl, cols, cols + 1, 2, 3, GTK_SHRINK, GTK_SHRINK, 5, 5);
             if (snd_mixer_selem_has_playback_switch (elem))
             {
                 btn = gtk_check_button_new ();
                 gtk_widget_set_name (btn, snd_mixer_selem_get_name (elem));
                 snd_mixer_selem_get_playback_switch (elem, SND_MIXER_SCHN_FRONT_LEFT, &swval);
                 gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (btn), swval);
-                gtk_table_attach (GTK_TABLE (vol->options_play), btn, cols, cols + 1, 1, 2, GTK_EXPAND, GTK_SHRINK, 5, 5);
+                gtk_table_attach (GTK_TABLE (vol->options_play), btn, cols, cols + 1, 1, 2, GTK_SHRINK, GTK_SHRINK, 5, 5);
                 g_signal_connect (btn, "toggled", G_CALLBACK (playback_switch_toggled_event), elem);
             }
             if (snd_mixer_selem_has_playback_volume (elem))
@@ -2420,11 +2421,12 @@ static void show_options (VolumeALSAPlugin *vol)
                 slid = gtk_vscale_new (GTK_ADJUSTMENT (adj));
                 gtk_widget_set_name (slid, snd_mixer_selem_get_name (elem));
                 gtk_range_set_inverted (GTK_RANGE (slid), TRUE);
+                gtk_range_set_update_policy (GTK_RANGE (slid), GTK_UPDATE_DISCONTINUOUS);
                 gtk_range_set_value (GTK_RANGE (slid), get_normalized_volume (elem, FALSE));
-                gtk_widget_set_size_request (slid, -1, 150);
+                gtk_widget_set_size_request (slid, 80, 150);
                 gtk_scale_set_draw_value (GTK_SCALE (slid), FALSE);
-                gtk_table_attach (GTK_TABLE (vol->options_play), slid, cols, cols + 1, 0, 1, GTK_EXPAND, GTK_SHRINK, 5, 5);
-                g_signal_connect (slid, "change-value", G_CALLBACK (playback_slider_change_event), elem);
+                gtk_table_attach (GTK_TABLE (vol->options_play), slid, cols, cols + 1, 0, 1, GTK_SHRINK, GTK_SHRINK, 5, 5);
+                g_signal_connect (slid, "value-changed", G_CALLBACK (playback_range_change_event), elem);
             }
         }
 
@@ -2441,14 +2443,14 @@ static void show_options (VolumeALSAPlugin *vol)
                 gtk_table_resize (GTK_TABLE (vol->options_capt), 3, cols + 1);
             }
             lbl = gtk_label_new (snd_mixer_selem_get_name (elem));
-            gtk_table_attach (GTK_TABLE (vol->options_capt), lbl, cols, cols + 1, 2, 3, GTK_EXPAND, GTK_SHRINK, 5, 5);
+            gtk_table_attach (GTK_TABLE (vol->options_capt), lbl, cols, cols + 1, 2, 3, GTK_SHRINK, GTK_SHRINK, 5, 5);
             if (snd_mixer_selem_has_capture_switch (elem))
             {
                 btn = gtk_check_button_new ();
                 gtk_widget_set_name (btn, snd_mixer_selem_get_name (elem));
                 snd_mixer_selem_get_playback_switch (elem, SND_MIXER_SCHN_FRONT_LEFT, &swval);
                 gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (btn), swval);
-                gtk_table_attach (GTK_TABLE (vol->options_capt), btn, cols, cols + 1, 1, 2, GTK_EXPAND, GTK_SHRINK, 5, 5);
+                gtk_table_attach (GTK_TABLE (vol->options_capt), btn, cols, cols + 1, 1, 2, GTK_SHRINK, GTK_SHRINK, 5, 5);
                 g_signal_connect (btn, "toggled", G_CALLBACK (capture_switch_toggled_event), elem);
             }
             if (snd_mixer_selem_has_capture_volume (elem))
@@ -2457,11 +2459,12 @@ static void show_options (VolumeALSAPlugin *vol)
                 slid = gtk_vscale_new (GTK_ADJUSTMENT (adj));
                 gtk_widget_set_name (slid, snd_mixer_selem_get_name (elem));
                 gtk_range_set_inverted (GTK_RANGE (slid), TRUE);
+                gtk_range_set_update_policy (GTK_RANGE (slid), GTK_UPDATE_DISCONTINUOUS);
                 gtk_range_set_value (GTK_RANGE (slid), get_normalized_volume (elem, TRUE));
-                gtk_widget_set_size_request (slid, -1, 150);
+                gtk_widget_set_size_request (slid, 80, 150);
                 gtk_scale_set_draw_value (GTK_SCALE (slid), FALSE);
-                gtk_table_attach (GTK_TABLE (vol->options_capt), slid, cols, cols + 1, 0, 1, GTK_EXPAND, GTK_SHRINK, 5, 5);
-                g_signal_connect (slid, "change-value", G_CALLBACK (capture_slider_change_event), elem);
+                gtk_table_attach (GTK_TABLE (vol->options_capt), slid, cols, cols + 1, 0, 1, GTK_SHRINK, GTK_SHRINK, 5, 5);
+                g_signal_connect (slid, "value-changed", G_CALLBACK (capture_range_change_event), elem);
             }
         }
     }
