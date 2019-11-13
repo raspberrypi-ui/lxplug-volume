@@ -212,6 +212,8 @@ static void volumealsa_popup_mute_toggled (GtkWidget *widget, VolumeALSAPlugin *
 static void volumealsa_popup_set_position (GtkWidget *menu, gint *px, gint *py, gboolean *push_in, gpointer data);
 static gboolean volumealsa_mouse_out (GtkWidget *widget, GdkEventButton *event, VolumeALSAPlugin *vol);
 
+static void show_options (VolumeALSAPlugin *vol);
+
 /* Plugin */
 static GtkWidget *volumealsa_configure (LXPanel *panel, GtkWidget *plugin);
 static void volumealsa_panel_configuration_changed (LXPanel *panel, GtkWidget *plugin);
@@ -1531,8 +1533,8 @@ static void volumealsa_theme_change (GtkWidget *widget, VolumeALSAPlugin *vol)
 
 static void volumealsa_open_config_dialog (GtkWidget *widget, VolumeALSAPlugin *vol)
 {
-    volumealsa_configure (vol->panel, vol->plugin);
     gtk_menu_popdown (GTK_MENU (vol->menu_popup));
+    show_options (vol);
 }
 
 static void volumealsa_show_connect_dialog (VolumeALSAPlugin *vol, gboolean failed, const gchar *param)
@@ -2309,6 +2311,146 @@ static gboolean volumealsa_mouse_out (GtkWidget *widget, GdkEventButton *event, 
     gdk_pointer_ungrab (GDK_CURRENT_TIME);
     return FALSE;
 }
+
+
+/*----------------------------------------------------------------------------*/
+/* Options dialog                                                             */
+/*----------------------------------------------------------------------------*/
+
+gboolean playback_slider_change_event (GtkRange *range, GtkScrollType scroll, gdouble value, gpointer user_data)
+{
+    snd_mixer_elem_t *elem = (snd_mixer_elem_t *) user_data;
+
+    double aleft = get_normalized_volume (elem, SND_MIXER_SCHN_FRONT_LEFT);
+    double aright = get_normalized_volume (elem, SND_MIXER_SCHN_FRONT_RIGHT);
+    int vol = (int) round ((aleft + aright) * 50);
+
+    int dir = value * 10 - vol;
+    double vol_perc = (double) value / 10.0;
+    set_normalized_volume (elem, SND_MIXER_SCHN_FRONT_LEFT, vol_perc, dir);
+    set_normalized_volume (elem, SND_MIXER_SCHN_FRONT_RIGHT, vol_perc, dir);
+}
+
+gboolean capture_slider_change_event (GtkRange *range, GtkScrollType scroll, gdouble value, gpointer user_data)
+{
+    snd_mixer_elem_t *elem = (snd_mixer_elem_t *) user_data;
+    long max, min;
+    snd_mixer_selem_get_capture_volume_range (elem, &min, &max);
+    double res = (max - min) * value / 10.0;
+    long lres = res;
+    lres += min;
+    snd_mixer_selem_set_capture_volume_all (elem, lres);
+}
+
+void playback_switch_toggled_event (GtkToggleButton *togglebutton, gpointer user_data)
+{
+    snd_mixer_elem_t *elem = (snd_mixer_elem_t *) user_data;
+
+    snd_mixer_selem_set_playback_switch_all (elem, gtk_toggle_button_get_active (togglebutton));
+}
+
+void capture_switch_toggled_event (GtkToggleButton *togglebutton, gpointer user_data)
+{
+    snd_mixer_elem_t *elem = (snd_mixer_elem_t *) user_data;
+
+    snd_mixer_selem_set_capture_switch_all (elem, gtk_toggle_button_get_active (togglebutton));
+}
+
+static void show_options (VolumeALSAPlugin *vol)
+{
+    snd_mixer_elem_t *elem;
+    GtkWidget *pbox = NULL, *cbox = NULL, *lbl, *slid, *box, *btn;
+    GtkObject *adj;
+    guint cols;
+
+    GtkWidget *dlg = gtk_dialog_new_with_buttons (_("Audio Device Options"), NULL, GTK_DIALOG_MODAL | GTK_DIALOG_DESTROY_WITH_PARENT, "OK", 1, NULL);
+    gtk_window_set_position (GTK_WINDOW (dlg), GTK_WIN_POS_CENTER);
+    gtk_container_set_border_width (GTK_CONTAINER (dlg), 10);
+    GtkWidget *nb = gtk_notebook_new ();
+    gtk_box_pack_start (GTK_BOX (gtk_dialog_get_content_area (GTK_DIALOG (dlg))), nb, FALSE, FALSE, 0);
+
+    for (elem = snd_mixer_first_elem (vol->mixer); elem != NULL; elem = snd_mixer_elem_next (elem))
+    {
+        printf ("Element %s %d %d %d %d %d\n",
+            snd_mixer_selem_get_name (elem),
+            snd_mixer_selem_is_active (elem),
+            snd_mixer_selem_has_playback_volume (elem),
+            snd_mixer_selem_has_playback_switch (elem),
+            snd_mixer_selem_has_capture_volume (elem),
+            snd_mixer_selem_has_capture_switch (elem));
+
+        if (snd_mixer_selem_has_playback_volume (elem) || snd_mixer_selem_has_playback_switch (elem))
+        {
+            if (!pbox)
+            {
+                pbox = gtk_table_new (3, 1, FALSE);
+                cols = 0;
+            }
+            else
+            {
+                gtk_table_get_size (GTK_TABLE (pbox), NULL, &cols);
+                gtk_table_resize (GTK_TABLE (pbox), 3, cols + 1);
+            }
+            lbl = gtk_label_new (snd_mixer_selem_get_name (elem));
+            gtk_table_attach (GTK_TABLE (pbox), lbl, cols, cols + 1, 2, 3, GTK_EXPAND, GTK_SHRINK, 5, 5);
+            if (snd_mixer_selem_has_playback_switch (elem))
+            {
+                btn = gtk_check_button_new ();
+                gtk_table_attach (GTK_TABLE (pbox), btn, cols, cols + 1, 1, 2, GTK_EXPAND, GTK_SHRINK, 5, 5);
+                g_signal_connect (btn, "toggled", G_CALLBACK (playback_switch_toggled_event), elem);
+            }
+            if (snd_mixer_selem_has_playback_volume (elem))
+            {
+                adj = gtk_adjustment_new (5.0, 0.0, 10.0, 1.0, 0.0, 0.0);
+                slid = gtk_vscale_new (GTK_ADJUSTMENT (adj));
+                gtk_range_set_inverted (GTK_RANGE (slid), TRUE);
+                gtk_widget_set_size_request (slid, -1, 150);
+                gtk_scale_set_draw_value (GTK_SCALE (slid), FALSE);
+                gtk_table_attach (GTK_TABLE (pbox), slid, cols, cols + 1, 0, 1, GTK_EXPAND, GTK_SHRINK, 5, 5);
+                g_signal_connect (slid, "change-value", G_CALLBACK (playback_slider_change_event), elem);
+            }
+        }
+
+        if (snd_mixer_selem_has_capture_volume (elem) || snd_mixer_selem_has_capture_switch (elem))
+        {
+            if (!cbox)
+            {
+                cbox = gtk_table_new (3, 1, FALSE);
+                cols = 0;
+            }
+            else
+            {
+                gtk_table_get_size (GTK_TABLE (cbox), NULL, &cols);
+                gtk_table_resize (GTK_TABLE (cbox), 3, cols + 1);
+            }
+            lbl = gtk_label_new (snd_mixer_selem_get_name (elem));
+            gtk_table_attach (GTK_TABLE (cbox), lbl, cols, cols + 1, 2, 3, GTK_SHRINK, GTK_SHRINK, 5, 5);
+            if (snd_mixer_selem_has_capture_switch (elem))
+            {
+                btn = gtk_check_button_new ();
+                gtk_table_attach (GTK_TABLE (cbox), btn, cols, cols + 1, 1, 2, GTK_SHRINK, GTK_SHRINK, 5, 5);
+                g_signal_connect (btn, "toggled", G_CALLBACK (capture_switch_toggled_event), elem);
+            }
+            if (snd_mixer_selem_has_capture_volume (elem))
+            {
+                slid = gtk_vscale_new (GTK_ADJUSTMENT (adj));
+                gtk_range_set_inverted (GTK_RANGE (slid), TRUE);
+                gtk_widget_set_size_request (slid, -1, 150);
+                gtk_scale_set_draw_value (GTK_SCALE (slid), FALSE);
+                gtk_table_attach (GTK_TABLE (cbox), slid, cols, cols + 1, 0, 1, GTK_SHRINK, GTK_SHRINK, 5, 5);
+                g_signal_connect (slid, "change-value", G_CALLBACK (capture_slider_change_event), elem);
+            }
+        }
+    }
+
+    if (pbox) gtk_notebook_append_page (GTK_NOTEBOOK (nb), pbox, gtk_label_new (_("Playback")));
+    if (cbox) gtk_notebook_append_page (GTK_NOTEBOOK (nb), cbox, gtk_label_new (_("Capture")));
+
+    gtk_widget_show_all (dlg);
+    gtk_dialog_run (GTK_DIALOG (dlg));
+    gtk_widget_destroy (dlg);
+}
+
 
 
 /*----------------------------------------------------------------------------*/
