@@ -152,8 +152,8 @@ static gboolean bt_is_connected (VolumeALSAPlugin *vol, const gchar *path);
 /* Volume and mute */
 static long lrint_dir (double x, int dir);
 static inline gboolean use_linear_dB_scale (long dBmin, long dBmax);
-static double get_normalized_volume (snd_mixer_elem_t *elem, snd_mixer_selem_channel_id_t channel);
-static int set_normalized_volume (snd_mixer_elem_t *elem, snd_mixer_selem_channel_id_t channel, double volume, int dir);
+static int get_normalized_volume (snd_mixer_elem_t *elem, gboolean capture);
+static int set_normalized_volume (snd_mixer_elem_t *elem, int volume, int dir, gboolean capture);
 static gboolean asound_has_mute (VolumeALSAPlugin *vol);
 static gboolean asound_is_muted (VolumeALSAPlugin *vol);
 static void asound_set_mute (VolumeALSAPlugin *vol, gboolean mute);
@@ -682,8 +682,6 @@ static gboolean bt_is_connected (VolumeALSAPlugin *vol, const gchar *path)
 #define exp10(x) (exp((x) * log(10)))
 #endif
 
-#define MAX_LINEAR_DB_SCALE 24
-
 static long lrint_dir (double x, int dir)
 {
     if (dir > 0) return lrint (ceil(x));
@@ -691,73 +689,89 @@ static long lrint_dir (double x, int dir)
     else return lrint (x);
 }
 
-static inline gboolean use_linear_dB_scale (long dBmin, long dBmax)
+static int get_normalized_volume (snd_mixer_elem_t *elem, gboolean capture)
 {
-    return dBmax - dBmin <= MAX_LINEAR_DB_SCALE * 100;
-}
-
-static double get_normalized_volume (snd_mixer_elem_t *elem, snd_mixer_selem_channel_id_t channel)
-{
-    long min, max, value;
+    long min, max, lvalue, rvalue;
     double normalized, min_norm;
     int err;
 
-    err = snd_mixer_selem_get_playback_dB_range (elem, &min, &max);
+    err = capture ? snd_mixer_selem_get_capture_dB_range (elem, &min, &max) : snd_mixer_selem_get_playback_dB_range (elem, &min, &max);
     if (err < 0 || min >= max)
     {
-        err = snd_mixer_selem_get_playback_volume_range (elem, &min, &max);
+        err = capture ? snd_mixer_selem_get_capture_volume_range (elem, &min, &max) : snd_mixer_selem_get_playback_volume_range (elem, &min, &max);
         if (err < 0 || min == max) return 0;
 
-        err = snd_mixer_selem_get_playback_volume (elem, channel, &value);
+        err = capture ? snd_mixer_selem_get_capture_volume (elem, SND_MIXER_SCHN_FRONT_LEFT, &lvalue) : snd_mixer_selem_get_playback_volume (elem, SND_MIXER_SCHN_FRONT_LEFT, &lvalue);
         if (err < 0) return 0;
 
-        return (value - min) / (double)(max - min);
+        err = capture ? snd_mixer_selem_get_capture_volume (elem, SND_MIXER_SCHN_FRONT_RIGHT, &rvalue) : snd_mixer_selem_get_playback_volume (elem, SND_MIXER_SCHN_FRONT_RIGHT, &rvalue);
+        if (err < 0) return 0;
+
+        lvalue += rvalue;
+        lvalue >>= 1;
+        lvalue -= min;
+        lvalue *= 100;
+        lvalue /= (max - min);
+        return (int) lvalue;
     }
 
-    err = snd_mixer_selem_get_playback_dB (elem, channel, &value);
+    err = capture ? snd_mixer_selem_get_capture_dB (elem, SND_MIXER_SCHN_FRONT_LEFT, &lvalue) : snd_mixer_selem_get_playback_dB (elem, SND_MIXER_SCHN_FRONT_LEFT, &lvalue);
     if (err < 0) return 0;
 
-    if (use_linear_dB_scale (min, max)) return (value - min) / (double) (max - min);
+    err = capture ? snd_mixer_selem_get_capture_dB (elem, SND_MIXER_SCHN_FRONT_RIGHT, &rvalue) : snd_mixer_selem_get_playback_dB (elem, SND_MIXER_SCHN_FRONT_RIGHT, &rvalue);
+    if (err < 0) return 0;
 
-    normalized = exp10 ((value - max) / 6000.0);
+    lvalue += rvalue;
+    lvalue >>= 1;
+
+    if (max - min <= 2400)
+    {
+        lvalue -= min;
+        lvalue *= 100;
+        lvalue /= (max - min);
+        return (int) lvalue;
+    }
+
+    normalized = exp10 ((lvalue - max) / 6000.0);
     if (min != SND_CTL_TLV_DB_GAIN_MUTE)
     {
         min_norm = exp10 ((min - max) / 6000.0);
         normalized = (normalized - min_norm) / (1 - min_norm);
     }
 
-    return normalized;
+    return (int) round (normalized * 100);
 }
 
-static int set_normalized_volume (snd_mixer_elem_t *elem, snd_mixer_selem_channel_id_t channel, double volume, int dir)
+static int set_normalized_volume (snd_mixer_elem_t *elem, int volume, int dir, gboolean capture)
 {
     long min, max, value;
     double min_norm;
     int err;
+    double vol_perc = (double) volume / 100;
 
-    err = snd_mixer_selem_get_playback_dB_range (elem, &min, &max);
+    err = capture ? snd_mixer_selem_get_capture_dB_range (elem, &min, &max) : snd_mixer_selem_get_playback_dB_range (elem, &min, &max);
     if (err < 0 || min >= max)
     {
-        err = snd_mixer_selem_get_playback_volume_range (elem, &min, &max);
+        err = capture ? snd_mixer_selem_get_capture_volume_range (elem, &min, &max) : snd_mixer_selem_get_playback_volume_range (elem, &min, &max);
         if (err < 0) return err;
 
-        value = lrint_dir (volume * (max - min), dir) + min;
-        return snd_mixer_selem_set_playback_volume (elem, channel, value);
+        value = lrint_dir (vol_perc * (max - min), dir) + min;
+        return capture ? snd_mixer_selem_set_capture_volume_all (elem, value) : snd_mixer_selem_set_playback_volume_all (elem, value);
     }
 
-    if (use_linear_dB_scale (min, max))
+    if (max - min <= 2400)
     {
-        value = lrint_dir (volume * (max - min), dir) + min;
-        return snd_mixer_selem_set_playback_dB (elem, channel, value, dir);
+        value = lrint_dir (vol_perc * (max - min), dir) + min;
+        return capture ? snd_mixer_selem_set_capture_dB_all (elem, value, dir) : snd_mixer_selem_set_playback_dB_all (elem, value, dir);
     }
 
     if (min != SND_CTL_TLV_DB_GAIN_MUTE)
     {
         min_norm = exp10 ((min - max) / 6000.0);
-        volume = volume * (1 - min_norm) + min_norm;
+        vol_perc = vol_perc * (1 - min_norm) + min_norm;
     }
-    value = lrint_dir (6000.0 * log10 (volume), dir) + max;
-    return snd_mixer_selem_set_playback_dB (elem, channel, value, dir);
+    value = lrint_dir (6000.0 * log10 (vol_perc), dir) + max;
+    return capture ? snd_mixer_selem_set_capture_dB_all (elem, value, dir) : snd_mixer_selem_set_playback_dB_all (elem, value, dir);
 }
 
 /* Get the presence of the mute control from the sound system. */
@@ -798,9 +812,7 @@ static int asound_get_volume (VolumeALSAPlugin *vol)
     if (!snd_mixer_selem_has_playback_channel (vol->master_element, SND_MIXER_SCHN_FRONT_LEFT)) return 0;
     if (!snd_mixer_selem_has_playback_volume (vol->master_element)) return 0;
 
-    double aleft = get_normalized_volume (vol->master_element, SND_MIXER_SCHN_FRONT_LEFT);
-    double aright = get_normalized_volume (vol->master_element, SND_MIXER_SCHN_FRONT_RIGHT);
-    return (int) round ((aleft + aright) * 50);
+    return get_normalized_volume (vol->master_element, FALSE);
 }
 
 /* Set the volume to the sound system.
@@ -811,10 +823,7 @@ static void asound_set_volume (VolumeALSAPlugin *vol, int volume)
     if (!snd_mixer_selem_has_playback_channel (vol->master_element, SND_MIXER_SCHN_FRONT_LEFT)) return;
     if (!snd_mixer_selem_has_playback_volume (vol->master_element)) return;
 
-    int dir = volume - asound_get_volume (vol);
-    double vol_perc = (double) volume / 100;
-    set_normalized_volume (vol->master_element, SND_MIXER_SCHN_FRONT_LEFT, vol_perc, dir);
-    set_normalized_volume (vol->master_element, SND_MIXER_SCHN_FRONT_RIGHT, vol_perc, dir);
+    set_normalized_volume (vol->master_element, volume, volume - asound_get_volume (vol), FALSE);
 }
 
 
@@ -2321,25 +2330,16 @@ gboolean playback_slider_change_event (GtkRange *range, GtkScrollType scroll, gd
 {
     snd_mixer_elem_t *elem = (snd_mixer_elem_t *) user_data;
 
-    double aleft = get_normalized_volume (elem, SND_MIXER_SCHN_FRONT_LEFT);
-    double aright = get_normalized_volume (elem, SND_MIXER_SCHN_FRONT_RIGHT);
-    int vol = (int) round ((aleft + aright) * 50);
-
-    int dir = value * 10 - vol;
-    double vol_perc = (double) value / 10.0;
-    set_normalized_volume (elem, SND_MIXER_SCHN_FRONT_LEFT, vol_perc, dir);
-    set_normalized_volume (elem, SND_MIXER_SCHN_FRONT_RIGHT, vol_perc, dir);
+    int volume = (int) value;
+    set_normalized_volume (elem, volume, volume - get_normalized_volume (elem, FALSE), FALSE);
 }
 
 gboolean capture_slider_change_event (GtkRange *range, GtkScrollType scroll, gdouble value, gpointer user_data)
 {
     snd_mixer_elem_t *elem = (snd_mixer_elem_t *) user_data;
-    long max, min;
-    snd_mixer_selem_get_capture_volume_range (elem, &min, &max);
-    double res = (max - min) * value / 10.0;
-    long lres = res;
-    lres += min;
-    snd_mixer_selem_set_capture_volume_all (elem, lres);
+
+    int volume = (int) value;
+    set_normalized_volume (elem, volume, volume - get_normalized_volume (elem, TRUE), TRUE);
 }
 
 void playback_switch_toggled_event (GtkToggleButton *togglebutton, gpointer user_data)
@@ -2401,9 +2401,10 @@ static void show_options (VolumeALSAPlugin *vol)
             }
             if (snd_mixer_selem_has_playback_volume (elem))
             {
-                adj = gtk_adjustment_new (5.0, 0.0, 10.0, 1.0, 0.0, 0.0);
+                adj = gtk_adjustment_new (50.0, 0.0, 100.0, 1.0, 0.0, 0.0);
                 slid = gtk_vscale_new (GTK_ADJUSTMENT (adj));
                 gtk_range_set_inverted (GTK_RANGE (slid), TRUE);
+                gtk_range_set_value (GTK_RANGE (slid), get_normalized_volume (elem, FALSE));
                 gtk_widget_set_size_request (slid, -1, 150);
                 gtk_scale_set_draw_value (GTK_SCALE (slid), FALSE);
                 gtk_table_attach (GTK_TABLE (pbox), slid, cols, cols + 1, 0, 1, GTK_EXPAND, GTK_SHRINK, 5, 5);
@@ -2433,8 +2434,10 @@ static void show_options (VolumeALSAPlugin *vol)
             }
             if (snd_mixer_selem_has_capture_volume (elem))
             {
+                adj = gtk_adjustment_new (50.0, 0.0, 100.0, 1.0, 0.0, 0.0);
                 slid = gtk_vscale_new (GTK_ADJUSTMENT (adj));
                 gtk_range_set_inverted (GTK_RANGE (slid), TRUE);
+                gtk_range_set_value (GTK_RANGE (slid), get_normalized_volume (elem, TRUE));
                 gtk_widget_set_size_request (slid, -1, 150);
                 gtk_scale_set_draw_value (GTK_SCALE (slid), FALSE);
                 gtk_table_attach (GTK_TABLE (cbox), slid, cols, cols + 1, 0, 1, GTK_SHRINK, GTK_SHRINK, 5, 5);
