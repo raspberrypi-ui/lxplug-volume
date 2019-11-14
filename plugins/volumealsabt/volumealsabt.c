@@ -188,6 +188,7 @@ static gboolean asound_is_current_bt_dev (const char *obj, gboolean is_input);
 static int asound_get_bcm_device_num (void);
 static int asound_is_bcm_device (int num);
 static char *asound_default_device_name (void);
+static char *asound_default_input_name (void);
 
 /* Handlers and graphics */
 static void volumealsa_update_display (VolumeALSAPlugin *vol);
@@ -216,7 +217,9 @@ static void volumealsa_popup_set_position (GtkWidget *menu, gint *px, gint *py, 
 static gboolean volumealsa_mouse_out (GtkWidget *widget, GdkEventButton *event, VolumeALSAPlugin *vol);
 
 /* Options dialog */
-static void show_options (VolumeALSAPlugin *vol);
+static void show_options (VolumeALSAPlugin *vol, snd_mixer_t *mixer);
+static void show_input_options (VolumeALSAPlugin *vol);
+static void show_output_options (VolumeALSAPlugin *vol);
 static void update_options (VolumeALSAPlugin *vol);
 static GtkWidget *find_child (GtkWidget *container, const char *type, const char *name);
 
@@ -1474,6 +1477,13 @@ static char *asound_default_device_name (void)
     else return g_strdup_printf ("hw:%d", num);
 }
 
+static char *asound_default_input_name (void)
+{
+    int num = asound_get_default_input ();
+    if (num == BLUEALSA_DEV) return g_strdup_printf ("bluealsa");
+    else return g_strdup_printf ("hw:%d", num);
+}
+
 
 /*----------------------------------------------------------------------------*/
 /* Plugin handlers and graphics                                               */
@@ -1489,7 +1499,7 @@ static void volumealsa_update_display (VolumeALSAPlugin *vol)
     textdomain (GETTEXT_PACKAGE);
 #endif
 
-    if (vol->options_dlg) update_options (vol);
+    if (vol->options_dlg) update_options (vol);  // !!!! need to do something here to update input options too
 
     /* check that the mixer is still valid */
     if (vol->master_element == NULL || snd_mixer_elem_get_type (vol->master_element) != SND_MIXER_ELEM_SIMPLE)
@@ -1551,7 +1561,13 @@ static void volumealsa_theme_change (GtkWidget *widget, VolumeALSAPlugin *vol)
 static void volumealsa_open_config_dialog (GtkWidget *widget, VolumeALSAPlugin *vol)
 {
     gtk_menu_popdown (GTK_MENU (vol->menu_popup));
-    show_options (vol);
+    show_output_options (vol);
+}
+
+static void volumealsa_open_input_config_dialog (GtkWidget *widget, VolumeALSAPlugin *vol)
+{
+    gtk_menu_popdown (GTK_MENU (vol->menu_popup));
+    show_input_options (vol);
 }
 
 static void volumealsa_show_connect_dialog (VolumeALSAPlugin *vol, gboolean failed, const gchar *param)
@@ -2001,9 +2017,16 @@ static void volumealsa_build_device_menu (VolumeALSAPlugin *vol)
         mi = gtk_separator_menu_item_new ();
         gtk_menu_shell_append (GTK_MENU_SHELL (vol->menu_popup), mi);
 
-        mi = gtk_image_menu_item_new_with_label (_("Audio Device Settings..."));
+        mi = gtk_image_menu_item_new_with_label (_("Output Device Settings..."));
         g_signal_connect (mi, "activate", G_CALLBACK (volumealsa_open_config_dialog), (gpointer) vol);
         gtk_menu_shell_append (GTK_MENU_SHELL (vol->menu_popup), mi);
+
+        if (inputs)
+        {
+            mi = gtk_image_menu_item_new_with_label (_("Input Device Settings..."));
+            g_signal_connect (mi, "activate", G_CALLBACK (volumealsa_open_input_config_dialog), (gpointer) vol);
+            gtk_menu_shell_append (GTK_MENU_SHELL (vol->menu_popup), mi);
+        }
     }
 
     if (!devices)
@@ -2334,7 +2357,7 @@ static gboolean volumealsa_mouse_out (GtkWidget *widget, GdkEventButton *event, 
 /* Options dialog                                                             */
 /*----------------------------------------------------------------------------*/
 
-void playback_range_change_event (GtkRange *range, gpointer user_data)
+static void playback_range_change_event (GtkRange *range, gpointer user_data)
 {
     snd_mixer_elem_t *elem = (snd_mixer_elem_t *) user_data;
 
@@ -2343,7 +2366,7 @@ void playback_range_change_event (GtkRange *range, gpointer user_data)
     gtk_range_set_value (range, get_normalized_volume (elem, FALSE));
 }
 
-gboolean capture_range_change_event (GtkRange *range, gpointer user_data)
+static gboolean capture_range_change_event (GtkRange *range, gpointer user_data)
 {
     snd_mixer_elem_t *elem = (snd_mixer_elem_t *) user_data;
 
@@ -2352,28 +2375,28 @@ gboolean capture_range_change_event (GtkRange *range, gpointer user_data)
     gtk_range_set_value (range, get_normalized_volume (elem, FALSE));
 }
 
-void playback_switch_toggled_event (GtkToggleButton *togglebutton, gpointer user_data)
+static void playback_switch_toggled_event (GtkToggleButton *togglebutton, gpointer user_data)
 {
     snd_mixer_elem_t *elem = (snd_mixer_elem_t *) user_data;
 
     snd_mixer_selem_set_playback_switch_all (elem, gtk_toggle_button_get_active (togglebutton));
 }
 
-void capture_switch_toggled_event (GtkToggleButton *togglebutton, gpointer user_data)
+static void capture_switch_toggled_event (GtkToggleButton *togglebutton, gpointer user_data)
 {
     snd_mixer_elem_t *elem = (snd_mixer_elem_t *) user_data;
 
     snd_mixer_selem_set_capture_switch_all (elem, gtk_toggle_button_get_active (togglebutton));
 }
 
-void enum_changed_event (GtkComboBox *combo, gpointer *user_data)
+static void enum_changed_event (GtkComboBox *combo, gpointer *user_data)
 {
     snd_mixer_elem_t *elem = (snd_mixer_elem_t *) user_data;
 
     snd_mixer_selem_set_enum_item (elem, SND_MIXER_SCHN_FRONT_LEFT, gtk_combo_box_get_active (combo));
 }
 
-static void show_options (VolumeALSAPlugin *vol)
+static void show_options (VolumeALSAPlugin *vol, snd_mixer_t *mixer)
 {
     snd_mixer_elem_t *elem;
     GtkWidget *lbl, *slid, *box, *btn, *scr;
@@ -2384,13 +2407,16 @@ static void show_options (VolumeALSAPlugin *vol)
     vol->options_dlg = gtk_dialog_new_with_buttons (_("Audio Device Options"), NULL, GTK_DIALOG_MODAL | GTK_DIALOG_DESTROY_WITH_PARENT, "OK", 1, NULL);
     gtk_window_set_position (GTK_WINDOW (vol->options_dlg), GTK_WIN_POS_CENTER);
     gtk_container_set_border_width (GTK_CONTAINER (vol->options_dlg), 10);
+    char *dev = g_strdup_printf (_("Device : %s"), "mixer name");
+    lbl = gtk_label_new (dev);
+    gtk_box_pack_start (GTK_BOX (gtk_dialog_get_content_area (GTK_DIALOG (vol->options_dlg))), lbl, FALSE, FALSE, 0);
     GtkWidget *nb = gtk_notebook_new ();
     gtk_box_pack_start (GTK_BOX (gtk_dialog_get_content_area (GTK_DIALOG (vol->options_dlg))), nb, FALSE, FALSE, 0);
 
     vol->options_play = NULL;
     vol->options_capt = NULL;
     vol->options_set = NULL;
-    for (elem = snd_mixer_first_elem (vol->mixer); elem != NULL; elem = snd_mixer_elem_next (elem))
+    for (elem = snd_mixer_first_elem (mixer); elem != NULL; elem = snd_mixer_elem_next (elem))
     {
 #if 0
         printf ("Element %s %d %d %d %d %d\n",
@@ -2524,7 +2550,7 @@ static void show_options (VolumeALSAPlugin *vol)
             int sel;
             snd_mixer_selem_get_enum_item (elem, SND_MIXER_SCHN_FRONT_LEFT, &sel);
             gtk_combo_box_set_active (GTK_COMBO_BOX (btn), sel);
-            gtk_box_pack_start (GTK_BOX (vol->options_set), box, TRUE, TRUE, 5);
+            gtk_box_pack_start (GTK_BOX (vol->options_set), box, FALSE, FALSE, 5);
             g_signal_connect (btn, "changed", G_CALLBACK (enum_changed_event), elem);
         }
     }
@@ -2551,10 +2577,40 @@ static void show_options (VolumeALSAPlugin *vol)
         gtk_notebook_append_page (GTK_NOTEBOOK (nb), scr, gtk_label_new (_("Options")));
     }
 
+    // put something in the window if there are no controls??? !!!!!
+
     gtk_widget_show_all (vol->options_dlg);
     gtk_dialog_run (GTK_DIALOG (vol->options_dlg));
     gtk_widget_destroy (vol->options_dlg);
     vol->options_dlg = NULL;
+}
+
+static void show_output_options (VolumeALSAPlugin *vol)
+{
+    show_options (vol, vol->mixer);
+}
+
+static void show_input_options (VolumeALSAPlugin *vol)
+{
+    snd_mixer_t *mixer;
+    char *dev = asound_default_input_name ();
+    if (!snd_mixer_open (&mixer, 0))
+    {
+        if (!snd_mixer_attach (mixer, dev))
+        {
+            if (!snd_mixer_selem_register (mixer, NULL, NULL))
+            {
+                if (!snd_mixer_load (mixer))
+                {
+                    show_options (vol, mixer);
+                    snd_mixer_free (mixer);
+                }
+            }
+            snd_mixer_detach (mixer, dev);
+        }
+        snd_mixer_close (mixer);
+    }
+    g_free (dev);
 }
 
 static GtkWidget *find_child (GtkWidget *container, const char *type, const char *name)
