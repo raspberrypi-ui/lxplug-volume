@@ -2443,9 +2443,9 @@ static void show_options (VolumeALSAPlugin *vol)
             if (!vol->options_set) vol->options_set = gtk_vbox_new (FALSE, 5);
             box = gtk_hbox_new (FALSE, 5);
             lbl = gtk_label_new (snd_mixer_selem_get_name (elem));
-            gtk_box_pack_start (GTK_BOX (box), lbl, TRUE, TRUE, 5);
+            gtk_box_pack_start (GTK_BOX (box), lbl, FALSE, FALSE, 5);
             btn = gtk_check_button_new ();
-            gtk_box_pack_start (GTK_BOX (box), btn, TRUE, TRUE, 5);
+            gtk_box_pack_end (GTK_BOX (box), btn, FALSE, FALSE, 5);
             gtk_widget_set_name (btn, snd_mixer_selem_get_name (elem));
             snd_mixer_selem_get_playback_switch (elem, SND_MIXER_SCHN_FRONT_LEFT, &swval);
             gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (btn), swval);
@@ -2495,9 +2495,9 @@ static void show_options (VolumeALSAPlugin *vol)
             if (!vol->options_set) vol->options_set = gtk_vbox_new (FALSE, 5);
             box = gtk_hbox_new (FALSE, 5);
             lbl = gtk_label_new (snd_mixer_selem_get_name (elem));
-            gtk_box_pack_start (GTK_BOX (box), lbl, TRUE, TRUE, 5);
+            gtk_box_pack_start (GTK_BOX (box), lbl, FALSE, FALSE, 5);
             btn = gtk_check_button_new ();
-            gtk_box_pack_start (GTK_BOX (box), btn, TRUE, TRUE, 5);
+            gtk_box_pack_end (GTK_BOX (box), btn, FALSE, FALSE, 5);
             gtk_widget_set_name (btn, snd_mixer_selem_get_name (elem));
             snd_mixer_selem_get_playback_switch (elem, SND_MIXER_SCHN_FRONT_LEFT, &swval);
             gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (btn), swval);
@@ -2510,9 +2510,10 @@ static void show_options (VolumeALSAPlugin *vol)
             if (!vol->options_set) vol->options_set = gtk_vbox_new (FALSE, 5);
             box = gtk_hbox_new (FALSE, 5);
             lbl = gtk_label_new (snd_mixer_selem_get_name (elem));
-            gtk_box_pack_start (GTK_BOX (box), lbl, TRUE, TRUE, 5);
+            gtk_box_pack_start (GTK_BOX (box), lbl, FALSE, FALSE, 5);
             btn = gtk_combo_box_text_new ();
-            gtk_box_pack_start (GTK_BOX (box), btn, TRUE, TRUE, 5);
+            gtk_box_pack_end (GTK_BOX (box), btn, FALSE, FALSE, 5);
+            gtk_widget_set_name (btn, snd_mixer_selem_get_name (elem));
             int items = snd_mixer_selem_get_enum_items (elem);
             for (int i = 0; i < items; i++)
             {
@@ -2550,6 +2551,22 @@ static GtkWidget *find_child (GtkWidget *container, const char *type, const char
     return NULL;
 }
 
+static GtkWidget *find_box_child (GtkWidget *container, const char *type, const char *name)
+{
+    GList *l, *list = gtk_container_get_children (GTK_CONTAINER (container));
+
+    for (l = list; l; l = l->next)
+    {
+        GList *m, *mist = gtk_container_get_children (GTK_CONTAINER (l->data));
+        for (m = mist; m; m = m->next)
+        {
+            if (!g_strcmp0 (type, g_type_name (G_OBJECT_TYPE (m->data))) && !g_strcmp0 (name, gtk_widget_get_name (m->data)))
+                return m->data;
+        }
+    }
+    return NULL;
+}
+
 static void update_options (VolumeALSAPlugin *vol)
 {
     snd_mixer_elem_t *elem;
@@ -2567,6 +2584,7 @@ static void update_options (VolumeALSAPlugin *vol)
         if (snd_mixer_selem_has_playback_switch (elem))
         {
             wid = find_child (vol->options_play, "GtkCheckButton", snd_mixer_selem_get_name (elem));
+            if (!wid) wid = find_box_child (vol->options_set, "GtkCheckButton", snd_mixer_selem_get_name (elem));
             snd_mixer_selem_get_playback_switch (elem, SND_MIXER_SCHN_FRONT_LEFT, &swval);
             if (wid) gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (wid), swval);
         }
@@ -2578,8 +2596,15 @@ static void update_options (VolumeALSAPlugin *vol)
         if (snd_mixer_selem_has_capture_switch (elem))
         {
             wid = find_child (vol->options_play, "GtkCheckButton", snd_mixer_selem_get_name (elem));
+            if (!wid) wid = find_box_child (vol->options_set, "GtkCheckButton", snd_mixer_selem_get_name (elem));
             snd_mixer_selem_get_playback_switch (elem, SND_MIXER_SCHN_FRONT_LEFT, &swval);
             if (wid) gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (wid), swval);
+        }
+        if (snd_mixer_selem_is_enumerated (elem))
+        {
+            wid = find_box_child (vol->options_set, "GtkComboBoxText", snd_mixer_selem_get_name (elem));
+            snd_mixer_selem_get_enum_item (elem, SND_MIXER_SCHN_FRONT_LEFT, &swval);
+            if (wid) gtk_combo_box_set_active (GTK_COMBO_BOX (wid), swval);
         }
     }
 }
