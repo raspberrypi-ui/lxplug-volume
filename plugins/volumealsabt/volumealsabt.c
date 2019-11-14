@@ -2376,7 +2376,7 @@ void enum_changed_event (GtkComboBox *combo, gpointer *user_data)
 static void show_options (VolumeALSAPlugin *vol)
 {
     snd_mixer_elem_t *elem;
-    GtkWidget *lbl, *slid, *box, *btn;
+    GtkWidget *lbl, *slid, *box, *btn, *scr;
     GtkObject *adj;
     guint cols;
     int swval;
@@ -2529,9 +2529,27 @@ static void show_options (VolumeALSAPlugin *vol)
         }
     }
 
-    if (vol->options_play) gtk_notebook_append_page (GTK_NOTEBOOK (nb), vol->options_play, gtk_label_new (_("Playback")));
-    if (vol->options_capt) gtk_notebook_append_page (GTK_NOTEBOOK (nb), vol->options_capt, gtk_label_new (_("Capture")));
-    if (vol->options_set) gtk_notebook_append_page (GTK_NOTEBOOK (nb), vol->options_set, gtk_label_new (_("Options")));
+    if (vol->options_play)
+    {
+        scr = gtk_scrolled_window_new (NULL, NULL);
+        gtk_scrolled_window_set_policy (GTK_SCROLLED_WINDOW (scr), GTK_POLICY_AUTOMATIC, GTK_POLICY_NEVER);
+        gtk_scrolled_window_add_with_viewport (GTK_SCROLLED_WINDOW (scr), vol->options_play);
+        gtk_notebook_append_page (GTK_NOTEBOOK (nb), scr, gtk_label_new (_("Playback")));
+    }
+    if (vol->options_capt)
+    {
+        scr = gtk_scrolled_window_new (NULL, NULL);
+        gtk_scrolled_window_set_policy (GTK_SCROLLED_WINDOW (scr), GTK_POLICY_AUTOMATIC, GTK_POLICY_NEVER);
+        gtk_scrolled_window_add_with_viewport (GTK_SCROLLED_WINDOW (scr), vol->options_capt);
+        gtk_notebook_append_page (GTK_NOTEBOOK (nb), scr, gtk_label_new (_("Capture")));
+    }
+    if (vol->options_set)
+    {
+        scr = gtk_scrolled_window_new (NULL, NULL);
+        gtk_scrolled_window_set_policy (GTK_SCROLLED_WINDOW (scr), GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
+        gtk_scrolled_window_add_with_viewport (GTK_SCROLLED_WINDOW (scr), vol->options_set);
+        gtk_notebook_append_page (GTK_NOTEBOOK (nb), scr, gtk_label_new (_("Options")));
+    }
 
     gtk_widget_show_all (vol->options_dlg);
     gtk_dialog_run (GTK_DIALOG (vol->options_dlg));
