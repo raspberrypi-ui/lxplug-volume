@@ -1085,7 +1085,7 @@ static gboolean asound_mixer_event (GIOChannel *channel, GIOCondition cond, gpoi
     }
 
     /* the status of mixer is changed. update of display is needed. */
-    if (cond & G_IO_IN && res > 0) volumealsa_update_display (vol);
+    if (cond & G_IO_IN && res >= 0) volumealsa_update_display (vol);
 
     if ((cond & G_IO_HUP) || (res < 0))
     {
@@ -2471,7 +2471,7 @@ static void show_options (VolumeALSAPlugin *vol)
             {
                 btn = gtk_check_button_new ();
                 gtk_widget_set_name (btn, snd_mixer_selem_get_name (elem));
-                snd_mixer_selem_get_playback_switch (elem, SND_MIXER_SCHN_FRONT_LEFT, &swval);
+                snd_mixer_selem_get_capture_switch (elem, SND_MIXER_SCHN_FRONT_LEFT, &swval);
                 gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (btn), swval);
                 gtk_table_attach (GTK_TABLE (vol->options_capt), btn, cols, cols + 1, 1, 2, GTK_SHRINK, GTK_SHRINK, 5, 5);
                 g_signal_connect (btn, "toggled", G_CALLBACK (capture_switch_toggled_event), elem);
@@ -2499,7 +2499,7 @@ static void show_options (VolumeALSAPlugin *vol)
             btn = gtk_check_button_new ();
             gtk_box_pack_end (GTK_BOX (box), btn, FALSE, FALSE, 5);
             gtk_widget_set_name (btn, snd_mixer_selem_get_name (elem));
-            snd_mixer_selem_get_playback_switch (elem, SND_MIXER_SCHN_FRONT_LEFT, &swval);
+            snd_mixer_selem_get_capture_switch (elem, SND_MIXER_SCHN_FRONT_LEFT, &swval);
             gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (btn), swval);
             gtk_box_pack_start (GTK_BOX (vol->options_set), box, TRUE, TRUE, 5);
             g_signal_connect (btn, "toggled", G_CALLBACK (capture_switch_toggled_event), elem);
@@ -2613,9 +2613,9 @@ static void update_options (VolumeALSAPlugin *vol)
         }
         if (snd_mixer_selem_has_capture_switch (elem))
         {
-            wid = find_child (vol->options_play, "GtkCheckButton", snd_mixer_selem_get_name (elem));
+            wid = find_child (vol->options_capt, "GtkCheckButton", snd_mixer_selem_get_name (elem));
             if (!wid) wid = find_box_child (vol->options_set, "GtkCheckButton", snd_mixer_selem_get_name (elem));
-            snd_mixer_selem_get_playback_switch (elem, SND_MIXER_SCHN_FRONT_LEFT, &swval);
+            snd_mixer_selem_get_capture_switch (elem, SND_MIXER_SCHN_FRONT_LEFT, &swval);
             if (wid) gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (wid), swval);
         }
         if (snd_mixer_selem_is_enumerated (elem))
