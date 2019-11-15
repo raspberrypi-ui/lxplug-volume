@@ -771,6 +771,7 @@ static int set_normalized_volume (snd_mixer_elem_t *elem, int volume, int dir, g
     if (max - min <= 2400)
     {
         value = lrint_dir (vol_perc * (max - min), dir) + min;
+        if (dir == 0) dir = 1;  // dir = 0 seems to round down...
         return capture ? snd_mixer_selem_set_capture_dB_all (elem, value, dir) : snd_mixer_selem_set_playback_dB_all (elem, value, dir);
     }
 
@@ -2363,16 +2364,22 @@ static void playback_range_change_event (GtkRange *range, gpointer user_data)
 
     int volume = (int) gtk_range_get_value (range);
     set_normalized_volume (elem, volume, volume - get_normalized_volume (elem, FALSE), FALSE);
+
+    g_signal_handlers_block_by_func (range, playback_range_change_event, elem);
     gtk_range_set_value (range, get_normalized_volume (elem, FALSE));
+    g_signal_handlers_unblock_by_func (range, playback_range_change_event, elem);
 }
 
-static gboolean capture_range_change_event (GtkRange *range, gpointer user_data)
+static void capture_range_change_event (GtkRange *range, gpointer user_data)
 {
     snd_mixer_elem_t *elem = (snd_mixer_elem_t *) user_data;
 
     int volume = (int) gtk_range_get_value (range);
     set_normalized_volume (elem, volume, volume - get_normalized_volume (elem, TRUE), TRUE);
-    gtk_range_set_value (range, get_normalized_volume (elem, FALSE));
+
+    g_signal_handlers_block_by_func (range, capture_range_change_event, elem);
+    gtk_range_set_value (range, get_normalized_volume (elem, TRUE));
+    g_signal_handlers_unblock_by_func (range, capture_range_change_event, elem);
 }
 
 static void playback_switch_toggled_event (GtkToggleButton *togglebutton, gpointer user_data)
@@ -2653,32 +2660,56 @@ static void update_options (VolumeALSAPlugin *vol)
         if (snd_mixer_selem_has_playback_volume (elem))
         {
             wid = find_child (vol->options_play, "GtkVScale", snd_mixer_selem_get_name (elem));
-            if (wid) gtk_range_set_value (GTK_RANGE (wid), get_normalized_volume (elem, FALSE));
+            if (wid)
+            {
+                g_signal_handlers_block_by_func (wid, playback_range_change_event, elem);
+                gtk_range_set_value (GTK_RANGE (wid), get_normalized_volume (elem, FALSE));
+                g_signal_handlers_unblock_by_func (wid, playback_range_change_event, elem);
+            }
         }
         if (snd_mixer_selem_has_playback_switch (elem))
         {
             wid = find_child (vol->options_play, "GtkCheckButton", snd_mixer_selem_get_name (elem));
             if (!wid) wid = find_box_child (vol->options_set, "GtkCheckButton", snd_mixer_selem_get_name (elem));
-            snd_mixer_selem_get_playback_switch (elem, SND_MIXER_SCHN_FRONT_LEFT, &swval);
-            if (wid) gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (wid), swval);
+            if (wid)
+            {
+                snd_mixer_selem_get_playback_switch (elem, SND_MIXER_SCHN_FRONT_LEFT, &swval);
+                g_signal_handlers_block_by_func (wid, playback_switch_toggled_event, elem);
+                gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (wid), swval);
+                g_signal_handlers_unblock_by_func (wid, playback_switch_toggled_event, elem);
+            }
         }
         if (snd_mixer_selem_has_capture_volume (elem))
         {
             wid = find_child (vol->options_capt, "GtkVScale", snd_mixer_selem_get_name (elem));
-            if (wid) gtk_range_set_value (GTK_RANGE (wid), get_normalized_volume (elem, TRUE));
+            {
+                g_signal_handlers_block_by_func (wid, capture_range_change_event, elem);
+                gtk_range_set_value (GTK_RANGE (wid), get_normalized_volume (elem, TRUE));
+                g_signal_handlers_unblock_by_func (wid, capture_range_change_event, elem);
+            }
         }
         if (snd_mixer_selem_has_capture_switch (elem))
         {
             wid = find_child (vol->options_capt, "GtkCheckButton", snd_mixer_selem_get_name (elem));
             if (!wid) wid = find_box_child (vol->options_set, "GtkCheckButton", snd_mixer_selem_get_name (elem));
-            snd_mixer_selem_get_capture_switch (elem, SND_MIXER_SCHN_FRONT_LEFT, &swval);
-            if (wid) gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (wid), swval);
+            if (wid)
+            {
+                snd_mixer_selem_get_capture_switch (elem, SND_MIXER_SCHN_FRONT_LEFT, &swval);
+                g_signal_handlers_block_by_func (wid, capture_switch_toggled_event, elem);
+                gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (wid), swval);
+                g_signal_handlers_unblock_by_func (wid, capture_switch_toggled_event, elem);
+            }
         }
         if (snd_mixer_selem_is_enumerated (elem))
         {
             wid = find_box_child (vol->options_set, "GtkComboBoxText", snd_mixer_selem_get_name (elem));
-            snd_mixer_selem_get_enum_item (elem, SND_MIXER_SCHN_FRONT_LEFT, &swval);
-            if (wid) gtk_combo_box_set_active (GTK_COMBO_BOX (wid), swval);
+            if (wid)
+            {
+                snd_mixer_selem_get_enum_item (elem, SND_MIXER_SCHN_FRONT_LEFT, &swval);
+                g_signal_handlers_block_by_func (wid, enum_changed_event, elem);
+                gtk_combo_box_set_active (GTK_COMBO_BOX (wid), swval);
+                g_signal_handlers_unblock_by_func (wid, enum_changed_event, elem);
+            }
         }
     }
 }
