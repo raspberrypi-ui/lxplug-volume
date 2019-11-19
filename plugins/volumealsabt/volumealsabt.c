@@ -1210,6 +1210,13 @@ static int asound_get_default_input (void)
     /* does .asoundrc use type asym? */
     if (find_in_section (user_config_file, "pcm.!default", "asym"))
     {
+        /* look in pcm.input section for bluealsa */
+        if (find_in_section (user_config_file, "pcm.input", "bluealsa"))
+        {
+            g_free (user_config_file);
+            return BLUEALSA_DEV;
+        }
+
         /* parse pcm.input section for card number */
         res = get_string ("sed -n '/pcm.input/,/}/{/card/p}' %s 2>/dev/null | cut -d ' ' -f 2", user_config_file);
         if (sscanf (res, "%d", &val) != 1) val = -1;
@@ -2036,6 +2043,24 @@ static void volumealsa_build_device_menu (VolumeALSAPlugin *vol)
 
     if (inputs)
     {
+        // add the input options menu item to the input menu
+        mi = gtk_separator_menu_item_new ();
+        gtk_menu_shell_append (GTK_MENU_SHELL (im), mi);
+
+        mi = gtk_image_menu_item_new_with_label (_("Input Device Settings..."));
+        g_signal_connect (mi, "activate", G_CALLBACK (volumealsa_open_input_config_dialog), (gpointer) vol);
+        gtk_menu_shell_append (GTK_MENU_SHELL (im), mi);
+
+        if (bt_dev || ext_dev)
+        {
+            mi = gtk_separator_menu_item_new ();
+            gtk_menu_shell_append (GTK_MENU_SHELL (om), mi);
+
+            mi = gtk_image_menu_item_new_with_label (_("Output Device Settings..."));
+            g_signal_connect (mi, "activate", G_CALLBACK (volumealsa_open_config_dialog), (gpointer) vol);
+            gtk_menu_shell_append (GTK_MENU_SHELL (om), mi);
+        }
+
         // insert submenus
         mi = gtk_menu_item_new_with_label (_("Audio Outputs"));
         gtk_menu_item_set_submenu (GTK_MENU_ITEM (mi), om);
@@ -2048,8 +2073,7 @@ static void volumealsa_build_device_menu (VolumeALSAPlugin *vol)
         gtk_menu_item_set_submenu (GTK_MENU_ITEM (mi), im);
         gtk_menu_shell_append (GTK_MENU_SHELL (vol->menu_popup), mi);
     }
-
-    if (ext_dev)
+    else if (bt_dev || ext_dev)
     {
         mi = gtk_separator_menu_item_new ();
         gtk_menu_shell_append (GTK_MENU_SHELL (vol->menu_popup), mi);
@@ -2057,13 +2081,6 @@ static void volumealsa_build_device_menu (VolumeALSAPlugin *vol)
         mi = gtk_image_menu_item_new_with_label (_("Output Device Settings..."));
         g_signal_connect (mi, "activate", G_CALLBACK (volumealsa_open_config_dialog), (gpointer) vol);
         gtk_menu_shell_append (GTK_MENU_SHELL (vol->menu_popup), mi);
-
-        if (inputs)
-        {
-            mi = gtk_image_menu_item_new_with_label (_("Input Device Settings..."));
-            g_signal_connect (mi, "activate", G_CALLBACK (volumealsa_open_input_config_dialog), (gpointer) vol);
-            gtk_menu_shell_append (GTK_MENU_SHELL (vol->menu_popup), mi);
-        }
     }
 
     if (!devices)
@@ -2446,6 +2463,8 @@ static void show_options (VolumeALSAPlugin *vol, snd_mixer_t *mixer, gboolean in
     GtkObject *adj;
     guint cols;
     int swval;
+
+    // fall out if there is no selected mixer !!!!!!
 
     vol->options_dlg = gtk_dialog_new_with_buttons (input ? _("Input Device Options") : _("Output Device Options"), NULL, GTK_DIALOG_MODAL | GTK_DIALOG_DESTROY_WITH_PARENT, "OK", 1, NULL);
     gtk_window_set_position (GTK_WINDOW (vol->options_dlg), GTK_WIN_POS_CENTER);
