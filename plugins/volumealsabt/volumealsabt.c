@@ -92,6 +92,8 @@ typedef struct {
     gboolean show_popup;                /* Toggle to show and hide the popup on left click */
     guint volume_scale_handler;         /* Handler for vscale widget */
     guint mute_check_handler;           /* Handler for mute_check widget */
+    char *odev_name;
+    char *idev_name;
 
     /* ALSA interface. */
     snd_mixer_t *mixer;                 /* The mixer */
@@ -117,7 +119,6 @@ typedef struct {
     /* HDMI devices */
     guint hdmis;                        /* Number of HDMI devices */
     char *mon_names[2];                 /* Names of HDMI devices */
-
 } VolumeALSAPlugin;
 
 #define BLUEALSA_DEV (-99)
@@ -200,7 +201,7 @@ static gint volumealsa_delete_connect_dialog (GtkWidget *widget, GdkEvent *event
 static gboolean volumealsa_button_press_event (GtkWidget *widget, GdkEventButton *event, LXPanel *panel);
 
 /* Menu popup */
-static GtkWidget *volumealsa_menu_item_add (VolumeALSAPlugin *vol, GtkWidget *menu, const char *label, const char *name, gboolean selected, GCallback cb);
+static GtkWidget *volumealsa_menu_item_add (VolumeALSAPlugin *vol, GtkWidget *menu, const char *label, const char *name, gboolean selected, gboolean input, GCallback cb);
 static void volumealsa_build_device_menu (VolumeALSAPlugin *vol);
 static void volumealsa_set_external_output (GtkWidget *widget, VolumeALSAPlugin *vol);
 static void volumealsa_set_external_input (GtkWidget *widget, VolumeALSAPlugin *vol);
@@ -217,7 +218,7 @@ static void volumealsa_popup_set_position (GtkWidget *menu, gint *px, gint *py, 
 static gboolean volumealsa_mouse_out (GtkWidget *widget, GdkEventButton *event, VolumeALSAPlugin *vol);
 
 /* Options dialog */
-static void show_options (VolumeALSAPlugin *vol, snd_mixer_t *mixer);
+static void show_options (VolumeALSAPlugin *vol, snd_mixer_t *mixer, gboolean input, char *devname);
 static void show_input_options (VolumeALSAPlugin *vol);
 static void show_output_options (VolumeALSAPlugin *vol);
 static void update_options (VolumeALSAPlugin *vol);
@@ -1712,7 +1713,7 @@ static gboolean volumealsa_button_press_event (GtkWidget *widget, GdkEventButton
 /* Device select menu                                                         */
 /*----------------------------------------------------------------------------*/
 
-static GtkWidget *volumealsa_menu_item_add (VolumeALSAPlugin *vol, GtkWidget *menu, const char *label, const char *name, gboolean selected, GCallback cb)
+static GtkWidget *volumealsa_menu_item_add (VolumeALSAPlugin *vol, GtkWidget *menu, const char *label, const char *name, gboolean selected, gboolean input, GCallback cb)
 {
     GtkWidget *mi = gtk_image_menu_item_new_with_label (label);
     gtk_image_menu_item_set_always_show_image (GTK_IMAGE_MENU_ITEM (mi), TRUE);
@@ -1721,6 +1722,16 @@ static GtkWidget *volumealsa_menu_item_add (VolumeALSAPlugin *vol, GtkWidget *me
         GtkWidget *image = gtk_image_new ();
         set_icon (vol->panel, image, "dialog-ok-apply", panel_get_icon_size (vol->panel) > 36 ? 24 : 16);
         gtk_image_menu_item_set_image (GTK_IMAGE_MENU_ITEM(mi), image);
+        if (input)
+        {
+            if (vol->idev_name) g_free (vol->idev_name);
+            vol->idev_name = g_strdup (label);
+        }
+        else
+        {
+            if (vol->odev_name) g_free (vol->odev_name);
+            vol->odev_name = g_strdup (label);
+        }
     }
     gtk_widget_set_name (mi, name);
     g_signal_connect (mi, "activate", cb, (gpointer) vol);
@@ -1796,7 +1807,7 @@ static void volumealsa_build_device_menu (VolumeALSAPlugin *vol)
                         {
                             // create a menu if there isn't one already
                             if (!inputs) im = gtk_menu_new ();
-                            volumealsa_menu_item_add (vol, im, g_variant_get_string (name, NULL), objpath, asound_is_current_bt_dev (objpath, TRUE), G_CALLBACK (volumealsa_set_bluetooth_input));
+                            volumealsa_menu_item_add (vol, im, g_variant_get_string (name, NULL), objpath, asound_is_current_bt_dev (objpath, TRUE), TRUE, G_CALLBACK (volumealsa_set_bluetooth_input));
                             inputs++;
                         }
                         g_variant_unref (name);
@@ -1835,7 +1846,7 @@ static void volumealsa_build_device_menu (VolumeALSAPlugin *vol)
                 mi = gtk_separator_menu_item_new ();
                 gtk_menu_shell_append (GTK_MENU_SHELL (im), mi);
             }
-            volumealsa_menu_item_add (vol, im, nam, dev, card_num == def_inp, G_CALLBACK (volumealsa_set_external_input));
+            volumealsa_menu_item_add (vol, im, nam, dev, card_num == def_inp, TRUE, G_CALLBACK (volumealsa_set_external_input));
             inputs++;
         }
     }
@@ -1876,17 +1887,17 @@ static void volumealsa_build_device_menu (VolumeALSAPlugin *vol)
                 }
             }
 
-            volumealsa_menu_item_add (vol, om, _("Analog"), "1", bcm == 1, G_CALLBACK (volumealsa_set_internal_output));
+            volumealsa_menu_item_add (vol, om, _("Analog"), "1", bcm == 1, FALSE, G_CALLBACK (volumealsa_set_internal_output));
             devices = 1;
             if (vol->hdmis == 1)
             {
-                volumealsa_menu_item_add (vol, om, _("HDMI"), "2", bcm == 2, G_CALLBACK (volumealsa_set_internal_output));
+                volumealsa_menu_item_add (vol, om, _("HDMI"), "2", bcm == 2, FALSE, G_CALLBACK (volumealsa_set_internal_output));
                 devices = 2;
             }
             else if (vol->hdmis == 2)
             {
-                volumealsa_menu_item_add (vol, om, vol->mon_names[0], "2", bcm == 2, G_CALLBACK (volumealsa_set_internal_output));
-                volumealsa_menu_item_add (vol, om, vol->mon_names[1], "3", bcm == 3, G_CALLBACK (volumealsa_set_internal_output));
+                volumealsa_menu_item_add (vol, om, vol->mon_names[0], "2", bcm == 2, FALSE, G_CALLBACK (volumealsa_set_internal_output));
+                volumealsa_menu_item_add (vol, om, vol->mon_names[1], "3", bcm == 3, FALSE, G_CALLBACK (volumealsa_set_internal_output));
                 devices = 3;
             }
             break;
@@ -1900,11 +1911,11 @@ static void volumealsa_build_device_menu (VolumeALSAPlugin *vol)
             dev = g_strdup_printf ("%d", card_num);
 
             if (!g_strcmp0 (nam, "bcm2835 HDMI 1"))
-                mi = volumealsa_menu_item_add (vol, om, vol->hdmis == 1 ? _("HDMI") : vol->mon_names[0], dev, card_num == def_card, G_CALLBACK (volumealsa_set_external_output));
+                mi = volumealsa_menu_item_add (vol, om, vol->hdmis == 1 ? _("HDMI") : vol->mon_names[0], dev, card_num == def_card, FALSE, G_CALLBACK (volumealsa_set_external_output));
             else if (!g_strcmp0 (nam, "bcm2835 HDMI 2"))
-                mi = volumealsa_menu_item_add (vol, om, vol->hdmis == 1 ? _("HDMI") : vol->mon_names[1], dev, card_num == def_card, G_CALLBACK (volumealsa_set_external_output));
+                mi = volumealsa_menu_item_add (vol, om, vol->hdmis == 1 ? _("HDMI") : vol->mon_names[1], dev, card_num == def_card, FALSE, G_CALLBACK (volumealsa_set_external_output));
             else
-                mi = volumealsa_menu_item_add (vol, om, _("Analog"), dev, card_num == def_card, G_CALLBACK (volumealsa_set_external_output));
+                mi = volumealsa_menu_item_add (vol, om, _("Analog"), dev, card_num == def_card, FALSE, G_CALLBACK (volumealsa_set_external_output));
 
             g_free (nam);
             g_free (dev);
@@ -1942,7 +1953,7 @@ static void volumealsa_build_device_menu (VolumeALSAPlugin *vol)
                                 gtk_menu_shell_append (GTK_MENU_SHELL (om), mi);
                             }
 
-                            volumealsa_menu_item_add (vol, om, g_variant_get_string (name, NULL), objpath, asound_is_current_bt_dev (objpath, FALSE), G_CALLBACK (volumealsa_set_bluetooth_output));
+                            volumealsa_menu_item_add (vol, om, g_variant_get_string (name, NULL), objpath, asound_is_current_bt_dev (objpath, FALSE), FALSE, G_CALLBACK (volumealsa_set_bluetooth_output));
                             bt_dev = TRUE;
                             devices++;
                         }
@@ -1982,7 +1993,7 @@ static void volumealsa_build_device_menu (VolumeALSAPlugin *vol)
                 gtk_menu_shell_append (GTK_MENU_SHELL (om), mi);
             }
 
-            mi = volumealsa_menu_item_add (vol, om, nam, dev, card_num == def_card, G_CALLBACK (volumealsa_set_external_output));
+            mi = volumealsa_menu_item_add (vol, om, nam, dev, card_num == def_card, FALSE, G_CALLBACK (volumealsa_set_external_output));
             if (!asound_has_volume_control (card_num))
             {
                 char *lab = g_strdup_printf ("<i>%s</i>", nam);
@@ -2403,7 +2414,7 @@ static void enum_changed_event (GtkComboBox *combo, gpointer *user_data)
     snd_mixer_selem_set_enum_item (elem, SND_MIXER_SCHN_FRONT_LEFT, gtk_combo_box_get_active (combo));
 }
 
-static void show_options (VolumeALSAPlugin *vol, snd_mixer_t *mixer)
+static void show_options (VolumeALSAPlugin *vol, snd_mixer_t *mixer, gboolean input, char *devname)
 {
     snd_mixer_elem_t *elem;
     GtkWidget *lbl, *slid, *box, *btn, *scr;
@@ -2414,9 +2425,10 @@ static void show_options (VolumeALSAPlugin *vol, snd_mixer_t *mixer)
     vol->options_dlg = gtk_dialog_new_with_buttons (_("Audio Device Options"), NULL, GTK_DIALOG_MODAL | GTK_DIALOG_DESTROY_WITH_PARENT, "OK", 1, NULL);
     gtk_window_set_position (GTK_WINDOW (vol->options_dlg), GTK_WIN_POS_CENTER);
     gtk_container_set_border_width (GTK_CONTAINER (vol->options_dlg), 10);
-    char *dev = g_strdup_printf (_("Device : %s"), "mixer name");
+    char *dev = g_strdup_printf (_("%s Device : %s"), input ? _("Input") : _("Output"), devname);
     lbl = gtk_label_new (dev);
-    gtk_box_pack_start (GTK_BOX (gtk_dialog_get_content_area (GTK_DIALOG (vol->options_dlg))), lbl, FALSE, FALSE, 0);
+    gtk_misc_set_alignment (GTK_MISC (lbl), 0.0, 0.5);
+    gtk_box_pack_start (GTK_BOX (gtk_dialog_get_content_area (GTK_DIALOG (vol->options_dlg))), lbl, FALSE, FALSE, 5);
     GtkWidget *nb = gtk_notebook_new ();
     gtk_box_pack_start (GTK_BOX (gtk_dialog_get_content_area (GTK_DIALOG (vol->options_dlg))), nb, FALSE, FALSE, 0);
 
@@ -2594,7 +2606,7 @@ static void show_options (VolumeALSAPlugin *vol, snd_mixer_t *mixer)
 
 static void show_output_options (VolumeALSAPlugin *vol)
 {
-    show_options (vol, vol->mixer);
+    show_options (vol, vol->mixer, FALSE, vol->odev_name);
 }
 
 static void show_input_options (VolumeALSAPlugin *vol)
@@ -2609,7 +2621,7 @@ static void show_input_options (VolumeALSAPlugin *vol)
             {
                 if (!snd_mixer_load (mixer))
                 {
-                    show_options (vol, mixer);
+                    show_options (vol, mixer, TRUE, vol->idev_name);
                     snd_mixer_free (mixer);
                 }
             }
@@ -2888,6 +2900,8 @@ static GtkWidget *volumealsa_constructor (LXPanel *panel, config_setting_t *sett
     vol->bt_reconname = NULL;
     vol->master_element = NULL;
     vol->options_dlg = NULL;
+    vol->odev_name = NULL;
+    vol->idev_name = NULL;
 
     /* Allocate top level widget and set into Plugin widget pointer. */
     vol->panel = panel;
