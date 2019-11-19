@@ -842,6 +842,21 @@ static void asound_set_volume (VolumeALSAPlugin *vol, int volume)
 /* ALSA interface                                                             */
 /*----------------------------------------------------------------------------*/
 
+/* An ALSA mixer exposes a variety of simple controls, which are identified only
+ * by name. There is no standard for the name of the "master" control, and there
+ * are dozens of names used for it on the devices I have seen.
+ * A lot of devices seem to put the master as the first control in the list, but
+ * the IQaudio devices sort their controls alphabetically, with 'Analogue' first,
+ * when the master is actually 'Digital'. On devices like the IQaudio, there is
+ * only one control which has both a volume control and a switch, and that is the
+ * master.
+ * So the way we try to find the master is to search the list of controls from the
+ * start for the first control with both volume and switch; if we find one, we
+ * assume it is the master. If there are no controls with both volume and switch,
+ * we search again for the first volume control.
+ * This isn't perfect, but it is as close as I have been able to get so far...
+ */
+
 static gboolean asound_setup_mixer (VolumeALSAPlugin *vol, const char *dev)
 {
     snd_mixer_t *mixer;
@@ -858,9 +873,19 @@ static gboolean asound_setup_mixer (VolumeALSAPlugin *vol, const char *dev)
                 {
                     for (elem = snd_mixer_first_elem (mixer); elem != NULL; elem = snd_mixer_elem_next (elem))
                     {
+                        if (snd_mixer_selem_is_active (elem) && snd_mixer_selem_has_playback_volume (elem) && snd_mixer_selem_has_playback_switch (elem))
+                        {
+                            DEBUG ("Device (vol and switch) attached successfully");
+                            vol->master_element = elem;
+                            vol->mixer = mixer;
+                            return TRUE;
+                        }
+                    }
+                    for (elem = snd_mixer_first_elem (mixer); elem != NULL; elem = snd_mixer_elem_next (elem))
+                    {
                         if (snd_mixer_selem_is_active (elem) && snd_mixer_selem_has_playback_volume (elem))
                         {
-                            DEBUG ("Device attached successfully");
+                            DEBUG ("Device (vol only) attached successfully");
                             vol->master_element = elem;
                             vol->mixer = mixer;
                             return TRUE;
@@ -2422,7 +2447,7 @@ static void show_options (VolumeALSAPlugin *vol, snd_mixer_t *mixer, gboolean in
     guint cols;
     int swval;
 
-    vol->options_dlg = gtk_dialog_new_with_buttons (_("Audio Device Options"), NULL, GTK_DIALOG_MODAL | GTK_DIALOG_DESTROY_WITH_PARENT, "OK", 1, NULL);
+    vol->options_dlg = gtk_dialog_new_with_buttons (input ? _("Input Device Options") : _("Output Device Options"), NULL, GTK_DIALOG_MODAL | GTK_DIALOG_DESTROY_WITH_PARENT, "OK", 1, NULL);
     gtk_window_set_position (GTK_WINDOW (vol->options_dlg), GTK_WIN_POS_CENTER);
     gtk_container_set_border_width (GTK_CONTAINER (vol->options_dlg), 10);
     char *dev = g_strdup_printf (_("%s Device : %s"), input ? _("Input") : _("Output"), devname);
@@ -2462,7 +2487,7 @@ static void show_options (VolumeALSAPlugin *vol, snd_mixer_t *mixer, gboolean in
             gtk_table_attach (GTK_TABLE (vol->options_play), lbl, cols, cols + 1, 2, 3, GTK_SHRINK, GTK_SHRINK, 5, 5);
             if (snd_mixer_selem_has_playback_switch (elem))
             {
-                btn = gtk_check_button_new ();
+                btn = gtk_check_button_new_with_label (_("Enable"));
                 gtk_widget_set_name (btn, snd_mixer_selem_get_name (elem));
                 snd_mixer_selem_get_playback_switch (elem, SND_MIXER_SCHN_FRONT_LEFT, &swval);
                 gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (btn), swval);
@@ -2494,7 +2519,7 @@ static void show_options (VolumeALSAPlugin *vol, snd_mixer_t *mixer, gboolean in
             gtk_widget_set_name (btn, snd_mixer_selem_get_name (elem));
             snd_mixer_selem_get_playback_switch (elem, SND_MIXER_SCHN_FRONT_LEFT, &swval);
             gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (btn), swval);
-            gtk_box_pack_start (GTK_BOX (vol->options_set), box, TRUE, TRUE, 5);
+            gtk_box_pack_start (GTK_BOX (vol->options_set), box, FALSE, FALSE, 5);
             g_signal_connect (btn, "toggled", G_CALLBACK (playback_switch_toggled_event), elem);
         }
 
@@ -2514,7 +2539,7 @@ static void show_options (VolumeALSAPlugin *vol, snd_mixer_t *mixer, gboolean in
             gtk_table_attach (GTK_TABLE (vol->options_capt), lbl, cols, cols + 1, 2, 3, GTK_SHRINK, GTK_SHRINK, 5, 5);
             if (snd_mixer_selem_has_capture_switch (elem))
             {
-                btn = gtk_check_button_new ();
+                btn = gtk_check_button_new_with_label (_("Enable"));
                 gtk_widget_set_name (btn, snd_mixer_selem_get_name (elem));
                 snd_mixer_selem_get_capture_switch (elem, SND_MIXER_SCHN_FRONT_LEFT, &swval);
                 gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (btn), swval);
@@ -2546,7 +2571,7 @@ static void show_options (VolumeALSAPlugin *vol, snd_mixer_t *mixer, gboolean in
             gtk_widget_set_name (btn, snd_mixer_selem_get_name (elem));
             snd_mixer_selem_get_capture_switch (elem, SND_MIXER_SCHN_FRONT_LEFT, &swval);
             gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (btn), swval);
-            gtk_box_pack_start (GTK_BOX (vol->options_set), box, TRUE, TRUE, 5);
+            gtk_box_pack_start (GTK_BOX (vol->options_set), box, FALSE, FALSE, 5);
             g_signal_connect (btn, "toggled", G_CALLBACK (capture_switch_toggled_event), elem);
         }
 
