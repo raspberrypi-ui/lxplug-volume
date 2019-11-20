@@ -2475,7 +2475,7 @@ static void show_options (VolumeALSAPlugin *vol, snd_mixer_t *mixer, gboolean in
     gtk_misc_set_alignment (GTK_MISC (lbl), 0.0, 0.5);
     gtk_box_pack_start (GTK_BOX (gtk_dialog_get_content_area (GTK_DIALOG (vol->options_dlg))), lbl, FALSE, FALSE, 5);
     GtkWidget *nb = gtk_notebook_new ();
-    gtk_box_pack_start (GTK_BOX (gtk_dialog_get_content_area (GTK_DIALOG (vol->options_dlg))), nb, FALSE, FALSE, 0);
+    gtk_box_pack_start (GTK_BOX (gtk_dialog_get_content_area (GTK_DIALOG (vol->options_dlg))), nb, FALSE, FALSE, 5);
 
     vol->options_play = NULL;
     vol->options_capt = NULL;
@@ -2621,7 +2621,12 @@ static void show_options (VolumeALSAPlugin *vol, snd_mixer_t *mixer, gboolean in
         gtk_notebook_append_page (GTK_NOTEBOOK (nb), scr, gtk_label_new (_("Options")));
     }
 
-    // put something in the window if there are no controls??? !!!!!
+    if (!vol->options_play && !vol->options_capt && !vol->options_set)
+    {
+        gtk_widget_destroy (nb);
+        lbl = gtk_label_new (_("No controls available on this device"));
+        gtk_box_pack_start (GTK_BOX (gtk_dialog_get_content_area (GTK_DIALOG (vol->options_dlg))), lbl, TRUE, TRUE, 0);
+    }
 
     gtk_widget_show_all (vol->options_dlg);
     gtk_dialog_run (GTK_DIALOG (vol->options_dlg));
