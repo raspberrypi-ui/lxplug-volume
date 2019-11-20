@@ -1806,7 +1806,7 @@ static void volumealsa_build_device_menu (VolumeALSAPlugin *vol)
 {
     GtkWidget *mi, *im, *om;
     gint devices = 0, inputs = 0, card_num, def_card, def_inp;
-    gboolean ext_dev = FALSE, bt_dev = FALSE;
+    gboolean ext_dev = FALSE, bt_dev = FALSE, osel = FALSE, isel = FALSE;
 
     def_card = asound_get_default_card ();
     def_inp = asound_get_default_input ();
@@ -1840,6 +1840,7 @@ static void volumealsa_build_device_menu (VolumeALSAPlugin *vol)
                             // create a menu if there isn't one already
                             if (!inputs) im = gtk_menu_new ();
                             volumealsa_menu_item_add (vol, im, g_variant_get_string (name, NULL), objpath, asound_is_current_bt_dev (objpath, TRUE), TRUE, G_CALLBACK (volumealsa_set_bluetooth_input));
+                            if (asound_is_current_bt_dev (objpath, TRUE)) isel = TRUE;
                             inputs++;
                         }
                         g_variant_unref (name);
@@ -1879,8 +1880,21 @@ static void volumealsa_build_device_menu (VolumeALSAPlugin *vol)
                 gtk_menu_shell_append (GTK_MENU_SHELL (im), mi);
             }
             volumealsa_menu_item_add (vol, im, nam, dev, card_num == def_inp, TRUE, G_CALLBACK (volumealsa_set_external_input));
+            if (card_num == def_inp) isel = TRUE;
             inputs++;
         }
+    }
+
+    if (inputs)
+    {
+        // add the input options menu item to the input menu
+        mi = gtk_separator_menu_item_new ();
+        gtk_menu_shell_append (GTK_MENU_SHELL (im), mi);
+
+        mi = gtk_image_menu_item_new_with_label (_("Input Device Settings..."));
+        g_signal_connect (mi, "activate", G_CALLBACK (volumealsa_open_input_config_dialog), (gpointer) vol);
+        gtk_menu_shell_append (GTK_MENU_SHELL (im), mi);
+        gtk_widget_set_sensitive (mi, isel);
     }
 
     // create a submenu for the outputs if there is an input submenu
@@ -1986,6 +2000,7 @@ static void volumealsa_build_device_menu (VolumeALSAPlugin *vol)
                             }
 
                             volumealsa_menu_item_add (vol, om, g_variant_get_string (name, NULL), objpath, asound_is_current_bt_dev (objpath, FALSE), FALSE, G_CALLBACK (volumealsa_set_bluetooth_output));
+                            if (asound_is_current_bt_dev (objpath, FALSE)) osel = TRUE;
                             bt_dev = TRUE;
                             devices++;
                         }
@@ -2026,6 +2041,7 @@ static void volumealsa_build_device_menu (VolumeALSAPlugin *vol)
             }
 
             mi = volumealsa_menu_item_add (vol, om, nam, dev, card_num == def_card, FALSE, G_CALLBACK (volumealsa_set_external_output));
+            if (card_num == def_card) osel = TRUE;
             if (!asound_has_volume_control (card_num))
             {
                 char *lab = g_strdup_printf ("<i>%s</i>", nam);
@@ -2041,26 +2057,20 @@ static void volumealsa_build_device_menu (VolumeALSAPlugin *vol)
         }
     }
 
+    if (bt_dev || ext_dev)
+    {
+        // add the output options menu item to the output menu
+        mi = gtk_separator_menu_item_new ();
+        gtk_menu_shell_append (GTK_MENU_SHELL (om), mi);
+
+        mi = gtk_image_menu_item_new_with_label (_("Output Device Settings..."));
+        g_signal_connect (mi, "activate", G_CALLBACK (volumealsa_open_config_dialog), (gpointer) vol);
+        gtk_menu_shell_append (GTK_MENU_SHELL (om), mi);
+        gtk_widget_set_sensitive (mi, osel);
+    }
+
     if (inputs)
     {
-        // add the input options menu item to the input menu
-        mi = gtk_separator_menu_item_new ();
-        gtk_menu_shell_append (GTK_MENU_SHELL (im), mi);
-
-        mi = gtk_image_menu_item_new_with_label (_("Input Device Settings..."));
-        g_signal_connect (mi, "activate", G_CALLBACK (volumealsa_open_input_config_dialog), (gpointer) vol);
-        gtk_menu_shell_append (GTK_MENU_SHELL (im), mi);
-
-        if (bt_dev || ext_dev)
-        {
-            mi = gtk_separator_menu_item_new ();
-            gtk_menu_shell_append (GTK_MENU_SHELL (om), mi);
-
-            mi = gtk_image_menu_item_new_with_label (_("Output Device Settings..."));
-            g_signal_connect (mi, "activate", G_CALLBACK (volumealsa_open_config_dialog), (gpointer) vol);
-            gtk_menu_shell_append (GTK_MENU_SHELL (om), mi);
-        }
-
         // insert submenus
         mi = gtk_menu_item_new_with_label (_("Audio Outputs"));
         gtk_menu_item_set_submenu (GTK_MENU_ITEM (mi), om);
@@ -2071,15 +2081,6 @@ static void volumealsa_build_device_menu (VolumeALSAPlugin *vol)
 
         mi = gtk_menu_item_new_with_label (_("Audio Inputs"));
         gtk_menu_item_set_submenu (GTK_MENU_ITEM (mi), im);
-        gtk_menu_shell_append (GTK_MENU_SHELL (vol->menu_popup), mi);
-    }
-    else if (bt_dev || ext_dev)
-    {
-        mi = gtk_separator_menu_item_new ();
-        gtk_menu_shell_append (GTK_MENU_SHELL (vol->menu_popup), mi);
-
-        mi = gtk_image_menu_item_new_with_label (_("Output Device Settings..."));
-        g_signal_connect (mi, "activate", G_CALLBACK (volumealsa_open_config_dialog), (gpointer) vol);
         gtk_menu_shell_append (GTK_MENU_SHELL (vol->menu_popup), mi);
     }
 
@@ -2464,8 +2465,6 @@ static void show_options (VolumeALSAPlugin *vol, snd_mixer_t *mixer, gboolean in
     guint cols;
     int swval;
 
-    // fall out if there is no selected mixer !!!!!!
-
     vol->options_dlg = gtk_dialog_new_with_buttons (input ? _("Input Device Options") : _("Output Device Options"), NULL, GTK_DIALOG_MODAL | GTK_DIALOG_DESTROY_WITH_PARENT, "OK", 1, NULL);
     gtk_window_set_position (GTK_WINDOW (vol->options_dlg), GTK_WIN_POS_CENTER);
     gtk_window_set_default_size (GTK_WINDOW (vol->options_dlg), 400, 300);
@@ -2636,7 +2635,7 @@ static void show_options (VolumeALSAPlugin *vol, snd_mixer_t *mixer, gboolean in
 
 static void show_output_options (VolumeALSAPlugin *vol)
 {
-    show_options (vol, vol->mixer, FALSE, vol->odev_name);
+    if (vol->mixer) show_options (vol, vol->mixer, FALSE, vol->odev_name);
 }
 
 static void show_input_options (VolumeALSAPlugin *vol)
