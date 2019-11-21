@@ -2426,6 +2426,7 @@ static void show_options (VolumeALSAPlugin *vol, snd_mixer_t *mixer, gboolean in
     snd_mixer_elem_t *elem;
     GtkWidget *slid, *box, *btn, *scr, *wid;
     GtkObject *adj;
+    GdkPixbuf *icon;
     guint cols;
     int swval;
 
@@ -2554,6 +2555,9 @@ static void show_options (VolumeALSAPlugin *vol, snd_mixer_t *mixer, gboolean in
     gtk_window_set_position (GTK_WINDOW (vol->options_dlg), GTK_WIN_POS_CENTER);
     gtk_window_set_default_size (GTK_WINDOW (vol->options_dlg), 400, 300);
     gtk_container_set_border_width (GTK_CONTAINER (vol->options_dlg), 10);
+    icon = gtk_icon_theme_load_icon (gtk_icon_theme_get_default (), "multimedia-volume-control", panel_get_icon_size (vol->panel) - 4, 0, NULL);
+    gtk_window_set_icon (GTK_WINDOW (vol->options_dlg), icon);
+    if (icon) g_object_unref (icon);
     g_signal_connect (vol->options_dlg, "delete-event", G_CALLBACK (options_wd_close_handler), vol);
 
     box = gtk_vbox_new (FALSE, 5);
