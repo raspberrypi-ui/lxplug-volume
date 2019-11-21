@@ -231,7 +231,7 @@ static void capture_range_change_event (GtkRange *range, gpointer user_data);
 static void playback_switch_toggled_event (GtkToggleButton *togglebutton, gpointer user_data);
 static void capture_switch_toggled_event (GtkToggleButton *togglebutton, gpointer user_data);
 static void enum_changed_event (GtkComboBox *combo, gpointer *user_data);
-static GtkWidget *find_box_child (GtkWidget *container, const char *type, const char *name);
+static GtkWidget *find_box_child (GtkWidget *container, gint type, const char *name);
 
 /* Plugin */
 static GtkWidget *volumealsa_configure (LXPanel *panel, GtkWidget *plugin);
@@ -2648,7 +2648,7 @@ static void update_options (VolumeALSAPlugin *vol)
     {
         if (snd_mixer_selem_has_playback_volume (elem))
         {
-            wid = find_box_child (vol->options_play, "GtkVScale", snd_mixer_selem_get_name (elem));
+            wid = find_box_child (vol->options_play, GTK_TYPE_VSCALE, snd_mixer_selem_get_name (elem));
             if (wid)
             {
                 g_signal_handlers_block_by_func (wid, playback_range_change_event, elem);
@@ -2658,8 +2658,8 @@ static void update_options (VolumeALSAPlugin *vol)
         }
         if (snd_mixer_selem_has_playback_switch (elem))
         {
-            wid = find_box_child (vol->options_play, "GtkCheckButton", snd_mixer_selem_get_name (elem));
-            if (!wid) wid = find_box_child (vol->options_set, "GtkCheckButton", snd_mixer_selem_get_name (elem));
+            wid = find_box_child (vol->options_play, GTK_TYPE_CHECK_BUTTON, snd_mixer_selem_get_name (elem));
+            if (!wid) wid = find_box_child (vol->options_set, GTK_TYPE_CHECK_BUTTON, snd_mixer_selem_get_name (elem));
             if (wid)
             {
                 snd_mixer_selem_get_playback_switch (elem, SND_MIXER_SCHN_FRONT_LEFT, &swval);
@@ -2670,7 +2670,7 @@ static void update_options (VolumeALSAPlugin *vol)
         }
         if (snd_mixer_selem_has_capture_volume (elem))
         {
-            wid = find_box_child (vol->options_capt, "GtkVScale", snd_mixer_selem_get_name (elem));
+            wid = find_box_child (vol->options_capt, GTK_TYPE_VSCALE, snd_mixer_selem_get_name (elem));
             {
                 g_signal_handlers_block_by_func (wid, capture_range_change_event, elem);
                 gtk_range_set_value (GTK_RANGE (wid), get_normalized_volume (elem, TRUE));
@@ -2679,8 +2679,8 @@ static void update_options (VolumeALSAPlugin *vol)
         }
         if (snd_mixer_selem_has_capture_switch (elem))
         {
-            wid = find_box_child (vol->options_capt, "GtkCheckButton", snd_mixer_selem_get_name (elem));
-            if (!wid) wid = find_box_child (vol->options_set, "GtkCheckButton", snd_mixer_selem_get_name (elem));
+            wid = find_box_child (vol->options_capt, GTK_TYPE_CHECK_BUTTON, snd_mixer_selem_get_name (elem));
+            if (!wid) wid = find_box_child (vol->options_set, GTK_TYPE_CHECK_BUTTON, snd_mixer_selem_get_name (elem));
             if (wid)
             {
                 snd_mixer_selem_get_capture_switch (elem, SND_MIXER_SCHN_FRONT_LEFT, &swval);
@@ -2691,7 +2691,7 @@ static void update_options (VolumeALSAPlugin *vol)
         }
         if (snd_mixer_selem_is_enumerated (elem))
         {
-            wid = find_box_child (vol->options_set, "GtkComboBoxText", snd_mixer_selem_get_name (elem));
+            wid = find_box_child (vol->options_set, GTK_TYPE_COMBO_BOX_TEXT, snd_mixer_selem_get_name (elem));
             if (wid)
             {
                 snd_mixer_selem_get_enum_item (elem, SND_MIXER_SCHN_FRONT_LEFT, &swval);
@@ -2779,17 +2779,25 @@ static void enum_changed_event (GtkComboBox *combo, gpointer *user_data)
     snd_mixer_selem_set_enum_item (elem, SND_MIXER_SCHN_FRONT_LEFT, gtk_combo_box_get_active (combo));
 }
 
-static GtkWidget *find_box_child (GtkWidget *container, const char *type, const char *name)
+static GtkWidget *find_box_child (GtkWidget *container, gint type, const char *name)
 {
     GList *l, *list = gtk_container_get_children (GTK_CONTAINER (container));
-
     for (l = list; l; l = l->next)
     {
         GList *m, *mist = gtk_container_get_children (GTK_CONTAINER (l->data));
         for (m = mist; m; m = m->next)
         {
-            if (!g_strcmp0 (type, g_type_name (G_OBJECT_TYPE (m->data))) && !g_strcmp0 (name, gtk_widget_get_name (m->data)))
+            if (G_OBJECT_TYPE (m->data) == type && !g_strcmp0 (name, gtk_widget_get_name (m->data)))
                 return m->data;
+            if (G_OBJECT_TYPE (m->data) == GTK_TYPE_HBUTTON_BOX)
+            {
+                GList *n, *nist = gtk_container_get_children (GTK_CONTAINER (m->data));
+                for (n = nist; n; n = n->next)
+                {
+                    if (G_OBJECT_TYPE (n->data) == type && !g_strcmp0 (name, gtk_widget_get_name (n->data)))
+                        return n->data;
+                }
+            }
         }
     }
     return NULL;
