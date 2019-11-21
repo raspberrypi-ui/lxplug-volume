@@ -129,6 +129,8 @@ typedef struct {
 #define BT_SERV_HSP             "00001108"
 #define BT_SERV_HFP             "0000111E"
 
+#define ICON_BUTTON_TRIM 4
+
 /* Helpers */
 static char *get_string (const char *fmt, ...);
 static int get_value (const char *fmt, ...);
@@ -308,7 +310,6 @@ static gboolean find_in_section (char *file, char *sec, char *seek)
 
 static void set_icon (LXPanel *p, GtkWidget *image, const char *icon, int size)
 {
-#define ICON_BUTTON_TRIM 4
     GdkPixbuf *pixbuf;
     if (size == 0) size = panel_get_icon_size (p) - ICON_BUTTON_TRIM;
     if (gtk_icon_theme_has_icon (panel_get_icon_theme (p), icon))
@@ -2555,7 +2556,7 @@ static void show_options (VolumeALSAPlugin *vol, snd_mixer_t *mixer, gboolean in
     gtk_window_set_position (GTK_WINDOW (vol->options_dlg), GTK_WIN_POS_CENTER);
     gtk_window_set_default_size (GTK_WINDOW (vol->options_dlg), 400, 300);
     gtk_container_set_border_width (GTK_CONTAINER (vol->options_dlg), 10);
-    icon = gtk_icon_theme_load_icon (gtk_icon_theme_get_default (), "multimedia-volume-control", panel_get_icon_size (vol->panel) - 4, 0, NULL);
+    icon = gtk_icon_theme_load_icon (gtk_icon_theme_get_default (), "multimedia-volume-control", panel_get_icon_size (vol->panel) - ICON_BUTTON_TRIM, 0, NULL);
     gtk_window_set_icon (GTK_WINDOW (vol->options_dlg), icon);
     if (icon) g_object_unref (icon);
     g_signal_connect (vol->options_dlg, "delete-event", G_CALLBACK (options_wd_close_handler), vol);
