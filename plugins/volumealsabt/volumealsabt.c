@@ -104,6 +104,7 @@ typedef struct {
     GIOChannel **channels;              /* Channels that we listen to */
     guint *watches;                     /* Watcher IDs for channels */
     guint num_channels;                 /* Number of channels */
+    snd_mixer_t *imixer;                /* The input mixer - only used in options dialog */
 
     /* Bluetooth interface */
     GDBusObjectManager *objmanager;     /* BlueZ object manager */
@@ -222,7 +223,9 @@ static void show_options (VolumeALSAPlugin *vol, snd_mixer_t *mixer, gboolean in
 static void show_input_options (VolumeALSAPlugin *vol);
 static void show_output_options (VolumeALSAPlugin *vol);
 static void update_options (VolumeALSAPlugin *vol);
-static void close_options (GtkButton *button, gpointer *user_data);
+static void close_options (VolumeALSAPlugin *vol);
+static void options_ok_handler (GtkButton *button, gpointer *user_data);
+static gboolean options_wd_close_handler (GtkWidget *wid, GdkEvent *event, gpointer user_data);
 static void playback_range_change_event (GtkRange *range, gpointer user_data);
 static void capture_range_change_event (GtkRange *range, gpointer user_data);
 static void playback_switch_toggled_event (GtkToggleButton *togglebutton, gpointer user_data);
@@ -2098,7 +2101,7 @@ static void volumealsa_build_device_menu (VolumeALSAPlugin *vol)
     }
 
     // lock menu if a dialog is open
-    if (vol->conn_dialog)
+    if (vol->conn_dialog || vol->options_dlg)
     {
         GList *items = gtk_container_get_children (GTK_CONTAINER (vol->menu_popup));
         while (items)
@@ -2551,6 +2554,7 @@ static void show_options (VolumeALSAPlugin *vol, snd_mixer_t *mixer, gboolean in
     gtk_window_set_position (GTK_WINDOW (vol->options_dlg), GTK_WIN_POS_CENTER);
     gtk_window_set_default_size (GTK_WINDOW (vol->options_dlg), 400, 300);
     gtk_container_set_border_width (GTK_CONTAINER (vol->options_dlg), 10);
+    g_signal_connect (vol->options_dlg, "delete-event", G_CALLBACK (options_wd_close_handler), vol);
 
     box = gtk_vbox_new (FALSE, 5);
     gtk_container_add (GTK_CONTAINER (vol->options_dlg), box);
@@ -2597,7 +2601,7 @@ static void show_options (VolumeALSAPlugin *vol, snd_mixer_t *mixer, gboolean in
     gtk_box_pack_start (GTK_BOX (box), wid, FALSE, FALSE, 5);
 
     btn = gtk_button_new_from_stock (GTK_STOCK_OK);
-    g_signal_connect (btn, "clicked", G_CALLBACK (close_options), vol);
+    g_signal_connect (btn, "clicked", G_CALLBACK (options_ok_handler), vol);
     gtk_box_pack_end (GTK_BOX (wid), btn, FALSE, FALSE, 5);
 
     gtk_widget_show_all (vol->options_dlg);
@@ -2605,28 +2609,30 @@ static void show_options (VolumeALSAPlugin *vol, snd_mixer_t *mixer, gboolean in
 
 static void show_output_options (VolumeALSAPlugin *vol)
 {
-    if (vol->mixer) show_options (vol, vol->mixer, FALSE, vol->odev_name);
+    if (vol->mixer)
+    {
+        vol->imixer = NULL;
+        show_options (vol, vol->mixer, FALSE, vol->odev_name);
+    }
 }
 
 static void show_input_options (VolumeALSAPlugin *vol)
 {
-    snd_mixer_t *mixer;
     char *dev = asound_default_input_name ();
-    if (!snd_mixer_open (&mixer, 0))
+    if (!snd_mixer_open (&(vol->imixer), 0))
     {
-        if (!snd_mixer_attach (mixer, dev))
+        if (!snd_mixer_attach (vol->imixer, dev))
         {
-            if (!snd_mixer_selem_register (mixer, NULL, NULL))
+            if (!snd_mixer_selem_register (vol->imixer, NULL, NULL))
             {
-                if (!snd_mixer_load (mixer))
+                if (!snd_mixer_load (vol->imixer))
                 {
-                    show_options (vol, mixer, TRUE, vol->idev_name);
-                    snd_mixer_free (mixer);
+                    show_options (vol, vol->imixer, TRUE, vol->idev_name);
                 }
             }
-            snd_mixer_detach (mixer, dev);
+            else snd_mixer_detach (vol->imixer, dev);
         }
-        snd_mixer_close (mixer);
+        else snd_mixer_close (vol->imixer);
     }
     g_free (dev);
 }
@@ -2697,12 +2703,35 @@ static void update_options (VolumeALSAPlugin *vol)
     }
 }
 
-static void close_options (GtkButton *button, gpointer *user_data)
+static void close_options (VolumeALSAPlugin *vol)
 {
-    VolumeALSAPlugin *vol = (VolumeALSAPlugin *) user_data;
+    if (vol->imixer)
+    {
+        char *dev = asound_default_input_name ();
+        snd_mixer_free (vol->imixer);
+        snd_mixer_detach (vol->imixer, dev);
+        snd_mixer_close (vol->imixer);
+        vol->imixer = NULL;
+        g_free (dev);
+    }
 
     gtk_widget_destroy (vol->options_dlg);
     vol->options_dlg = NULL;
+}
+
+static void options_ok_handler (GtkButton *button, gpointer *user_data)
+{
+    VolumeALSAPlugin *vol = (VolumeALSAPlugin *) user_data;
+
+    close_options (vol);
+}
+
+static gboolean options_wd_close_handler (GtkWidget *wid, GdkEvent *event, gpointer user_data)
+{
+    VolumeALSAPlugin *vol = (VolumeALSAPlugin *) user_data;
+
+    close_options (vol);
+    return TRUE;
 }
 
 static void playback_range_change_event (GtkRange *range, gpointer user_data)
