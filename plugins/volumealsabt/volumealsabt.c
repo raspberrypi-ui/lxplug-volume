@@ -71,6 +71,12 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #define DEBUG
 #endif
 
+typedef struct {
+    snd_mixer_t *mixer;                 /* The mixer */
+    guint num_channels;                 /* Number of channels */
+    GIOChannel **channels;              /* Channels that we listen to */
+    guint *watches;                     /* Watcher IDs for channels */
+} mixer_info_t;
 
 typedef struct {
 
@@ -96,15 +102,11 @@ typedef struct {
     char *idev_name;
 
     /* ALSA interface. */
-    snd_mixer_t *mixer;                 /* The mixer */
-    snd_mixer_elem_t *master_element;   /* The master element */
+    mixer_info_t mixers[2];             /* mixers[0] = output; mixers[1] = input */
+    snd_mixer_elem_t *master_element;   /* Master element on output mixer - main volume control */
     guint mixer_evt_idle;               /* Timer to handle mixer reset */
     guint restart_idle;                 /* Timer to handle restarting */
     gboolean stopped;                   /* Flag to indicate that ALSA is restarting */
-    GIOChannel **channels;              /* Channels that we listen to */
-    guint *watches;                     /* Watcher IDs for channels */
-    guint num_channels;                 /* Number of channels */
-    snd_mixer_t *imixer;                /* The input mixer - only used in options dialog */
 
     /* Bluetooth interface */
     GDBusObjectManager *objmanager;     /* BlueZ object manager */
@@ -121,6 +123,11 @@ typedef struct {
     guint hdmis;                        /* Number of HDMI devices */
     char *mon_names[2];                 /* Names of HDMI devices */
 } VolumeALSAPlugin;
+
+typedef enum {
+    OUTPUT_MIXER = 0,
+    INPUT_MIXER = 1
+} MixerIO;
 
 #define BLUEALSA_DEV (-99)
 
@@ -168,9 +175,11 @@ static int asound_get_volume (VolumeALSAPlugin *vol);
 static void asound_set_volume (VolumeALSAPlugin *vol, int volume);
 
 /* ALSA */
-static gboolean asound_setup_mixer (VolumeALSAPlugin *vol, const char *dev);
 static gboolean asound_initialize (VolumeALSAPlugin *vol);
 static void asound_deinitialize (VolumeALSAPlugin *vol);
+static gboolean asound_find_master_elem (VolumeALSAPlugin *vol);
+static gboolean asound_mixer_initialize (VolumeALSAPlugin *vol, MixerIO io);
+static void asound_mixer_deinitialize (VolumeALSAPlugin *vol, MixerIO io);
 static int asound_find_valid_device (void);
 static gboolean asound_current_dev_check (VolumeALSAPlugin *vol);
 static gboolean asound_has_volume_control (int dev);
@@ -657,9 +666,12 @@ static void bt_cb_disconnected (GObject *source, GAsyncResult *res, gpointer use
     // call BlueZ over DBus to connect to the device
     if (vol->bt_conname)
     {
-        // mixer and element handles will now be invalid
-        vol->mixer = NULL;
-        vol->master_element = NULL;
+        if (vol->bt_input == FALSE)
+        {
+            // mixer and element handles will now be invalid
+            vol->mixers[OUTPUT_MIXER].mixer = NULL;
+            vol->master_element = NULL;
+        }
 
         DEBUG ("Connecting to %s...", vol->bt_conname);
         bt_connect_device (vol);
@@ -852,117 +864,39 @@ static void asound_set_volume (VolumeALSAPlugin *vol, int volume)
 /* ALSA interface                                                             */
 /*----------------------------------------------------------------------------*/
 
-/* An ALSA mixer exposes a variety of simple controls, which are identified only
- * by name. There is no standard for the name of the "master" control, and there
- * are dozens of names used for it on the devices I have seen.
- * A lot of devices seem to put the master as the first control in the list, but
- * the IQaudio devices sort their controls alphabetically, with 'Analogue' first,
- * when the master is actually 'Digital'. On devices like the IQaudio, there is
- * only one control which has both a volume control and a switch, and that is the
- * master.
- * So the way we try to find the master is to search the list of controls from the
- * start for the first control with both volume and switch; if we find one, we
- * assume it is the master. If there are no controls with both volume and switch,
- * we search again for the first volume control.
- * This isn't perfect, but it is as close as I have been able to get so far...
- */
-
-static gboolean asound_setup_mixer (VolumeALSAPlugin *vol, const char *dev)
-{
-    snd_mixer_t *mixer;
-    snd_mixer_elem_t *elem;
-
-    DEBUG ("Attaching mixer to device %s...", dev);
-    if (!snd_mixer_open (&mixer, 0))
-    {
-        if (!snd_mixer_attach (mixer, dev))
-        {
-            if (!snd_mixer_selem_register (mixer, NULL, NULL))
-            {
-                if (!snd_mixer_load (mixer))
-                {
-                    for (elem = snd_mixer_first_elem (mixer); elem != NULL; elem = snd_mixer_elem_next (elem))
-                    {
-                        if (snd_mixer_selem_is_active (elem) && snd_mixer_selem_has_playback_volume (elem) && snd_mixer_selem_has_playback_switch (elem))
-                        {
-                            DEBUG ("Device (vol and switch) attached successfully");
-                            vol->master_element = elem;
-                            vol->mixer = mixer;
-                            return TRUE;
-                        }
-                    }
-                    for (elem = snd_mixer_first_elem (mixer); elem != NULL; elem = snd_mixer_elem_next (elem))
-                    {
-                        if (snd_mixer_selem_is_active (elem) && snd_mixer_selem_has_playback_volume (elem))
-                        {
-                            DEBUG ("Device (vol only) attached successfully");
-                            vol->master_element = elem;
-                            vol->mixer = mixer;
-                            return TRUE;
-                        }
-                    }
-                    snd_mixer_free (mixer);
-                }
-            }
-            snd_mixer_detach (mixer, dev);
-        }
-        snd_mixer_close (mixer);
-    }
-
-    DEBUG ("Device attach failed");
-    return FALSE;
-}
-
 /* Initialize the ALSA interface */
 
 static gboolean asound_initialize (VolumeALSAPlugin *vol)
 {
-    struct pollfd *fds;
-    char *device;
-    int i;
-
     /* make sure existing watches are removed by calling deinitialize */
     asound_deinitialize (vol);
 
     DEBUG ("Initializing...");
-    device = asound_default_device_name ();
 
     /* if the default device is a Bluetooth device, check it is actually connected... */
-    if (!g_strcmp0 (device, "bluealsa"))
+    if (asound_get_default_card () == BLUEALSA_DEV)
     {
         char *btdev = asound_get_bt_device ();
-        i = bt_is_connected (vol, btdev);
+        gboolean res = bt_is_connected (vol, btdev);
         g_free (btdev);
-        if (!i)
+        if (!res)
         {
             g_warning ("volumealsa: Default Bluetooth output device not connected - cannot attach mixer");
-            g_free (device);
             return TRUE;
         }
     }
 
-    if (!asound_setup_mixer (vol, device))
+    if (!asound_mixer_initialize (vol, OUTPUT_MIXER))
     {
         g_warning ("volumealsa: Device invalid - cannot attach mixer");
-        g_free (device);
         return TRUE;
     }
-    g_free (device);
 
-    /* listen to ALSA events */
-    vol->num_channels = snd_mixer_poll_descriptors_count (vol->mixer);
-    vol->channels = g_new0 (GIOChannel *, vol->num_channels);
-    vol->watches = g_new0 (guint, vol->num_channels);
-
-    fds = g_new0 (struct pollfd, vol->num_channels);
-    snd_mixer_poll_descriptors (vol->mixer, fds, vol->num_channels);
-
-    for (i = 0; i < vol->num_channels; ++i)
+    if (!asound_find_master_elem (vol))
     {
-        vol->channels[i] = g_io_channel_unix_new (fds[i].fd);
-        vol->watches[i] = g_io_add_watch (vol->channels[i], G_IO_IN | G_IO_HUP, asound_mixer_event, vol);
+        g_warning ("volumealsa: Cannot find suitable master element");
+        return TRUE;
     }
-    g_free (fds);
 
     if (!asound_current_dev_check (vol)) return FALSE;
 
@@ -979,27 +913,133 @@ static void asound_deinitialize (VolumeALSAPlugin *vol)
         g_source_remove (vol->mixer_evt_idle);
         vol->mixer_evt_idle = 0;
     }
-    for (i = 0; i < vol->num_channels; i++)
-    {
-        g_source_remove (vol->watches[i]);
-        g_io_channel_shutdown (vol->channels[i], FALSE, NULL);
-        g_io_channel_unref (vol->channels[i]);
-    }
-    g_free (vol->channels);
-    g_free (vol->watches);
-    vol->channels = NULL;
-    vol->watches = NULL;
-    vol->num_channels = 0;
-
-    if (vol->mixer)
-    {
-        char *device = asound_default_device_name ();
-        snd_mixer_detach (vol->mixer, device);
-        snd_mixer_close (vol->mixer);
-        g_free (device);
-    }
     vol->master_element = NULL;
-    vol->mixer = NULL;
+    asound_mixer_deinitialize (vol, OUTPUT_MIXER);
+}
+
+/* An ALSA mixer exposes a variety of simple controls, which are identified only
+ * by name. There is no standard for the name of the "master" control, and there
+ * are dozens of names used for it on the devices I have seen.
+ * A lot of devices seem to put the master as the first control in the list, but
+ * the IQaudio devices sort their controls alphabetically, with 'Analogue' first,
+ * when the master is actually 'Digital'. On devices like the IQaudio, there is
+ * only one control which has both a volume control and a switch, and that is the
+ * master.
+ * So the way we try to find the master is to search the list of controls from the
+ * start for the first control with both volume and switch; if we find one, we
+ * assume it is the master. If there are no controls with both volume and switch,
+ * we search again for the first volume control.
+ * This isn't perfect, but it is as close as I have been able to get so far...
+ */
+
+static gboolean asound_find_master_elem (VolumeALSAPlugin *vol)
+{
+    snd_mixer_elem_t *elem;
+
+    if (!vol->mixers[OUTPUT_MIXER].mixer) return FALSE;
+
+    for (elem = snd_mixer_first_elem (vol->mixers[OUTPUT_MIXER].mixer); elem != NULL; elem = snd_mixer_elem_next (elem))
+    {
+        if (snd_mixer_selem_is_active (elem) && snd_mixer_selem_has_playback_volume (elem) && snd_mixer_selem_has_playback_switch (elem))
+        {
+            DEBUG ("Device (vol and switch) attached successfully");
+            vol->master_element = elem;
+            return TRUE;
+        }
+    }
+
+    for (elem = snd_mixer_first_elem (vol->mixers[OUTPUT_MIXER].mixer); elem != NULL; elem = snd_mixer_elem_next (elem))
+    {
+        if (snd_mixer_selem_is_active (elem) && snd_mixer_selem_has_playback_volume (elem))
+        {
+            DEBUG ("Device (vol only) attached successfully");
+            vol->master_element = elem;
+            return TRUE;
+        }
+    }
+
+    return FALSE;
+}
+
+static gboolean asound_mixer_initialize (VolumeALSAPlugin *vol, MixerIO io)
+{
+    char *device = io ? asound_default_input_name () : asound_default_device_name ();
+    snd_mixer_t *mixer;
+    struct pollfd *fds;
+    int nchans, i;
+    gboolean res = FALSE;
+
+    DEBUG ("Attaching mixer to %s device %s...", io ? "input" : "output", device);
+
+    vol->mixers[io].mixer = NULL;
+
+    // create and attach the mixer
+    if (snd_mixer_open (&mixer, 0)) goto end;
+
+    if (snd_mixer_attach (mixer, device))
+    {
+        snd_mixer_close (mixer);
+        goto end;
+    }
+
+    if (snd_mixer_selem_register (mixer, NULL, NULL) || snd_mixer_load (mixer))
+    {
+        snd_mixer_detach (mixer, device);
+        snd_mixer_close (mixer);
+        goto end;
+    }
+
+    vol->mixers[io].mixer = mixer;
+
+    /* listen for ALSA events on the mixer */
+    nchans = snd_mixer_poll_descriptors_count (mixer);
+    vol->mixers[io].num_channels = nchans;
+    vol->mixers[io].channels = g_new0 (GIOChannel *, nchans);
+    vol->mixers[io].watches = g_new0 (guint, nchans);
+
+    fds = g_new0 (struct pollfd, nchans);
+    snd_mixer_poll_descriptors (mixer, fds, nchans);
+    for (i = 0; i < nchans; ++i)
+    {
+        vol->mixers[io].channels[i] = g_io_channel_unix_new (fds[i].fd);
+        vol->mixers[io].watches[i] = g_io_add_watch (vol->mixers[io].channels[i], G_IO_IN | G_IO_HUP, asound_mixer_event, vol);
+    }
+    g_free (fds);
+    res = TRUE;
+
+end:
+    g_free (device);
+    return res;
+}
+
+static void asound_mixer_deinitialize (VolumeALSAPlugin *vol, MixerIO io)
+{
+    char *device = io ? asound_default_input_name () : asound_default_device_name ();
+    int i;
+
+    DEBUG ("Detaching mixer from %s device %s...", io ? "input" : "output", device);
+
+    for (i = 0; i < vol->mixers[io].num_channels; i++)
+    {
+        g_source_remove (vol->mixers[io].watches[i]);
+        g_io_channel_shutdown (vol->mixers[io].channels[i], FALSE, NULL);
+        g_io_channel_unref (vol->mixers[io].channels[i]);
+    }
+
+    g_free (vol->mixers[io].channels);
+    g_free (vol->mixers[io].watches);
+    vol->mixers[io].channels = NULL;
+    vol->mixers[io].watches = NULL;
+    vol->mixers[io].num_channels = 0;
+
+    if (vol->mixers[io].mixer)
+    {
+        snd_mixer_detach (vol->mixers[io].mixer, device);
+        snd_mixer_close (vol->mixers[io].mixer);
+    }
+    vol->mixers[io].mixer = NULL;
+
+    g_free (device);
 }
 
 static int asound_find_valid_device (void)
@@ -1121,7 +1161,8 @@ static gboolean asound_mixer_event (GIOChannel *channel, GIOCondition cond, gpoi
     if (vol->mixer_evt_idle == 0)
     {
         vol->mixer_evt_idle = g_idle_add_full (G_PRIORITY_DEFAULT, (GSourceFunc) asound_reset_mixer_evt_idle, vol, NULL);
-        if (vol->mixer) res = snd_mixer_handle_events (vol->mixer);
+        if (vol->mixers[OUTPUT_MIXER].mixer) res = snd_mixer_handle_events (vol->mixers[OUTPUT_MIXER].mixer);
+        if (vol->mixers[INPUT_MIXER].mixer) res = snd_mixer_handle_events (vol->mixers[INPUT_MIXER].mixer);
     }
 
     /* the status of mixer is changed. update of display is needed. */
@@ -1292,7 +1333,6 @@ static void asound_set_default_card (int num)
         vsystem ("sed -i '/ctl.!default/,/}/c ctl.!default {\\n\\ttype hw\\n\\tcard %d\\n}' %s", num, user_config_file);
 
     DONE: g_free (user_config_file);
-    vsystem ("pimixer --refresh");
 }
 
 static void asound_set_default_input (int num)
@@ -1418,7 +1458,6 @@ static void asound_set_bt_device (char *devname)
         vsystem ("sed -i '/ctl.!default/,/}/c ctl.!default {\\n\\ttype bluealsa\\n}' %s", user_config_file);
 
     DONE: g_free (user_config_file);
-    vsystem ("pimixer --refresh");
 }
 
 static void asound_set_bt_input (char *devname)
@@ -1543,7 +1582,7 @@ static void volumealsa_update_display (VolumeALSAPlugin *vol)
     textdomain (GETTEXT_PACKAGE);
 #endif
 
-    if (vol->options_dlg) update_options (vol);  // !!!! need to do something here to update input options too
+    if (vol->options_dlg) update_options (vol);
 
     /* check that the mixer is still valid */
     if (vol->master_element == NULL || snd_mixer_elem_get_type (vol->master_element) != SND_MIXER_ELEM_SIMPLE)
@@ -1616,13 +1655,15 @@ static void volumealsa_open_input_config_dialog (GtkWidget *widget, VolumeALSAPl
 
 static void volumealsa_show_connect_dialog (VolumeALSAPlugin *vol, gboolean failed, const gchar *param)
 {
-    char buffer[256], path[128];
+    char buffer[256];
+    GdkPixbuf *icon;
 
     if (!failed)
     {
         vol->conn_dialog = gtk_dialog_new_with_buttons (_("Connecting Audio Device"), NULL, GTK_DIALOG_MODAL | GTK_DIALOG_DESTROY_WITH_PARENT, NULL);
-        sprintf (path, "%s/images/preferences-system-bluetooth.png", PACKAGE_DATA_DIR);
-        gtk_window_set_icon (GTK_WINDOW (vol->conn_dialog), gdk_pixbuf_new_from_file (path, NULL));
+        icon = gtk_icon_theme_load_icon (gtk_icon_theme_get_default (), "preferences-system-bluetooth", panel_get_icon_size (vol->panel) - ICON_BUTTON_TRIM, 0, NULL);
+        gtk_window_set_icon (GTK_WINDOW (vol->conn_dialog), icon);
+        if (icon) g_object_unref (icon);
         gtk_window_set_position (GTK_WINDOW (vol->conn_dialog), GTK_WIN_POS_CENTER);
         gtk_container_set_border_width (GTK_CONTAINER (vol->conn_dialog), 10);
         sprintf (buffer, _("Connecting to Bluetooth audio device '%s'..."), param);
@@ -2626,32 +2667,14 @@ static void show_options (VolumeALSAPlugin *vol, snd_mixer_t *mixer, gboolean in
 
 static void show_output_options (VolumeALSAPlugin *vol)
 {
-    if (vol->mixer)
-    {
-        vol->imixer = NULL;
-        show_options (vol, vol->mixer, FALSE, vol->odev_name);
-    }
+    if (vol->mixers[OUTPUT_MIXER].mixer)
+        show_options (vol, vol->mixers[OUTPUT_MIXER].mixer, FALSE, vol->odev_name);
 }
 
 static void show_input_options (VolumeALSAPlugin *vol)
 {
-    char *dev = asound_default_input_name ();
-    if (!snd_mixer_open (&(vol->imixer), 0))
-    {
-        if (!snd_mixer_attach (vol->imixer, dev))
-        {
-            if (!snd_mixer_selem_register (vol->imixer, NULL, NULL))
-            {
-                if (!snd_mixer_load (vol->imixer))
-                {
-                    show_options (vol, vol->imixer, TRUE, vol->idev_name);
-                }
-            }
-            else snd_mixer_detach (vol->imixer, dev);
-        }
-        else snd_mixer_close (vol->imixer);
-    }
-    g_free (dev);
+    if (asound_mixer_initialize (vol, INPUT_MIXER))
+        show_options (vol, vol->mixers[INPUT_MIXER].mixer, TRUE, vol->idev_name);
 }
 
 static void update_options (VolumeALSAPlugin *vol)
@@ -2659,9 +2682,10 @@ static void update_options (VolumeALSAPlugin *vol)
     snd_mixer_elem_t *elem;
     guint pcol = 0, ccol = 0;
     GtkWidget *wid;
-    int swval;
+    int swval, i;
 
-    for (elem = snd_mixer_first_elem (vol->mixer); elem != NULL; elem = snd_mixer_elem_next (elem))
+    i = vol->mixers[INPUT_MIXER].mixer ? 1 : 0;
+    for (elem = snd_mixer_first_elem (vol->mixers[i].mixer); elem != NULL; elem = snd_mixer_elem_next (elem))
     {
         if (snd_mixer_selem_has_playback_volume (elem))
         {
@@ -2722,15 +2746,7 @@ static void update_options (VolumeALSAPlugin *vol)
 
 static void close_options (VolumeALSAPlugin *vol)
 {
-    if (vol->imixer)
-    {
-        char *dev = asound_default_input_name ();
-        snd_mixer_free (vol->imixer);
-        snd_mixer_detach (vol->imixer, dev);
-        snd_mixer_close (vol->imixer);
-        vol->imixer = NULL;
-        g_free (dev);
-    }
+    if (vol->mixers[INPUT_MIXER].mixer) asound_mixer_deinitialize (vol, INPUT_MIXER);
 
     gtk_widget_destroy (vol->options_dlg);
     vol->options_dlg = NULL;
