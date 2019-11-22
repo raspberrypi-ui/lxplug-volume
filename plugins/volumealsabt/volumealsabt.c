@@ -2430,6 +2430,7 @@ static void show_options (VolumeALSAPlugin *vol, snd_mixer_t *mixer, gboolean in
     GdkPixbuf *icon;
     guint cols;
     int swval;
+    char *lbl;
 
     vol->options_play = NULL;
     vol->options_capt = NULL;
@@ -2457,7 +2458,7 @@ static void show_options (VolumeALSAPlugin *vol, snd_mixer_t *mixer, gboolean in
             {
                 btn = gtk_check_button_new_with_label (_("Enable"));
                 gtk_widget_set_name (btn, snd_mixer_selem_get_name (elem));
-                snd_mixer_selem_get_playback_switch (elem, SND_MIXER_SCHN_FRONT_LEFT, &swval);
+                snd_mixer_selem_get_playback_switch (elem, SND_MIXER_SCHN_MONO, &swval);
                 gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (btn), swval);
                 gtk_box_pack_end (GTK_BOX (box), btn, FALSE, FALSE, 5);
                 g_signal_connect (btn, "toggled", G_CALLBACK (playback_switch_toggled_event), elem);
@@ -2477,11 +2478,13 @@ static void show_options (VolumeALSAPlugin *vol, snd_mixer_t *mixer, gboolean in
         {
             if (!vol->options_set) vol->options_set = gtk_vbox_new (FALSE, 5);
             box = gtk_hbox_new (FALSE, 5);
-            gtk_box_pack_start (GTK_BOX (box), gtk_label_new (snd_mixer_selem_get_name (elem)), FALSE, FALSE, 5);
+            lbl = g_strdup_printf (_("%s (Playback)"), snd_mixer_selem_get_name (elem));
+            gtk_box_pack_start (GTK_BOX (box), gtk_label_new (lbl), FALSE, FALSE, 5);
+            g_free (lbl);
             btn = gtk_check_button_new ();
             gtk_box_pack_end (GTK_BOX (box), btn, FALSE, FALSE, 5);
             gtk_widget_set_name (btn, snd_mixer_selem_get_name (elem));
-            snd_mixer_selem_get_playback_switch (elem, SND_MIXER_SCHN_FRONT_LEFT, &swval);
+            snd_mixer_selem_get_playback_switch (elem, SND_MIXER_SCHN_MONO, &swval);
             gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (btn), swval);
             gtk_box_pack_start (GTK_BOX (vol->options_set), box, FALSE, FALSE, 5);
             g_signal_connect (btn, "toggled", G_CALLBACK (playback_switch_toggled_event), elem);
@@ -2497,7 +2500,7 @@ static void show_options (VolumeALSAPlugin *vol, snd_mixer_t *mixer, gboolean in
             {
                 btn = gtk_check_button_new_with_label (_("Enable"));
                 gtk_widget_set_name (btn, snd_mixer_selem_get_name (elem));
-                snd_mixer_selem_get_capture_switch (elem, SND_MIXER_SCHN_FRONT_LEFT, &swval);
+                snd_mixer_selem_get_capture_switch (elem, SND_MIXER_SCHN_MONO, &swval);
                 gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (btn), swval);
                 gtk_box_pack_end (GTK_BOX (box), btn, FALSE, FALSE, 5);
                 g_signal_connect (btn, "toggled", G_CALLBACK (capture_switch_toggled_event), elem);
@@ -2517,11 +2520,13 @@ static void show_options (VolumeALSAPlugin *vol, snd_mixer_t *mixer, gboolean in
         {
             if (!vol->options_set) vol->options_set = gtk_vbox_new (FALSE, 5);
             box = gtk_hbox_new (FALSE, 5);
-            gtk_box_pack_start (GTK_BOX (box), gtk_label_new (snd_mixer_selem_get_name (elem)), FALSE, FALSE, 5);
+            lbl = g_strdup_printf (_("%s (Capture)"), snd_mixer_selem_get_name (elem));
+            gtk_box_pack_start (GTK_BOX (box), gtk_label_new (lbl), FALSE, FALSE, 5);
+            g_free (lbl);
             btn = gtk_check_button_new ();
             gtk_box_pack_end (GTK_BOX (box), btn, FALSE, FALSE, 5);
             gtk_widget_set_name (btn, snd_mixer_selem_get_name (elem));
-            snd_mixer_selem_get_capture_switch (elem, SND_MIXER_SCHN_FRONT_LEFT, &swval);
+            snd_mixer_selem_get_capture_switch (elem, SND_MIXER_SCHN_MONO, &swval);
             gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (btn), swval);
             gtk_box_pack_start (GTK_BOX (vol->options_set), box, FALSE, FALSE, 5);
             g_signal_connect (btn, "toggled", G_CALLBACK (capture_switch_toggled_event), elem);
@@ -2531,7 +2536,14 @@ static void show_options (VolumeALSAPlugin *vol, snd_mixer_t *mixer, gboolean in
         {
             if (!vol->options_set) vol->options_set = gtk_vbox_new (FALSE, 5);
             box = gtk_hbox_new (FALSE, 5);
-            gtk_box_pack_start (GTK_BOX (box), gtk_label_new (snd_mixer_selem_get_name (elem)), FALSE, FALSE, 5);
+            if (snd_mixer_selem_is_enum_playback (elem) && !snd_mixer_selem_is_enum_capture (elem))
+                lbl = g_strdup_printf (_("%s (Playback)"), snd_mixer_selem_get_name (elem));
+            else if (snd_mixer_selem_is_enum_capture (elem) && !snd_mixer_selem_is_enum_playback (elem))
+                lbl = g_strdup_printf (_("%s (Capture)"), snd_mixer_selem_get_name (elem));
+            else
+                lbl = g_strdup_printf ("%s", snd_mixer_selem_get_name (elem));
+            gtk_box_pack_start (GTK_BOX (box), gtk_label_new (lbl), FALSE, FALSE, 5);
+            g_free (lbl);
             btn = gtk_combo_box_text_new ();
             gtk_box_pack_end (GTK_BOX (box), btn, FALSE, FALSE, 5);
             gtk_widget_set_name (btn, snd_mixer_selem_get_name (elem));
@@ -2543,7 +2555,7 @@ static void show_options (VolumeALSAPlugin *vol, snd_mixer_t *mixer, gboolean in
                 gtk_combo_box_text_append_text (GTK_COMBO_BOX_TEXT (btn), buffer);
             }
             int sel;
-            snd_mixer_selem_get_enum_item (elem, SND_MIXER_SCHN_FRONT_LEFT, &sel);
+            snd_mixer_selem_get_enum_item (elem, SND_MIXER_SCHN_MONO, &sel);
             gtk_combo_box_set_active (GTK_COMBO_BOX (btn), sel);
             gtk_box_pack_start (GTK_BOX (vol->options_set), box, FALSE, FALSE, 5);
             g_signal_connect (btn, "changed", G_CALLBACK (enum_changed_event), elem);
@@ -2667,7 +2679,7 @@ static void update_options (VolumeALSAPlugin *vol)
             if (!wid) wid = find_box_child (vol->options_set, GTK_TYPE_CHECK_BUTTON, snd_mixer_selem_get_name (elem));
             if (wid)
             {
-                snd_mixer_selem_get_playback_switch (elem, SND_MIXER_SCHN_FRONT_LEFT, &swval);
+                snd_mixer_selem_get_playback_switch (elem, SND_MIXER_SCHN_MONO, &swval);
                 g_signal_handlers_block_by_func (wid, playback_switch_toggled_event, elem);
                 gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (wid), swval);
                 g_signal_handlers_unblock_by_func (wid, playback_switch_toggled_event, elem);
@@ -2688,7 +2700,7 @@ static void update_options (VolumeALSAPlugin *vol)
             if (!wid) wid = find_box_child (vol->options_set, GTK_TYPE_CHECK_BUTTON, snd_mixer_selem_get_name (elem));
             if (wid)
             {
-                snd_mixer_selem_get_capture_switch (elem, SND_MIXER_SCHN_FRONT_LEFT, &swval);
+                snd_mixer_selem_get_capture_switch (elem, SND_MIXER_SCHN_MONO, &swval);
                 g_signal_handlers_block_by_func (wid, capture_switch_toggled_event, elem);
                 gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (wid), swval);
                 g_signal_handlers_unblock_by_func (wid, capture_switch_toggled_event, elem);
@@ -2699,7 +2711,7 @@ static void update_options (VolumeALSAPlugin *vol)
             wid = find_box_child (vol->options_set, GTK_TYPE_COMBO_BOX_TEXT, snd_mixer_selem_get_name (elem));
             if (wid)
             {
-                snd_mixer_selem_get_enum_item (elem, SND_MIXER_SCHN_FRONT_LEFT, &swval);
+                snd_mixer_selem_get_enum_item (elem, SND_MIXER_SCHN_MONO, &swval);
                 g_signal_handlers_block_by_func (wid, enum_changed_event, elem);
                 gtk_combo_box_set_active (GTK_COMBO_BOX (wid), swval);
                 g_signal_handlers_unblock_by_func (wid, enum_changed_event, elem);
@@ -2781,7 +2793,7 @@ static void enum_changed_event (GtkComboBox *combo, gpointer *user_data)
 {
     snd_mixer_elem_t *elem = (snd_mixer_elem_t *) user_data;
 
-    snd_mixer_selem_set_enum_item (elem, SND_MIXER_SCHN_FRONT_LEFT, gtk_combo_box_get_active (combo));
+    snd_mixer_selem_set_enum_item (elem, SND_MIXER_SCHN_MONO, gtk_combo_box_get_active (combo));
 }
 
 static GtkWidget *find_box_child (GtkWidget *container, gint type, const char *name)
