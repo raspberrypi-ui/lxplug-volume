@@ -1,3 +1,9 @@
+lxplug-volume (0.19) buster; urgency=medium
+
+  * Incorporate external mixer app functionality into plugin
+
+ -- Simon Long <simon@raspberrypi.org>  Mon, 25 Nov 2019 11:17:30 +0000
+
 lxplug-volume (0.18) buster; urgency=medium
 
   * Alphabetically sort devices in menu; support individual internal ALSA devices
