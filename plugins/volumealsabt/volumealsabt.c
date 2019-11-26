@@ -1154,15 +1154,41 @@ static gboolean asound_reset_mixer_evt_idle (gpointer user_data)
 static gboolean asound_mixer_event (GIOChannel *channel, GIOCondition cond, gpointer user_data)
 {
     VolumeALSAPlugin *vol = (VolumeALSAPlugin *) user_data;
-    int res = 0;
+    int i, res = 0;
+    snd_mixer_t *mixer = NULL;
 
     if (g_source_is_destroyed (g_main_current_source ())) return FALSE;
 
     if (vol->mixer_evt_idle == 0)
     {
-        vol->mixer_evt_idle = g_idle_add_full (G_PRIORITY_DEFAULT, (GSourceFunc) asound_reset_mixer_evt_idle, vol, NULL);
-        if (vol->mixers[OUTPUT_MIXER].mixer) res = snd_mixer_handle_events (vol->mixers[OUTPUT_MIXER].mixer);
-        if (vol->mixers[INPUT_MIXER].mixer) res = snd_mixer_handle_events (vol->mixers[INPUT_MIXER].mixer);
+        if (vol->mixers[OUTPUT_MIXER].mixer)
+        {
+            for (i = 0; i < vol->mixers[OUTPUT_MIXER].num_channels; i++)
+            {
+                if (channel == vol->mixers[OUTPUT_MIXER].channels[i])
+                {
+                    mixer = vol->mixers[OUTPUT_MIXER].mixer;
+                    DEBUG ("Output mixer event");
+                }
+            }
+        }
+        if (vol->mixers[INPUT_MIXER].mixer)
+        {
+            for (i = 0; i < vol->mixers[INPUT_MIXER].num_channels; i++)
+            {
+                if (channel == vol->mixers[INPUT_MIXER].channels[i])
+                {
+                    mixer = vol->mixers[INPUT_MIXER].mixer;
+                    DEBUG ("Input mixer event");
+                }
+            }
+        }
+        if (mixer)
+        {
+            vol->mixer_evt_idle = g_idle_add_full (G_PRIORITY_DEFAULT, (GSourceFunc) asound_reset_mixer_evt_idle, vol, NULL);
+            res = snd_mixer_handle_events (mixer);
+        }
+        else return TRUE;
     }
 
     /* the status of mixer is changed. update of display is needed. */
