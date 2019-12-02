@@ -2699,8 +2699,17 @@ static void show_output_options (VolumeALSAPlugin *vol)
 
 static void show_input_options (VolumeALSAPlugin *vol)
 {
-    if (asound_mixer_initialize (vol, INPUT_MIXER))
+    if (asound_get_default_input () == asound_get_default_card ())
+    {
+        DEBUG ("Input and output device the same - use output mixer for dialog");
+        if (vol->mixers[OUTPUT_MIXER].mixer)
+            show_options (vol, vol->mixers[OUTPUT_MIXER].mixer, TRUE, vol->idev_name);
+    }
+    else if (asound_mixer_initialize (vol, INPUT_MIXER))
+    {
+        DEBUG ("Created new mixer for input dialog");
         show_options (vol, vol->mixers[INPUT_MIXER].mixer, TRUE, vol->idev_name);
+    }
 }
 
 static void update_options (VolumeALSAPlugin *vol)
@@ -2772,7 +2781,11 @@ static void update_options (VolumeALSAPlugin *vol)
 
 static void close_options (VolumeALSAPlugin *vol)
 {
-    if (vol->mixers[INPUT_MIXER].mixer) asound_mixer_deinitialize (vol, INPUT_MIXER);
+    if (vol->mixers[INPUT_MIXER].mixer)
+    {
+        DEBUG ("Deinitializing input mixer");
+        asound_mixer_deinitialize (vol, INPUT_MIXER);
+    }
 
     gtk_widget_destroy (vol->options_dlg);
     vol->options_dlg = NULL;
@@ -3039,6 +3052,8 @@ static GtkWidget *volumealsa_constructor (LXPanel *panel, config_setting_t *sett
     vol->options_dlg = NULL;
     vol->odev_name = NULL;
     vol->idev_name = NULL;
+    vol->mixers[OUTPUT_MIXER].mixer = NULL;
+    vol->mixers[INPUT_MIXER].mixer = NULL;
 
     /* Allocate top level widget and set into Plugin widget pointer. */
     vol->panel = panel;
