@@ -1172,7 +1172,7 @@ static gboolean asound_mixer_event (GIOChannel *channel, GIOCondition cond, gpoi
                 }
             }
         }
-        if (vol->mixers[INPUT_MIXER].mixer)
+        if (mixer == NULL && vol->mixers[INPUT_MIXER].mixer)
         {
             for (i = 0; i < vol->mixers[INPUT_MIXER].num_channels; i++)
             {
