@@ -1241,7 +1241,7 @@ static int asound_get_default_card (void)
         }
 
         /* otherwise parse pcm.output section for card number */
-        res = get_string ("sed -n '/pcm.output/,/}/{/card/p}' %s 2>/dev/null | cut -d ' ' -f 2", user_config_file);
+        res = get_string ("sed -n '/pcm.output/,/}/{/card/p}' %s 2>/dev/null | grep -o 'card\\s[0-9]' | cut -d ' ' -f 2", user_config_file);
         if (sscanf (res, "%d", &val) != 1) val = -1;
     }
     else
@@ -1259,7 +1259,7 @@ static int asound_get_default_card (void)
         g_free (res);
 
         /* if not, check for old format file */
-        res = get_string ("sed -n '/pcm.!default/,/}/{/card/p}' %s 2>/dev/null | cut -d ' ' -f 2", user_config_file);
+        res = get_string ("sed -n '/pcm.!default/,/}/{/card/p}' %s 2>/dev/null | grep -o 'card\\s[0-9]' | cut -d ' ' -f 2", user_config_file);
         if (sscanf (res, "%d", &val) == 1) goto DONE;
 
         /* nothing valid found, default device is 0 */
@@ -1295,7 +1295,7 @@ static int asound_get_default_input (void)
         }
 
         /* parse pcm.input section for card number */
-        res = get_string ("sed -n '/pcm.input/,/}/{/card/p}' %s 2>/dev/null | cut -d ' ' -f 2", user_config_file);
+        res = get_string ("sed -n '/pcm.input/,/}/{/card/p}' %s 2>/dev/null | grep -o 'card\\s[0-9]' | cut -d ' ' -f 2", user_config_file);
         if (sscanf (res, "%d", &val) != 1) val = -1;
     }
     else
@@ -1307,7 +1307,7 @@ static int asound_get_default_input (void)
         g_free (res);
 
         /* if not, check for old format file */
-        res = get_string ("sed -n '/pcm.!default/,/}/{/card/p}' %s 2>/dev/null | cut -d ' ' -f 2", user_config_file);
+        res = get_string ("sed -n '/pcm.!default/,/}/{/card/p}' %s 2>/dev/null | grep -o 'card\\s[0-9]' | cut -d ' ' -f 2", user_config_file);
         if (sscanf (res, "%d", &val) == 1) goto DONE;
 
         /* nothing valid found, default device is 0 */

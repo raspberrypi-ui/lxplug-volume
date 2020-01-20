@@ -1,3 +1,9 @@
+lxplug-volume (0.20) buster; urgency=medium
+
+  * Improve robustness of reading values from asoundrc
+
+ -- Simon Long <simon@raspberrypi.org>  Mon, 20 Jan 2020 11:15:07 +0000
+
 lxplug-volume (0.19) buster; urgency=medium
 
   * Incorporate external mixer app functionality into plugin
