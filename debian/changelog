@@ -1,3 +1,9 @@
+lxplug-volume (0.21) buster; urgency=medium
+
+  * Use generic icon load code
+
+ -- Simon Long <simon@raspberrypi.com>  Thu, 16 Apr 2020 15:56:49 +0100
+
 lxplug-volume (0.20) buster; urgency=medium
 
   * Improve robustness of reading values from asoundrc

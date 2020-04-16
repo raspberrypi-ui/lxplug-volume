@@ -136,14 +136,11 @@ typedef enum {
 #define BT_SERV_HSP             "00001108"
 #define BT_SERV_HFP             "0000111E"
 
-#define ICON_BUTTON_TRIM 4
-
 /* Helpers */
 static char *get_string (const char *fmt, ...);
 static int get_value (const char *fmt, ...);
 static int vsystem (const char *fmt, ...);
 static gboolean find_in_section (char *file, char *sec, char *seek);
-static void set_icon (LXPanel *p, GtkWidget *image, const char *icon, int size);
 static int hdmi_monitors (VolumeALSAPlugin *vol);
 
 /* Bluetooth */
@@ -315,35 +312,6 @@ static gboolean find_in_section (char *file, char *sec, char *seek)
     g_free (cmd);
     if (res == 0) return TRUE;
     else return FALSE;
-}
-
-static void set_icon (LXPanel *p, GtkWidget *image, const char *icon, int size)
-{
-    GdkPixbuf *pixbuf;
-    if (size == 0) size = panel_get_icon_size (p) - ICON_BUTTON_TRIM;
-    if (gtk_icon_theme_has_icon (panel_get_icon_theme (p), icon))
-    {
-        GtkIconInfo *info = gtk_icon_theme_lookup_icon (panel_get_icon_theme (p), icon, size, GTK_ICON_LOOKUP_FORCE_SIZE);
-        pixbuf = gtk_icon_info_load_icon (info, NULL);
-        gtk_icon_info_free (info);
-        if (pixbuf != NULL)
-        {
-            gtk_image_set_from_pixbuf (GTK_IMAGE (image), pixbuf);
-            g_object_unref (pixbuf);
-            return;
-        }
-    }
-    else
-    {
-        char *path = g_strdup_printf ("%s/images/%s.png", PACKAGE_DATA_DIR, icon);
-        pixbuf = gdk_pixbuf_new_from_file_at_scale (path, size, size, TRUE, NULL);
-        g_free (path);
-        if (pixbuf != NULL)
-        {
-            gtk_image_set_from_pixbuf (GTK_IMAGE (image), pixbuf);
-            g_object_unref (pixbuf);
-        }
-    }
 }
 
 /* Multiple HDMI support */
@@ -1633,7 +1601,7 @@ static void volumealsa_update_display (VolumeALSAPlugin *vol)
         else if (level >= 33) icon = "audio-volume-medium";
         else if (level > 0) icon = "audio-volume-low";
     }
-    set_icon (vol->panel, vol->tray_icon, icon, 0);
+    lxpanel_plugin_set_taskbar_icon (vol->panel, vol->tray_icon, icon);
 
     /* update popup window controls */
     if (vol->mute_check)
@@ -1682,14 +1650,11 @@ static void volumealsa_open_input_config_dialog (GtkWidget *widget, VolumeALSAPl
 static void volumealsa_show_connect_dialog (VolumeALSAPlugin *vol, gboolean failed, const gchar *param)
 {
     char buffer[256];
-    GdkPixbuf *icon;
 
     if (!failed)
     {
         vol->conn_dialog = gtk_dialog_new_with_buttons (_("Connecting Audio Device"), NULL, GTK_DIALOG_MODAL | GTK_DIALOG_DESTROY_WITH_PARENT, NULL);
-        icon = gtk_icon_theme_load_icon (gtk_icon_theme_get_default (), "preferences-system-bluetooth", panel_get_icon_size (vol->panel) - ICON_BUTTON_TRIM, 0, NULL);
-        gtk_window_set_icon (GTK_WINDOW (vol->conn_dialog), icon);
-        if (icon) g_object_unref (icon);
+        gtk_window_set_icon_name (GTK_WINDOW (vol->conn_dialog), "preferences-system-bluetooth");
         gtk_window_set_position (GTK_WINDOW (vol->conn_dialog), GTK_WIN_POS_CENTER);
         gtk_container_set_border_width (GTK_CONTAINER (vol->conn_dialog), 10);
         sprintf (buffer, _("Connecting to Bluetooth audio device '%s'..."), param);
@@ -1829,7 +1794,7 @@ static GtkWidget *volumealsa_menu_item_add (VolumeALSAPlugin *vol, GtkWidget *me
     if (selected)
     {
         GtkWidget *image = gtk_image_new ();
-        set_icon (vol->panel, image, "dialog-ok-apply", panel_get_icon_size (vol->panel) > 36 ? 24 : 16);
+        lxpanel_plugin_set_menu_icon (vol->panel, image, "dialog-ok-apply");
         gtk_image_menu_item_set_image (GTK_IMAGE_MENU_ITEM(mi), image);
         if (input)
         {
@@ -2494,7 +2459,6 @@ static void show_options (VolumeALSAPlugin *vol, snd_mixer_t *mixer, gboolean in
     snd_mixer_elem_t *elem;
     GtkWidget *slid, *box, *btn, *scr, *wid;
     GtkObject *adj;
-    GdkPixbuf *icon;
     guint cols;
     int swval;
     char *lbl;
@@ -2635,9 +2599,7 @@ static void show_options (VolumeALSAPlugin *vol, snd_mixer_t *mixer, gboolean in
     gtk_window_set_position (GTK_WINDOW (vol->options_dlg), GTK_WIN_POS_CENTER);
     gtk_window_set_default_size (GTK_WINDOW (vol->options_dlg), 400, 300);
     gtk_container_set_border_width (GTK_CONTAINER (vol->options_dlg), 10);
-    icon = gtk_icon_theme_load_icon (gtk_icon_theme_get_default (), "multimedia-volume-control", panel_get_icon_size (vol->panel) - ICON_BUTTON_TRIM, 0, NULL);
-    gtk_window_set_icon (GTK_WINDOW (vol->options_dlg), icon);
-    if (icon) g_object_unref (icon);
+    gtk_window_set_icon_name (GTK_WINDOW (vol->options_dlg), "multimedia-volume-control");
     g_signal_connect (vol->options_dlg, "delete-event", G_CALLBACK (options_wd_close_handler), vol);
 
     box = gtk_vbox_new (FALSE, 5);
