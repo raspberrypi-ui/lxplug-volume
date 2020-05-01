@@ -1763,7 +1763,7 @@ static gboolean volumealsa_button_press_event (GtkWidget *widget, GdkEventButton
             gdk_window_move (gtk_widget_get_window (vol->popup_window), x, y);
             gtk_window_present (GTK_WINDOW (vol->popup_window));
             gdk_pointer_grab (gtk_widget_get_window (vol->popup_window), TRUE, GDK_BUTTON_PRESS_MASK, NULL, NULL, GDK_CURRENT_TIME);
-            g_signal_connect (G_OBJECT (vol->popup_window), "button-press-event", G_CALLBACK (volumealsa_mouse_out), vol);
+            g_signal_connect (G_OBJECT (vol->popup_window), "focus-out-event", G_CALLBACK (volumealsa_mouse_out), vol);
             vol->show_popup = TRUE;
         }
     }
@@ -2343,13 +2343,13 @@ static void volumealsa_build_popup_window (GtkWidget *p)
     if (vol->popup_window) gtk_widget_destroy (vol->popup_window);
 
     /* Create a new window. */
-    vol->popup_window = gtk_window_new (GTK_WINDOW_POPUP);
+    vol->popup_window = gtk_window_new (GTK_WINDOW_TOPLEVEL);
     gtk_widget_set_name (vol->popup_window, "volals");
     gtk_window_set_decorated (GTK_WINDOW (vol->popup_window), FALSE);
     gtk_container_set_border_width (GTK_CONTAINER (vol->popup_window), 5);
     gtk_window_set_skip_taskbar_hint (GTK_WINDOW (vol->popup_window), TRUE);
     gtk_window_set_skip_pager_hint (GTK_WINDOW (vol->popup_window), TRUE);
-    gtk_window_set_type_hint (GTK_WINDOW (vol->popup_window), GDK_WINDOW_TYPE_HINT_UTILITY);
+    gtk_window_set_type_hint (GTK_WINDOW (vol->popup_window), GDK_WINDOW_TYPE_HINT_DIALOG);
 
     /* Create a scrolled window as the child of the top level window. */
     GtkWidget *scrolledwindow = gtk_scrolled_window_new (NULL, NULL);
@@ -2448,7 +2448,6 @@ static gboolean volumealsa_mouse_out (GtkWidget *widget, GdkEventButton *event, 
     gdk_pointer_ungrab (GDK_CURRENT_TIME);
     return FALSE;
 }
-
 
 /*----------------------------------------------------------------------------*/
 /* Options dialog                                                             */
