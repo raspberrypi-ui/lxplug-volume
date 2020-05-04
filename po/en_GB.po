@@ -58,7 +58,7 @@ msgstr "Input Device Settings..."
 #: ../plugins/volumealsabt/volumealsabt.c:1987
 #: ../plugins/volumealsabt/volumealsabt.c:2015
 msgid "Analog"
-msgstr "Analog"
+msgstr "AV Jack"
 
 #: ../plugins/volumealsabt/volumealsabt.c:1991
 #: ../plugins/volumealsabt/volumealsabt.c:2011
