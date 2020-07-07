@@ -1,0 +1,162 @@
+# English translations for lxplug_volumealsabt package.
+# Copyright (C) 2018 Raspberry Pi Ltd
+# This file is distributed under the same license as the lxplug_volumealsabt package.
+# Emanuele Goldoni <emanuele.goldoni@gmail.com>, 2020.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: lxplug_volumealsabt 0.1\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2020-06-18 15:30+0200\n"
+"PO-Revision-Date: 2020-07-07 22:19+0200\n"
+"Language-Team: Italiano\n"
+"Language: it\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Last-Translator: Emanuele Goldoni <emanuele.goldoni@gmail.com>\n"
+"X-Generator: Poedit 2.3\n"
+
+#: ../plugins/volumealsabt/volumealsabt.c:482
+msgid "Could not get BlueZ interface"
+msgstr "Impossibile ottenere l'interfaccia BlueZ"
+
+#: ../plugins/volumealsabt/volumealsabt.c:1626
+#: ../plugins/volumealsabt/volumealsabt.c:3027
+msgid "Volume control"
+msgstr "Regolazione del volume"
+
+#: ../plugins/volumealsabt/volumealsabt.c:1628
+#: ../plugins/volumealsabt/volumealsabt.c:1738
+#: ../plugins/volumealsabt/volumealsabt.c:2091
+#, c-format
+msgid "No volume control on this device"
+msgstr "Nessuna regolazione del volume per questo dispositivo"
+
+#: ../plugins/volumealsabt/volumealsabt.c:1656
+msgid "Connecting Audio Device"
+msgstr "Connessione al dispositivo audio"
+
+#: ../plugins/volumealsabt/volumealsabt.c:1660
+#, c-format
+msgid "Connecting to Bluetooth audio device '%s'..."
+msgstr "Connessione al dispositivo audio Bluetooth «%s»..."
+
+#: ../plugins/volumealsabt/volumealsabt.c:1671
+#, c-format
+msgid "Failed to connect to device - %s. Try to connect again."
+msgstr ""
+"Connessione al dispositivo %s fallita. Provare nuovamente a "
+"connettersi."
+
+#: ../plugins/volumealsabt/volumealsabt.c:1673
+msgid "_OK"
+msgstr "_OK"
+
+#: ../plugins/volumealsabt/volumealsabt.c:1936
+msgid "Input Device Settings..."
+msgstr "Impostazioni del dispositivo di ingresso..."
+
+#: ../plugins/volumealsabt/volumealsabt.c:1978
+#: ../plugins/volumealsabt/volumealsabt.c:2006
+msgid "Analog"
+msgstr "Jack analogico AV"
+
+#: ../plugins/volumealsabt/volumealsabt.c:1982
+#: ../plugins/volumealsabt/volumealsabt.c:2002
+#: ../plugins/volumealsabt/volumealsabt.c:2004
+msgid "HDMI"
+msgstr "HDMI"
+
+#: ../plugins/volumealsabt/volumealsabt.c:2108
+msgid "Output Device Settings..."
+msgstr "Impostazioni del dispositivo di uscita..."
+
+#. insert submenus
+#: ../plugins/volumealsabt/volumealsabt.c:2117
+msgid "Audio Outputs"
+msgstr "Uscite audio"
+
+#: ../plugins/volumealsabt/volumealsabt.c:2124
+msgid "Audio Inputs"
+msgstr "Ingressi audio"
+
+#: ../plugins/volumealsabt/volumealsabt.c:2131
+msgid "No audio devices found"
+msgstr "Nessun dispositivo audio rilevato"
+
+#. Create a check button as the child of the vertical box.
+#: ../plugins/volumealsabt/volumealsabt.c:2390
+msgid "Mute"
+msgstr "Muto"
+
+#: ../plugins/volumealsabt/volumealsabt.c:2489
+#: ../plugins/volumealsabt/volumealsabt.c:2531
+msgid "Enable"
+msgstr "Abilita"
+
+#: ../plugins/volumealsabt/volumealsabt.c:2511
+#: ../plugins/volumealsabt/volumealsabt.c:2570
+#, c-format
+msgid "%s (Playback)"
+msgstr "%s (Riproduzione)"
+
+#: ../plugins/volumealsabt/volumealsabt.c:2553
+#: ../plugins/volumealsabt/volumealsabt.c:2572
+#, c-format
+msgid "%s (Capture)"
+msgstr "%s (Cattura)"
+
+#: ../plugins/volumealsabt/volumealsabt.c:2597
+msgid "Input Device Options"
+msgstr "Opzioni dispositivo di ingresso"
+
+#: ../plugins/volumealsabt/volumealsabt.c:2597
+msgid "Output Device Options"
+msgstr "Opzioni dispositivo di uscita"
+
+#: ../plugins/volumealsabt/volumealsabt.c:2607
+#, c-format
+msgid "%s Device : %s"
+msgstr "Dispositivo di %s: %s"
+
+#: ../plugins/volumealsabt/volumealsabt.c:2607
+msgid "Input"
+msgstr "Ingresso"
+
+#: ../plugins/volumealsabt/volumealsabt.c:2607
+msgid "Output"
+msgstr "Uscita"
+
+#: ../plugins/volumealsabt/volumealsabt.c:2615
+msgid "No controls available on this device"
+msgstr "Nessun regolazione disponibile per questo dispositivo"
+
+#: ../plugins/volumealsabt/volumealsabt.c:2625
+msgid "Playback"
+msgstr "Riproduzione"
+
+#: ../plugins/volumealsabt/volumealsabt.c:2632
+msgid "Capture"
+msgstr "Cattura"
+
+#: ../plugins/volumealsabt/volumealsabt.c:2639
+msgid "Options"
+msgstr "Opzioni"
+
+#: ../plugins/volumealsabt/volumealsabt.c:2884
+msgid ""
+"Error, you need to install an application to configure the sound "
+"(pavucontrol, alsamixer ...)"
+msgstr ""
+"Errore, è necessario installare un'applicazione per configurare "
+"l'audio (pavucontrol, alsamixer ...)"
+
+#: ../plugins/volumealsabt/volumealsabt.c:3084
+msgid "Volume Control (ALSA/BT)"
+msgstr "Regolazione del volume (ALSA/BT)"
+
+#: ../plugins/volumealsabt/volumealsabt.c:3085
+msgid "Display and control volume for ALSA and Bluetooth devices"
+msgstr ""
+"Mostra e regola il volume per i dispositivi ALSA e Bluetooth"
