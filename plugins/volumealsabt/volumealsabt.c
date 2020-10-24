@@ -1975,18 +1975,22 @@ static void volumealsa_build_device_menu (VolumeALSAPlugin *vol)
                 }
             }
 
-            volumealsa_menu_item_add (vol, om, _("Analog"), "1", bcm == 1, FALSE, G_CALLBACK (volumealsa_set_internal_output));
-            devices = 1;
+            devices = 0;
+            if (!vsystem ("raspi-config nonint has_analog"))
+            {
+                volumealsa_menu_item_add (vol, om, _("Analog"), "1", bcm == 1, FALSE, G_CALLBACK (volumealsa_set_internal_output));
+                devices++;
+            }
             if (vol->hdmis == 1)
             {
                 volumealsa_menu_item_add (vol, om, _("HDMI"), "2", bcm == 2, FALSE, G_CALLBACK (volumealsa_set_internal_output));
-                devices = 2;
+                devices++;
             }
             else if (vol->hdmis == 2)
             {
                 volumealsa_menu_item_add (vol, om, vol->mon_names[0], "2", bcm == 2, FALSE, G_CALLBACK (volumealsa_set_internal_output));
                 volumealsa_menu_item_add (vol, om, vol->mon_names[1], "3", bcm == 3, FALSE, G_CALLBACK (volumealsa_set_internal_output));
-                devices = 3;
+                devices += 2;
             }
             break;
         }
@@ -1999,11 +2003,11 @@ static void volumealsa_build_device_menu (VolumeALSAPlugin *vol)
             dev = g_strdup_printf ("%d", card_num);
 
             if (!g_strcmp0 (nam, "bcm2835 HDMI 1"))
-                mi = volumealsa_menu_item_add (vol, om, vol->hdmis == 1 ? _("HDMI") : vol->mon_names[0], dev, card_num == def_card, FALSE, G_CALLBACK (volumealsa_set_external_output));
+                volumealsa_menu_item_add (vol, om, vol->hdmis == 1 ? _("HDMI") : vol->mon_names[0], dev, card_num == def_card, FALSE, G_CALLBACK (volumealsa_set_external_output));
             else if (!g_strcmp0 (nam, "bcm2835 HDMI 2"))
-                mi = volumealsa_menu_item_add (vol, om, vol->hdmis == 1 ? _("HDMI") : vol->mon_names[1], dev, card_num == def_card, FALSE, G_CALLBACK (volumealsa_set_external_output));
-            else
-                mi = volumealsa_menu_item_add (vol, om, _("Analog"), dev, card_num == def_card, FALSE, G_CALLBACK (volumealsa_set_external_output));
+                volumealsa_menu_item_add (vol, om, vol->hdmis == 1 ? _("HDMI") : vol->mon_names[1], dev, card_num == def_card, FALSE, G_CALLBACK (volumealsa_set_external_output));
+            else if (!vsystem ("raspi-config nonint has_analog"))
+                volumealsa_menu_item_add (vol, om, _("Analog"), dev, card_num == def_card, FALSE, G_CALLBACK (volumealsa_set_external_output));
 
             g_free (nam);
             g_free (dev);
@@ -2082,7 +2086,7 @@ static void volumealsa_build_device_menu (VolumeALSAPlugin *vol)
                 gtk_menu_shell_append (GTK_MENU_SHELL (om), mi);
             }
 
-            mi = volumealsa_menu_item_add (vol, om, nam, dev, card_num == def_card, FALSE, G_CALLBACK (volumealsa_set_external_output));
+            volumealsa_menu_item_add (vol, om, nam, dev, card_num == def_card, FALSE, G_CALLBACK (volumealsa_set_external_output));
             if (card_num == def_card) osel = TRUE;
             if (!asound_has_volume_control (card_num))
             {
