@@ -1848,10 +1848,11 @@ static void volumealsa_build_device_menu (VolumeALSAPlugin *vol)
 {
     GtkWidget *mi, *im, *om;
     gint devices = 0, inputs = 0, card_num, def_card, def_inp;
-    gboolean ext_dev = FALSE, bt_dev = FALSE, osel = FALSE, isel = FALSE;
+    gboolean ext_dev = FALSE, bt_dev = FALSE, osel = FALSE, isel = FALSE, ajack = TRUE;
 
     def_card = asound_get_default_card ();
     def_inp = asound_get_default_input ();
+    if (vsystem ("raspi-config nonint has_analog")) ajack = FALSE;
 
     vol->menu_popup = gtk_menu_new ();
 
@@ -1976,7 +1977,7 @@ static void volumealsa_build_device_menu (VolumeALSAPlugin *vol)
             }
 
             devices = 0;
-            if (!vsystem ("raspi-config nonint has_analog"))
+            if (ajack)
             {
                 volumealsa_menu_item_add (vol, om, _("Analog"), "1", bcm == 1, FALSE, G_CALLBACK (volumealsa_set_internal_output));
                 devices++;
@@ -2006,7 +2007,7 @@ static void volumealsa_build_device_menu (VolumeALSAPlugin *vol)
                 volumealsa_menu_item_add (vol, om, vol->hdmis == 1 ? _("HDMI") : vol->mon_names[0], dev, card_num == def_card, FALSE, G_CALLBACK (volumealsa_set_external_output));
             else if (!g_strcmp0 (nam, "bcm2835 HDMI 2"))
                 volumealsa_menu_item_add (vol, om, vol->hdmis == 1 ? _("HDMI") : vol->mon_names[1], dev, card_num == def_card, FALSE, G_CALLBACK (volumealsa_set_external_output));
-            else if (!vsystem ("raspi-config nonint has_analog"))
+            else if (ajack)
                 volumealsa_menu_item_add (vol, om, _("Analog"), dev, card_num == def_card, FALSE, G_CALLBACK (volumealsa_set_external_output));
 
             g_free (nam);

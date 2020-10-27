@@ -1,3 +1,9 @@
+lxplug-volume (0.23) buster; urgency=medium
+
+  * Add check for existence of analog jack and hide on Pi Zero
+
+ -- Simon Long <simon@raspberrypi.com>  Tue, 27 Oct 2020 15:45:33 +0000
+
 lxplug-volume (0.22) buster; urgency=medium
 
   * Italian translation added
