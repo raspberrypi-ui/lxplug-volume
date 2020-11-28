@@ -1,0 +1,161 @@
+# Slovak translations for lxplug_volumealsabt package.
+# Copyright (C) 2018 Raspberry Pi Ltd
+# This file is distributed under the same license as the lxplug_volumealsabt package.
+# Jose Riha <jose1711 gmail com>, 2018.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: lxplug_volumealsabt 0.1\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2019-11-25 11:13+0000\n"
+"PO-Revision-Date: 2020-11-28 22:30+0100\n"
+"Last-Translator: Jose Riha <jose1711@gmail.com>\n"
+"Language-Team: Slovak\n"
+"Language: sk\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+"X-Generator: Poedit 2.4.1\n"
+
+#: ../plugins/volumealsabt/volumealsabt.c:514
+msgid "Could not get BlueZ interface"
+msgstr "Nepodarilo sa získať rozhranie BlueZ"
+
+#: ../plugins/volumealsabt/volumealsabt.c:1632
+#: ../plugins/volumealsabt/volumealsabt.c:3025
+msgid "Volume control"
+msgstr "Ovládanie hlasitosti"
+
+#: ../plugins/volumealsabt/volumealsabt.c:1634
+#: ../plugins/volumealsabt/volumealsabt.c:1747
+#: ../plugins/volumealsabt/volumealsabt.c:2100
+#, c-format
+msgid "No volume control on this device"
+msgstr "Toto zariadenie nemá prvky na ovládanie hlasitosti"
+
+#: ../plugins/volumealsabt/volumealsabt.c:1663
+msgid "Connecting Audio Device"
+msgstr "Pripájanie ku zvukovému zariadeniu"
+
+#: ../plugins/volumealsabt/volumealsabt.c:1669
+#, c-format
+msgid "Connecting to Bluetooth audio device '%s'..."
+msgstr "Pripájanie k Bluetooth zvukovému zariadeniu '%s'..."
+
+#: ../plugins/volumealsabt/volumealsabt.c:1680
+#, c-format
+msgid "Failed to connect to device - %s. Try to connect again."
+msgstr "Zlyhala komunikácia so zariadením - %s. Skúste to znova."
+
+#: ../plugins/volumealsabt/volumealsabt.c:1682
+msgid "_OK"
+msgstr "_OK"
+
+#: ../plugins/volumealsabt/volumealsabt.c:1945
+msgid "Input Device Settings..."
+msgstr "Nastavenia vstupného zariadenia..."
+
+#: ../plugins/volumealsabt/volumealsabt.c:1987
+#: ../plugins/volumealsabt/volumealsabt.c:2015
+msgid "Analog"
+msgstr "AV Jack"
+
+#: ../plugins/volumealsabt/volumealsabt.c:1991
+#: ../plugins/volumealsabt/volumealsabt.c:2011
+#: ../plugins/volumealsabt/volumealsabt.c:2013
+msgid "HDMI"
+msgstr "HDMI"
+
+#: ../plugins/volumealsabt/volumealsabt.c:2117
+msgid "Output Device Settings..."
+msgstr "Nastavenia výstupného zariadenia..."
+
+#. insert submenus
+#: ../plugins/volumealsabt/volumealsabt.c:2126
+msgid "Audio Outputs"
+msgstr "Audio výstupy"
+
+#: ../plugins/volumealsabt/volumealsabt.c:2133
+msgid "Audio Inputs"
+msgstr "Audio vstupy"
+
+#: ../plugins/volumealsabt/volumealsabt.c:2140
+msgid "No audio devices found"
+msgstr "Neboli nájdené žiadne zvukové zariadenia"
+
+#. Create a check button as the child of the vertical box.
+#: ../plugins/volumealsabt/volumealsabt.c:2399
+msgid "Mute"
+msgstr "Stíšiť"
+
+#: ../plugins/volumealsabt/volumealsabt.c:2500
+#: ../plugins/volumealsabt/volumealsabt.c:2542
+msgid "Enable"
+msgstr "Povoliť"
+
+#: ../plugins/volumealsabt/volumealsabt.c:2522
+#: ../plugins/volumealsabt/volumealsabt.c:2581
+#, c-format
+msgid "%s (Playback)"
+msgstr "%s (Prehrávanie)"
+
+#: ../plugins/volumealsabt/volumealsabt.c:2564
+#: ../plugins/volumealsabt/volumealsabt.c:2583
+#, c-format
+msgid "%s (Capture)"
+msgstr "%s (Záznam)"
+
+#: ../plugins/volumealsabt/volumealsabt.c:2608
+msgid "Input Device Options"
+msgstr "Možnosti vstupného zariadenia"
+
+#: ../plugins/volumealsabt/volumealsabt.c:2608
+msgid "Output Device Options"
+msgstr "Možnosti výstupného zariadenia"
+
+#: ../plugins/volumealsabt/volumealsabt.c:2620
+#, c-format
+msgid "%s Device : %s"
+msgstr "%s zariadenie: %s"
+
+#: ../plugins/volumealsabt/volumealsabt.c:2620
+msgid "Input"
+msgstr "Vstupné"
+
+#: ../plugins/volumealsabt/volumealsabt.c:2620
+msgid "Output"
+msgstr "Výstupné"
+
+#: ../plugins/volumealsabt/volumealsabt.c:2628
+msgid "No controls available on this device"
+msgstr "Toto zariadenie nemá žiadne ovládacie prvky"
+
+#: ../plugins/volumealsabt/volumealsabt.c:2638
+msgid "Playback"
+msgstr "Prehrávanie"
+
+#: ../plugins/volumealsabt/volumealsabt.c:2645
+msgid "Capture"
+msgstr "Záznam"
+
+#: ../plugins/volumealsabt/volumealsabt.c:2652
+msgid "Options"
+msgstr "Možnosti"
+
+#: ../plugins/volumealsabt/volumealsabt.c:2884
+msgid ""
+"Error, you need to install an application to configure the sound "
+"(pavucontrol, alsamixer ...)"
+msgstr ""
+"Chyba, pre nastavenie zvuku musíte nainštalovať aplikáciu "
+"(pavucontrol, alsamixer ...)"
+
+#: ../plugins/volumealsabt/volumealsabt.c:3082
+msgid "Volume Control (ALSA/BT)"
+msgstr "Ovládanie hlasitosti (ALSA/BT)"
+
+#: ../plugins/volumealsabt/volumealsabt.c:3083
+msgid "Display and control volume for ALSA and Bluetooth devices"
+msgstr ""
+"Zobrazenie a ovládanie hlasitosti zariadení ALSA a Bluetooth"
