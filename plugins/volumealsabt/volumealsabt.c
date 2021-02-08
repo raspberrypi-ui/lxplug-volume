@@ -1663,7 +1663,7 @@ static void volumealsa_show_connect_dialog (VolumeALSAPlugin *vol, gboolean fail
         gtk_label_set_justify (GTK_LABEL (vol->conn_label), GTK_JUSTIFY_LEFT);
         gtk_misc_set_alignment (GTK_MISC (vol->conn_label), 0.0, 0.0);
         gtk_box_pack_start (GTK_BOX (gtk_dialog_get_content_area (GTK_DIALOG (vol->conn_dialog))), vol->conn_label, TRUE, TRUE, 0);
-        g_signal_connect (GTK_OBJECT (vol->conn_dialog), "delete_event", G_CALLBACK (volumealsa_delete_connect_dialog), vol);
+        g_signal_connect (vol->conn_dialog, "delete_event", G_CALLBACK (volumealsa_delete_connect_dialog), vol);
         gtk_widget_show_all (vol->conn_dialog);
     }
     else
@@ -2155,7 +2155,7 @@ static void volumealsa_set_external_output (GtkWidget *widget, VolumeALSAPlugin 
 {
     int dev;
 
-    if (sscanf (widget->name, "%d", &dev) == 1)
+    if (sscanf (gtk_widget_get_name (widget), "%d", &dev) == 1)
     {
         /* if there is a Bluetooth device in use, get its name so we can disconnect it */
         char *device = asound_get_bt_device ();
@@ -2179,7 +2179,7 @@ static void volumealsa_set_external_input (GtkWidget *widget, VolumeALSAPlugin *
 {
     int dev;
 
-    if (sscanf (widget->name, "%d", &dev) == 1)
+    if (sscanf (gtk_widget_get_name (widget), "%d", &dev) == 1)
     {
         /* if there is a Bluetooth device in use, get its name so we can disconnect it */
         char *device = asound_get_bt_input ();
@@ -2207,7 +2207,7 @@ static void volumealsa_set_internal_output (GtkWidget *widget, VolumeALSAPlugin 
     if (dev != asound_get_default_card ()) asound_set_default_card (dev);
 
     /* set the output channel on the BCM device */
-    vsystem ("amixer -q cset numid=3 %s 2>/dev/null", widget->name);
+    vsystem ("amixer -q cset numid=3 %s 2>/dev/null", gtk_widget_get_name (widget));
 
     asound_initialize (vol);
     volumealsa_update_display (vol);
@@ -2230,12 +2230,12 @@ static void volumealsa_set_bluetooth_output (GtkWidget *widget, VolumeALSAPlugin
     char *odevice = asound_get_bt_device ();
 
     // is this device already connected and attached - might want to force reconnect here?
-    if (!g_strcmp0 (widget->name, odevice))
+    if (!g_strcmp0 (gtk_widget_get_name (widget), odevice))
     {
-        DEBUG ("Reconnect device %s", widget->name);
+        DEBUG ("Reconnect device %s", gtk_widget_get_name (widget));
         // store the name of the BlueZ device to connect to
         if (vol->bt_conname) g_free (vol->bt_conname);
-        vol->bt_conname = g_strdup (widget->name);
+        vol->bt_conname = g_strdup (gtk_widget_get_name (widget));
         vol->bt_input = FALSE;
 
         // show the connection dialog
@@ -2251,10 +2251,10 @@ static void volumealsa_set_bluetooth_output (GtkWidget *widget, VolumeALSAPlugin
     char *idevice = asound_get_bt_input ();
 
     // check to see if this device is already connected
-    if (!g_strcmp0 (widget->name, idevice))
+    if (!g_strcmp0 (gtk_widget_get_name (widget), idevice))
     {
-        DEBUG ("Device %s is already connected", widget->name);
-        asound_set_bt_device (widget->name);
+        DEBUG ("Device %s is already connected", gtk_widget_get_name (widget));
+        asound_set_bt_device (gtk_widget_get_name (widget));
         asound_initialize (vol);
         volumealsa_update_display (vol);
 
@@ -2263,10 +2263,10 @@ static void volumealsa_set_bluetooth_output (GtkWidget *widget, VolumeALSAPlugin
     }
     else
     {
-        DEBUG ("Need to connect device %s", widget->name);
+        DEBUG ("Need to connect device %s", gtk_widget_get_name (widget));
         // store the name of the BlueZ device to connect to
         if (vol->bt_conname) g_free (vol->bt_conname);
-        vol->bt_conname = g_strdup (widget->name);
+        vol->bt_conname = g_strdup (gtk_widget_get_name (widget));
         vol->bt_input = FALSE;
 
         // show the connection dialog
@@ -2286,12 +2286,12 @@ static void volumealsa_set_bluetooth_input (GtkWidget *widget, VolumeALSAPlugin 
     char *idevice = asound_get_bt_input ();
 
     // is this device already connected and attached - might want to force reconnect here?
-    if (!g_strcmp0 (widget->name, idevice))
+    if (!g_strcmp0 (gtk_widget_get_name (widget), idevice))
     {
-        DEBUG ("Reconnect device %s", widget->name);
+        DEBUG ("Reconnect device %s", gtk_widget_get_name (widget));
         // store the name of the BlueZ device to connect to
         if (vol->bt_conname) g_free (vol->bt_conname);
-        vol->bt_conname = g_strdup (widget->name);
+        vol->bt_conname = g_strdup (gtk_widget_get_name (widget));
         vol->bt_input = TRUE;
 
         // show the connection dialog
@@ -2307,20 +2307,20 @@ static void volumealsa_set_bluetooth_input (GtkWidget *widget, VolumeALSAPlugin 
     char *odevice = asound_get_bt_device ();
 
     // check to see if this device is already connected
-    if (!g_strcmp0 (widget->name, odevice))
+    if (!g_strcmp0 (gtk_widget_get_name (widget), odevice))
     {
-        DEBUG ("Device %s is already connected\n", widget->name);
-        asound_set_bt_input (widget->name);
+        DEBUG ("Device %s is already connected\n", gtk_widget_get_name (widget));
+        asound_set_bt_input (gtk_widget_get_name (widget));
 
         /* disconnect old Bluetooth input device */
         if (idevice) bt_disconnect_device (vol, idevice);
     }
     else
     {
-        DEBUG ("Need to connect device %s", widget->name);
+        DEBUG ("Need to connect device %s", gtk_widget_get_name (widget));
         // store the name of the BlueZ device to connect to
         if (vol->bt_conname) g_free (vol->bt_conname);
-        vol->bt_conname = g_strdup (widget->name);
+        vol->bt_conname = g_strdup (gtk_widget_get_name (widget));
         vol->bt_input = TRUE;
 
         // show the connection dialog
@@ -2462,7 +2462,7 @@ static void show_options (VolumeALSAPlugin *vol, snd_mixer_t *mixer, gboolean in
 {
     snd_mixer_elem_t *elem;
     GtkWidget *slid, *box, *btn, *scr, *wid;
-    GtkObject *adj;
+    GtkAdjustment *adj;
     guint cols;
     int swval;
     char *lbl;
@@ -2502,7 +2502,7 @@ static void show_options (VolumeALSAPlugin *vol, snd_mixer_t *mixer, gboolean in
             slid = gtk_vscale_new (GTK_ADJUSTMENT (adj));
             gtk_widget_set_name (slid, snd_mixer_selem_get_name (elem));
             gtk_range_set_inverted (GTK_RANGE (slid), TRUE);
-            gtk_range_set_update_policy (GTK_RANGE (slid), GTK_UPDATE_DISCONTINUOUS);
+            //gtk_range_set_update_policy (GTK_RANGE (slid), GTK_UPDATE_DISCONTINUOUS);  !!!! Bad things will happen if this isn't fixed !!!!
             gtk_range_set_value (GTK_RANGE (slid), get_normalized_volume (elem, FALSE));
             gtk_widget_set_size_request (slid, 80, 150);
             gtk_scale_set_draw_value (GTK_SCALE (slid), FALSE);
@@ -2544,7 +2544,7 @@ static void show_options (VolumeALSAPlugin *vol, snd_mixer_t *mixer, gboolean in
             slid = gtk_vscale_new (GTK_ADJUSTMENT (adj));
             gtk_widget_set_name (slid, snd_mixer_selem_get_name (elem));
             gtk_range_set_inverted (GTK_RANGE (slid), TRUE);
-            gtk_range_set_update_policy (GTK_RANGE (slid), GTK_UPDATE_DISCONTINUOUS);
+            //gtk_range_set_update_policy (GTK_RANGE (slid), GTK_UPDATE_DISCONTINUOUS);  !!!! Bad things will happen if this isn't fixed !!!!
             gtk_range_set_value (GTK_RANGE (slid), get_normalized_volume (elem, TRUE));
             gtk_widget_set_size_request (slid, 80, 150);
             gtk_scale_set_draw_value (GTK_SCALE (slid), FALSE);
