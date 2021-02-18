@@ -2781,7 +2781,7 @@ static void show_options (VolumeALSAPlugin *vol, snd_mixer_t *mixer, gboolean in
     gtk_box_pack_start (GTK_BOX (box), wid, FALSE, FALSE, 5);
 
 #if GTK_CHECK_VERSION(3, 0, 0)
-    btn = gtk_button_new_with_label (_("_OK"));
+    btn = gtk_button_new_with_mnemonic (_("_OK"));
 #else
     btn = gtk_button_new_from_stock (GTK_STOCK_OK);
 #endif
