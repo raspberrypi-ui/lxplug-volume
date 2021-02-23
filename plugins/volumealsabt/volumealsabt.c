@@ -1759,6 +1759,7 @@ static gboolean volumealsa_button_press_event (GtkWidget *widget, GdkEventButton
         {
             volumealsa_build_popup_window (vol->plugin);
             volumealsa_update_display (vol);
+            printf ("open\n");
 
             gint x, y;
             gtk_window_set_position (GTK_WINDOW (vol->popup_window), GTK_WIN_POS_MOUSE);
@@ -1769,7 +1770,7 @@ static gboolean volumealsa_button_press_event (GtkWidget *widget, GdkEventButton
             gdk_window_move (gtk_widget_get_window (vol->popup_window), x, y);
             gtk_window_present (GTK_WINDOW (vol->popup_window));
 #if GTK_CHECK_VERSION(3, 0, 0)
-            gdk_seat_grab (gdk_display_get_default_seat (gdk_display_get_default ()), gtk_widget_get_window (vol->popup_window), GDK_SEAT_CAPABILITY_ALL_POINTING, TRUE, NULL, (GdkEvent *) event, NULL, NULL);
+            printf ("grab %d\n", gdk_seat_grab (gdk_display_get_default_seat (gdk_display_get_default ()), gtk_widget_get_window (vol->popup_window), GDK_SEAT_CAPABILITY_ALL_POINTING, TRUE, NULL, (GdkEvent *) event, NULL, NULL));
 #else
             gdk_pointer_grab (gtk_widget_get_window (vol->popup_window), TRUE, GDK_BUTTON_PRESS_MASK, NULL, NULL, GDK_CURRENT_TIME);
 #endif
@@ -1805,7 +1806,7 @@ static GtkWidget *volumealsa_menu_item_add (VolumeALSAPlugin *vol, GtkWidget *me
 {
 #if GTK_CHECK_VERSION(3, 0, 0)
     GtkWidget *mi = gtk_menu_item_new ();
-    GtkWidget *box = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 6);
+    GtkWidget *box = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, MENU_ICON_SPACE);
     GtkWidget *image = gtk_image_new ();
     GtkWidget *lbl = gtk_label_new (label);
     if (selected) lxpanel_plugin_set_menu_icon (vol->panel, image, "dialog-ok-apply");
@@ -2521,6 +2522,7 @@ static gboolean volumealsa_mouse_out (GtkWidget *widget, GdkEventButton *event, 
     /* Hide the widget. */
     gtk_widget_hide (vol->popup_window);
     vol->show_popup = FALSE;
+    printf ("ungrab\n");
 #if GTK_CHECK_VERSION(3, 0, 0)
     gdk_seat_ungrab (gdk_display_get_default_seat (gdk_display_get_default ()));
 #else
