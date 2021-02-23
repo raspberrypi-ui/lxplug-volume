@@ -224,7 +224,12 @@ static void volumealsa_popup_scale_changed (GtkRange *range, VolumeALSAPlugin *v
 static void volumealsa_popup_scale_scrolled (GtkScale *scale, GdkEventScroll *evt, VolumeALSAPlugin *vol);
 static void volumealsa_popup_mute_toggled (GtkWidget *widget, VolumeALSAPlugin *vol);
 static void volumealsa_popup_set_position (GtkWidget *menu, gint *px, gint *py, gboolean *push_in, gpointer data);
+#if GTK_CHECK_VERSION(3, 0, 0)
+static gboolean volumealsa_popup_mapped (GtkWidget *widget, GdkEvent *event, VolumeALSAPlugin *vol);
+static gboolean volumealsa_popup_button_press (GtkWidget *widget, GdkEventButton *event, VolumeALSAPlugin *vol);
+#else
 static gboolean volumealsa_mouse_out (GtkWidget *widget, GdkEventButton *event, VolumeALSAPlugin *vol);
+#endif
 
 /* Options dialog */
 static void show_options (VolumeALSAPlugin *vol, snd_mixer_t *mixer, gboolean input, char *devname);
@@ -1769,11 +1774,12 @@ static gboolean volumealsa_button_press_event (GtkWidget *widget, GdkEventButton
             gdk_window_move (gtk_widget_get_window (vol->popup_window), x, y);
             gtk_window_present (GTK_WINDOW (vol->popup_window));
 #if GTK_CHECK_VERSION(3, 0, 0)
-            gdk_seat_grab (gdk_display_get_default_seat (gdk_display_get_default ()), gtk_widget_get_window (vol->popup_window), GDK_SEAT_CAPABILITY_ALL_POINTING, TRUE, NULL, (GdkEvent *) event, NULL, NULL);
+            g_signal_connect (G_OBJECT (vol->popup_window), "map-event", G_CALLBACK (volumealsa_popup_mapped), vol);
+            g_signal_connect (G_OBJECT (vol->popup_window), "button-press-event", G_CALLBACK (volumealsa_popup_button_press), vol);
 #else
             gdk_pointer_grab (gtk_widget_get_window (vol->popup_window), TRUE, GDK_BUTTON_PRESS_MASK, NULL, NULL, GDK_CURRENT_TIME);
-#endif
             g_signal_connect (G_OBJECT (vol->popup_window), "focus-out-event", G_CALLBACK (volumealsa_mouse_out), vol);
+#endif
             vol->show_popup = TRUE;
         }
     }
@@ -2517,18 +2523,35 @@ static void volumealsa_popup_set_position (GtkWidget *menu, gint *px, gint *py, 
 }
 
 /* Handler for "focus-out" signal on popup window. */
+#if GTK_CHECK_VERSION(3, 0, 0)
+static gboolean volumealsa_popup_mapped (GtkWidget *widget, GdkEvent *event, VolumeALSAPlugin *vol)
+{
+    gdk_seat_grab (gdk_display_get_default_seat (gdk_display_get_default ()), gtk_widget_get_window (widget), GDK_SEAT_CAPABILITY_ALL_POINTING, TRUE, NULL, NULL, NULL, NULL);
+    return FALSE;
+}
+
+static gboolean volumealsa_popup_button_press (GtkWidget *widget, GdkEventButton *event, VolumeALSAPlugin *vol)
+{
+    int x, y;
+    gtk_window_get_size (GTK_WINDOW (widget), &x, &y);
+    if (event->x < 0 || event->y < 0 || event->x > x || event->y > y)
+    {
+        gtk_widget_hide (vol->popup_window);
+        vol->show_popup = FALSE;
+        gdk_seat_ungrab (gdk_display_get_default_seat (gdk_display_get_default ()));
+    }
+    return FALSE;
+}
+#else
 static gboolean volumealsa_mouse_out (GtkWidget *widget, GdkEventButton *event, VolumeALSAPlugin *vol)
 {
     /* Hide the widget. */
     gtk_widget_hide (vol->popup_window);
     vol->show_popup = FALSE;
-#if GTK_CHECK_VERSION(3, 0, 0)
-    gdk_seat_ungrab (gdk_display_get_default_seat (gdk_display_get_default ()));
-#else
     gdk_pointer_ungrab (GDK_CURRENT_TIME);
-#endif
     return FALSE;
 }
+#endif
 
 /*----------------------------------------------------------------------------*/
 /* Options dialog                                                             */
