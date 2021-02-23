@@ -1759,7 +1759,6 @@ static gboolean volumealsa_button_press_event (GtkWidget *widget, GdkEventButton
         {
             volumealsa_build_popup_window (vol->plugin);
             volumealsa_update_display (vol);
-            printf ("open\n");
 
             gint x, y;
             gtk_window_set_position (GTK_WINDOW (vol->popup_window), GTK_WIN_POS_MOUSE);
@@ -1770,7 +1769,7 @@ static gboolean volumealsa_button_press_event (GtkWidget *widget, GdkEventButton
             gdk_window_move (gtk_widget_get_window (vol->popup_window), x, y);
             gtk_window_present (GTK_WINDOW (vol->popup_window));
 #if GTK_CHECK_VERSION(3, 0, 0)
-            printf ("grab %d\n", gdk_seat_grab (gdk_display_get_default_seat (gdk_display_get_default ()), gtk_widget_get_window (vol->popup_window), GDK_SEAT_CAPABILITY_ALL_POINTING, TRUE, NULL, (GdkEvent *) event, NULL, NULL));
+            gdk_seat_grab (gdk_display_get_default_seat (gdk_display_get_default ()), gtk_widget_get_window (vol->popup_window), GDK_SEAT_CAPABILITY_ALL_POINTING, TRUE, NULL, (GdkEvent *) event, NULL, NULL);
 #else
             gdk_pointer_grab (gtk_widget_get_window (vol->popup_window), TRUE, GDK_BUTTON_PRESS_MASK, NULL, NULL, GDK_CURRENT_TIME);
 #endif
@@ -1805,14 +1804,7 @@ static gboolean volumealsa_button_press_event (GtkWidget *widget, GdkEventButton
 static GtkWidget *volumealsa_menu_item_add (VolumeALSAPlugin *vol, GtkWidget *menu, const char *label, const char *name, gboolean selected, gboolean input, GCallback cb)
 {
 #if GTK_CHECK_VERSION(3, 0, 0)
-    GtkWidget *mi = gtk_menu_item_new ();
-    GtkWidget *box = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, MENU_ICON_SPACE);
-    GtkWidget *image = gtk_image_new ();
-    GtkWidget *lbl = gtk_label_new (label);
-    if (selected) lxpanel_plugin_set_menu_icon (vol->panel, image, "dialog-ok-apply");
-    gtk_container_add (GTK_CONTAINER (mi), box);
-    gtk_container_add (GTK_CONTAINER (box), image);
-    gtk_container_add (GTK_CONTAINER (box), lbl);
+    GtkWidget *mi = lxpanel_plugin_new_menu_item (vol->panel, label, 0, selected ? "dialog-ok-apply" : NULL);
     if (selected)
     {
 #else
@@ -1977,7 +1969,7 @@ static void volumealsa_build_device_menu (VolumeALSAPlugin *vol)
         gtk_menu_shell_append (GTK_MENU_SHELL (im), mi);
 
 #if GTK_CHECK_VERSION(3, 0, 0)
-        mi = gtk_menu_item_new_with_label (_("Input Device Settings..."));
+        mi = lxpanel_plugin_new_menu_item (vol->panel, _("Input Device Settings..."), 0, NULL);
 #else
         mi = gtk_image_menu_item_new_with_label (_("Input Device Settings..."));
 #endif
@@ -2163,7 +2155,7 @@ static void volumealsa_build_device_menu (VolumeALSAPlugin *vol)
         gtk_menu_shell_append (GTK_MENU_SHELL (om), mi);
 
 #if GTK_CHECK_VERSION(3, 0, 0)
-        mi = gtk_menu_item_new_with_label (_("Output Device Settings..."));
+        mi = lxpanel_plugin_new_menu_item (vol->panel, _("Output Device Settings..."), 0, NULL);
 #else
         mi = gtk_image_menu_item_new_with_label (_("Output Device Settings..."));
 #endif
@@ -2175,14 +2167,22 @@ static void volumealsa_build_device_menu (VolumeALSAPlugin *vol)
     if (inputs)
     {
         // insert submenus
+#if GTK_CHECK_VERSION(3, 0, 0)
+        mi = lxpanel_plugin_new_menu_item (vol->panel, _("Audio Outputs"), 0, NULL);
+#else
         mi = gtk_menu_item_new_with_label (_("Audio Outputs"));
+#endif
         gtk_menu_item_set_submenu (GTK_MENU_ITEM (mi), om);
         gtk_menu_shell_append (GTK_MENU_SHELL (vol->menu_popup), mi);
 
         mi = gtk_separator_menu_item_new ();
         gtk_menu_shell_append (GTK_MENU_SHELL (vol->menu_popup), mi);
 
+#if GTK_CHECK_VERSION(3, 0, 0)
+        mi = lxpanel_plugin_new_menu_item (vol->panel, _("Audio Inputs"), 0, NULL);
+#else
         mi = gtk_menu_item_new_with_label (_("Audio Inputs"));
+#endif
         gtk_menu_item_set_submenu (GTK_MENU_ITEM (mi), im);
         gtk_menu_shell_append (GTK_MENU_SHELL (vol->menu_popup), mi);
     }
@@ -2190,7 +2190,7 @@ static void volumealsa_build_device_menu (VolumeALSAPlugin *vol)
     if (!devices)
     {
 #if GTK_CHECK_VERSION(3, 0, 0)
-        mi = gtk_menu_item_new_with_label (_("No audio devices found"));
+        mi = lxpanel_plugin_new_menu_item (vol->panel, _("No audio devices found"), 0, NULL);
 #else
         mi = gtk_image_menu_item_new_with_label (_("No audio devices found"));
 #endif
@@ -2522,7 +2522,6 @@ static gboolean volumealsa_mouse_out (GtkWidget *widget, GdkEventButton *event, 
     /* Hide the widget. */
     gtk_widget_hide (vol->popup_window);
     vol->show_popup = FALSE;
-    printf ("ungrab\n");
 #if GTK_CHECK_VERSION(3, 0, 0)
     gdk_seat_ungrab (gdk_display_get_default_seat (gdk_display_get_default ()));
 #else
