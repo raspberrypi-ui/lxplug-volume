@@ -450,8 +450,11 @@ static void bt_cb_ba_name_unowned (GDBusConnection *connection, const gchar *nam
 {
     VolumeALSAPlugin *vol = (VolumeALSAPlugin *) user_data;
     DEBUG ("Name %s unowned on DBus", name);
-    g_signal_handler_disconnect (vol->baproxy, vol->basignal);
-    g_object_unref (vol->baproxy);
+    if (vol->baproxy)
+    {
+        g_signal_handler_disconnect (vol->baproxy, vol->basignal);
+        g_object_unref (vol->baproxy);
+    }
 }
 
 static void bt_cb_ba_signal (GDBusProxy *prox, gchar *sender, gchar *signal, GVariant *params, gpointer user_data)
@@ -3213,6 +3216,7 @@ static GtkWidget *volumealsa_constructor (LXPanel *panel, config_setting_t *sett
     if (asound_get_default_card () != BLUEALSA_DEV) asound_initialize (vol);
 
     /* Set up callbacks to see if BlueZ is on DBus */
+    vol->baproxy = NULL;
     g_bus_watch_name (G_BUS_TYPE_SYSTEM, "org.bluez", 0, bt_cb_name_owned, bt_cb_name_unowned, vol, NULL);
     g_bus_watch_name (G_BUS_TYPE_SYSTEM, "org.bluealsa", 0, bt_cb_ba_name_owned, bt_cb_ba_name_unowned, vol, NULL);
     
