@@ -2497,10 +2497,16 @@ static void volumealsa_popup_scale_scrolled (GtkScale *scale, GdkEventScroll *ev
     gdouble val = gtk_range_get_value (GTK_RANGE (vol->volume_scale));
 
     /* Dispatch on scroll direction to update the value. */
-    if ((evt->direction == GDK_SCROLL_UP) || (evt->direction == GDK_SCROLL_LEFT))
+    if (evt->direction == GDK_SCROLL_UP || evt->direction == GDK_SCROLL_LEFT
+        || (evt->direction == GDK_SCROLL_SMOOTH && (evt->delta_x < 0 || evt->delta_y < 0)))
+    {
         val += 2;
-    else
+    }
+    else if (evt->direction == GDK_SCROLL_DOWN || evt->direction == GDK_SCROLL_RIGHT
+        || (evt->direction == GDK_SCROLL_SMOOTH && (evt->delta_x > 0 || evt->delta_y > 0)))
+    {
         val -= 2;
+    }
 
     /* Reset the state of the vertical scale.  This provokes a "value_changed" event. */
     gtk_range_set_value (GTK_RANGE (vol->volume_scale), CLAMP((int) val, 0, 100));
@@ -3205,7 +3211,7 @@ static GtkWidget *volumealsa_constructor (LXPanel *panel, config_setting_t *sett
     g_signal_connect (vol->plugin, "button-press-event", G_CALLBACK (volumealsa_button_press_event), vol->panel);
     vol->settings = settings;
     lxpanel_plugin_set_data (p, vol, volumealsa_destructor);
-    gtk_widget_add_events (p, GDK_BUTTON_PRESS_MASK);
+    gtk_widget_add_events (p, GDK_BUTTON_PRESS_MASK | GDK_SCROLL_MASK);
     gtk_widget_set_tooltip_text (p, _("Volume control"));
 
     /* Allocate icon as a child of top level. */
