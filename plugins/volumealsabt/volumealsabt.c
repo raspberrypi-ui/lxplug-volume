@@ -1669,7 +1669,10 @@ static void volumealsa_show_connect_dialog (VolumeALSAPlugin *vol, gboolean fail
         vol->conn_label = gtk_label_new (buffer);
         gtk_label_set_line_wrap (GTK_LABEL (vol->conn_label), TRUE);
         gtk_label_set_justify (GTK_LABEL (vol->conn_label), GTK_JUSTIFY_LEFT);
-#if !GTK_CHECK_VERSION(3, 0, 0)
+#if GTK_CHECK_VERSION(3, 0, 0)
+        gtk_label_set_xalign (GTK_LABEL (vol->conn_label), 0.0);
+        gtk_label_set_yalign (GTK_LABEL (vol->conn_label), 0.0);
+#else
         gtk_misc_set_alignment (GTK_MISC (vol->conn_label), 0.0, 0.0);
 #endif
         gtk_box_pack_start (GTK_BOX (gtk_dialog_get_content_area (GTK_DIALOG (vol->conn_dialog))), vol->conn_label, TRUE, TRUE, 0);
@@ -2760,7 +2763,9 @@ static void show_options (VolumeALSAPlugin *vol, snd_mixer_t *mixer, gboolean in
 
     char *dev = g_strdup_printf (_("%s Device : %s"), input ? _("Input") : _("Output"), devname);
     wid = gtk_label_new (dev);
-#if !GTK_CHECK_VERSION(3, 0, 0)
+#if GTK_CHECK_VERSION(3, 0, 0)
+    gtk_label_set_xalign (GTK_LABEL (wid), 0.0);
+#else
     gtk_misc_set_alignment (GTK_MISC (wid), 0.0, 0.5);
 #endif
     gtk_box_pack_start (GTK_BOX (box), wid, FALSE, FALSE, 5);
