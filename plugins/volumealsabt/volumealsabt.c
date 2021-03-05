@@ -1675,6 +1675,7 @@ static void volumealsa_show_connect_dialog (VolumeALSAPlugin *vol, gboolean fail
 #else
         gtk_misc_set_alignment (GTK_MISC (vol->conn_label), 0.0, 0.0);
 #endif
+    gtk_widget_set_size_request (vol->conn_label, 350, -1);
         gtk_box_pack_start (GTK_BOX (gtk_dialog_get_content_area (GTK_DIALOG (vol->conn_dialog))), vol->conn_label, TRUE, TRUE, 0);
         g_signal_connect (vol->conn_dialog, "delete_event", G_CALLBACK (volumealsa_delete_connect_dialog), vol);
         gtk_widget_show_all (vol->conn_dialog);
