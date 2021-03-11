@@ -1,0 +1,160 @@
+# Icelandic translation for lxplug-volume package.
+# Copyright (C) 2021 Free Software Foundation, Inc.
+# This file is distributed under the same license as the lxplug-volume package.
+#
+# Sveinn í Felli <sv1@fellsnet.is>, 2021.
+msgid ""
+msgstr ""
+"Project-Id-Version: \n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2018-04-21 22:24+0300\n"
+"PO-Revision-Date: 2021-03-05 14:05+0000\n"
+"Last-Translator: Sveinn í Felli <sv1@fellsnet.is>\n"
+"Language-Team: Icelandic <translation-team-is@lists.sourceforge.net>\n"
+"Language: is\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+"X-Generator: Lokalize 2.0\n"
+
+#: ../plugins/volumealsabt/volumealsabt.c:514
+msgid "Could not get BlueZ interface"
+msgstr "Náði ekki að finna BlueZ-viðmót"
+
+#: ../plugins/volumealsabt/volumealsabt.c:1632
+#: ../plugins/volumealsabt/volumealsabt.c:3025
+msgid "Volume control"
+msgstr "Hljóðstyrkstillir"
+
+#: ../plugins/volumealsabt/volumealsabt.c:1634
+#: ../plugins/volumealsabt/volumealsabt.c:1747
+#: ../plugins/volumealsabt/volumealsabt.c:2100
+#, c-format
+msgid "No volume control on this device"
+msgstr "Enginn hljóðstyrkstillir á þessu tæki"
+
+#: ../plugins/volumealsabt/volumealsabt.c:1663
+msgid "Connecting Audio Device"
+msgstr "Tengi hljóðtæki"
+
+#: ../plugins/volumealsabt/volumealsabt.c:1669
+#, c-format
+msgid "Connecting to Bluetooth audio device '%s'..."
+msgstr "Tengist við Bluetooth-hljóðtæki '%s' ..."
+
+#: ../plugins/volumealsabt/volumealsabt.c:1680
+#, c-format
+msgid "Failed to connect to device - %s. Try to connect again."
+msgstr "Mistókst að tengjast við tæki - %s. Prófaðu aftur að tengjast."
+
+#: ../plugins/volumealsabt/volumealsabt.c:1682
+msgid "_OK"
+msgstr "Í _lagi"
+
+#: ../plugins/volumealsabt/volumealsabt.c:1945
+msgid "Input Device Settings..."
+msgstr "Stillingar inntakstækis..."
+
+#: ../plugins/volumealsabt/volumealsabt.c:1987
+#: ../plugins/volumealsabt/volumealsabt.c:2015
+msgid "Analog"
+msgstr "Hliðrænt"
+
+#: ../plugins/volumealsabt/volumealsabt.c:1991
+#: ../plugins/volumealsabt/volumealsabt.c:2011
+#: ../plugins/volumealsabt/volumealsabt.c:2013
+msgid "HDMI"
+msgstr "HDMI"
+
+#: ../plugins/volumealsabt/volumealsabt.c:2117
+msgid "Output Device Settings..."
+msgstr "Stillingar úttakstækis..."
+
+#. insert submenus
+#: ../plugins/volumealsabt/volumealsabt.c:2126
+msgid "Audio Outputs"
+msgstr "Hljóðútgangar"
+
+#: ../plugins/volumealsabt/volumealsabt.c:2133
+msgid "Audio Inputs"
+msgstr "Hljóðinngangar"
+
+#: ../plugins/volumealsabt/volumealsabt.c:2140
+msgid "No audio devices found"
+msgstr "Engin hljóðtæki fundust"
+
+#. Create a check button as the child of the vertical box.
+#: ../plugins/volumealsabt/volumealsabt.c:2399
+msgid "Mute"
+msgstr "Þagga"
+
+#: ../plugins/volumealsabt/volumealsabt.c:2500
+#: ../plugins/volumealsabt/volumealsabt.c:2542
+msgid "Enable"
+msgstr "Virkja"
+
+#: ../plugins/volumealsabt/volumealsabt.c:2522
+#: ../plugins/volumealsabt/volumealsabt.c:2581
+#, c-format
+msgid "%s (Playback)"
+msgstr "%s (afspilun)"
+
+#: ../plugins/volumealsabt/volumealsabt.c:2564
+#: ../plugins/volumealsabt/volumealsabt.c:2583
+#, c-format
+msgid "%s (Capture)"
+msgstr "%s (upptaka)"
+
+#: ../plugins/volumealsabt/volumealsabt.c:2608
+msgid "Input Device Options"
+msgstr "Valkostir Inntakstækis"
+
+#: ../plugins/volumealsabt/volumealsabt.c:2608
+msgid "Output Device Options"
+msgstr "Valkostir úttakstækis"
+
+#: ../plugins/volumealsabt/volumealsabt.c:2620
+#, c-format
+msgid "%s Device : %s"
+msgstr "%s tæki : %s"
+
+#: ../plugins/volumealsabt/volumealsabt.c:2620
+msgid "Input"
+msgstr "Inntak"
+
+#: ../plugins/volumealsabt/volumealsabt.c:2620
+msgid "Output"
+msgstr "Úttak"
+
+#: ../plugins/volumealsabt/volumealsabt.c:2628
+msgid "No controls available on this device"
+msgstr "Engar stýringar á þessu tæki"
+
+#: ../plugins/volumealsabt/volumealsabt.c:2638
+msgid "Playback"
+msgstr "Afspilun"
+
+#: ../plugins/volumealsabt/volumealsabt.c:2645
+msgid "Capture"
+msgstr "Upptaka"
+
+#: ../plugins/volumealsabt/volumealsabt.c:2652
+msgid "Options"
+msgstr "Valkostir"
+
+#: ../plugins/volumealsabt/volumealsabt.c:2884
+msgid ""
+"Error, you need to install an application to configure the sound "
+"(pavucontrol, alsamixer ...)"
+msgstr ""
+"Villa, þú verður að setja upp forrit til hljóðstillinga (pavucontrol, "
+"alsamixer ...)"
+
+#: ../plugins/volumealsabt/volumealsabt.c:3082
+msgid "Volume Control (ALSA/BT)"
+msgstr "Hljóðstyrkstillir (ALSA/BT)"
+
+#: ../plugins/volumealsabt/volumealsabt.c:3083
+msgid "Display and control volume for ALSA and Bluetooth devices"
+msgstr "Birta og sýsla með hljóðstyrk fyrir ALSA og Bluetooth-tæki"
