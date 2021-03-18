@@ -1,3 +1,9 @@
+lxplug-volume (0.25) buster; urgency=medium
+
+  * Added Icelandic translation
+
+ -- Simon Long <simon@raspberrypi.com>  Thu, 18 Mar 2021 17:41:14 +0000
+
 lxplug-volume (0.24) buster; urgency=medium
 
   * Added Slovak translation
