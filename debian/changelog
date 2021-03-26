@@ -1,3 +1,9 @@
+lxplug-volume (0.26) buster; urgency=medium
+
+  * GTK+3 version
+
+ -- Simon Long <simon@raspberrypi.com>  Fri, 26 Mar 2021 13:33:52 +0000
+
 lxplug-volume (0.25) buster; urgency=medium
 
   * Added Icelandic translation
