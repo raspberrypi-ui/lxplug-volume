@@ -1816,6 +1816,9 @@ static gboolean volumealsa_button_press_event (GtkWidget *widget, GdkEventButton
 
 static GtkWidget *volumealsa_menu_item_add (VolumeALSAPlugin *vol, GtkWidget *menu, const char *label, const char *name, gboolean selected, gboolean input, GCallback cb)
 {
+    GList *list, *l;
+    int count;
+
 #if GTK_CHECK_VERSION(3, 0, 0)
     GtkWidget *mi = lxpanel_plugin_new_menu_item (vol->panel, label, 0, selected ? "dialog-ok-apply" : NULL);
     if (selected)
@@ -1843,17 +1846,10 @@ static GtkWidget *volumealsa_menu_item_add (VolumeALSAPlugin *vol, GtkWidget *me
     gtk_widget_set_name (mi, name);
     g_signal_connect (mi, "activate", cb, (gpointer) vol);
 
-    // count the list first - we need indices...
-    int count = 0;
-    GList *l = g_list_first (gtk_container_get_children (GTK_CONTAINER (menu)));
-    while (l)
-    {
-        count++;
-        l = l->next;
-    }
-
     // find the start point of the last section - either a separator or the beginning of the list
-    l = g_list_last (gtk_container_get_children (GTK_CONTAINER (menu)));
+    list = gtk_container_get_children (GTK_CONTAINER (menu));
+    count = g_list_length (list);
+    l = g_list_last (list);
     while (l)
     {
         if (G_OBJECT_TYPE (l->data) == GTK_TYPE_SEPARATOR_MENU_ITEM) break;
@@ -1862,7 +1858,7 @@ static GtkWidget *volumealsa_menu_item_add (VolumeALSAPlugin *vol, GtkWidget *me
     }
 
     // if l is NULL, init to element after start; if l is non-NULL, init to element after separator
-    if (!l) l = gtk_container_get_children (GTK_CONTAINER (menu));
+    if (!l) l = list;
     else l = l->next;
 
     // loop forward from the first element, comparing against the new label
@@ -1878,6 +1874,7 @@ static GtkWidget *volumealsa_menu_item_add (VolumeALSAPlugin *vol, GtkWidget *me
     }
 
     gtk_menu_shell_insert (GTK_MENU_SHELL (menu), mi, count);
+    g_list_free (list);
     return mi;
 }
 
@@ -2219,12 +2216,13 @@ static void volumealsa_build_device_menu (VolumeALSAPlugin *vol)
     if (vol->conn_dialog || vol->options_dlg)
     {
         GList *items = gtk_container_get_children (GTK_CONTAINER (vol->menu_popup));
+        GList *head = items;
         while (items)
         {
             gtk_widget_set_sensitive (GTK_WIDGET (items->data), FALSE);
             items = items->next;
         }
-        g_list_free (items);
+        g_list_free (head);
     }
 }
 
@@ -3037,7 +3035,11 @@ static GtkWidget *find_box_child (GtkWidget *container, gint type, const char *n
         for (m = mist; m; m = m->next)
         {
             if (G_OBJECT_TYPE (m->data) == type && !g_strcmp0 (name, gtk_widget_get_name (m->data)))
+            {
+                g_list_free (mist);
+                g_list_free (list);
                 return m->data;
+            }
 #if GTK_CHECK_VERSION(3, 0, 0)
             if (G_OBJECT_TYPE (m->data) == GTK_TYPE_BUTTON_BOX)
 #else
@@ -3048,11 +3050,19 @@ static GtkWidget *find_box_child (GtkWidget *container, gint type, const char *n
                 for (n = nist; n; n = n->next)
                 {
                     if (G_OBJECT_TYPE (n->data) == type && !g_strcmp0 (name, gtk_widget_get_name (n->data)))
+                    {
+                        g_list_free (nist);
+                        g_list_free (mist);
+                        g_list_free (list);
                         return n->data;
+                    }
                 }
+                g_list_free (nist);
             }
         }
+        g_list_free (mist);
     }
+    g_list_free (list);
     return NULL;
 }
 
