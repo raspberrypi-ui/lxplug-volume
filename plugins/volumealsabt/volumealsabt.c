@@ -1657,37 +1657,33 @@ static void volumealsa_open_input_config_dialog (GtkWidget *widget, VolumeALSAPl
 
 static void volumealsa_show_connect_dialog (VolumeALSAPlugin *vol, gboolean failed, const gchar *param)
 {
-    char buffer[256];
+    GtkBuilder *builder;
+    char *buffer;
 
     if (!failed)
     {
-        vol->conn_dialog = gtk_dialog_new_with_buttons (_("Connecting Audio Device"), NULL, GTK_DIALOG_MODAL | GTK_DIALOG_DESTROY_WITH_PARENT, NULL);
-        gtk_window_set_icon_name (GTK_WINDOW (vol->conn_dialog), "preferences-system-bluetooth");
-        gtk_window_set_position (GTK_WINDOW (vol->conn_dialog), GTK_WIN_POS_CENTER);
-        gtk_container_set_border_width (GTK_CONTAINER (vol->conn_dialog), 10);
-        sprintf (buffer, _("Connecting to Bluetooth audio device '%s'..."), param);
-        vol->conn_label = gtk_label_new (buffer);
-        gtk_label_set_line_wrap (GTK_LABEL (vol->conn_label), TRUE);
-        gtk_label_set_justify (GTK_LABEL (vol->conn_label), GTK_JUSTIFY_LEFT);
-#if GTK_CHECK_VERSION(3, 0, 0)
-        gtk_label_set_xalign (GTK_LABEL (vol->conn_label), 0.0);
-        gtk_label_set_yalign (GTK_LABEL (vol->conn_label), 0.0);
-#else
-        gtk_misc_set_alignment (GTK_MISC (vol->conn_label), 0.0, 0.0);
-#endif
-    gtk_widget_set_size_request (vol->conn_label, 350, -1);
-        gtk_box_pack_start (GTK_BOX (gtk_dialog_get_content_area (GTK_DIALOG (vol->conn_dialog))), vol->conn_label, TRUE, TRUE, 0);
-        g_signal_connect (vol->conn_dialog, "delete_event", G_CALLBACK (volumealsa_delete_connect_dialog), vol);
-        gtk_widget_show_all (vol->conn_dialog);
+        builder = gtk_builder_new_from_file (PACKAGE_DATA_DIR "/ui/lxpanel-modal.ui");
+        vol->conn_dialog = (GtkWidget *) gtk_builder_get_object (builder, "modal");
+        vol->conn_label = (GtkWidget *) gtk_builder_get_object (builder, "modal_msg");
+        vol->conn_ok = (GtkWidget *) gtk_builder_get_object (builder, "modal_ok");
+        gtk_widget_hide (GTK_WIDGET (gtk_builder_get_object (builder, "modal_cancel")));
+        gtk_widget_hide (GTK_WIDGET (gtk_builder_get_object (builder, "modal_pb")));
+        g_object_unref (builder);
+
+        buffer = g_strdup_printf (_("Connecting to Bluetooth audio device '%s'..."), param);
+        gtk_label_set_text (GTK_LABEL (vol->conn_label), buffer);
+        g_signal_connect (vol->conn_ok, "clicked", G_CALLBACK (volumealsa_close_connect_dialog), vol);
+        gtk_widget_hide (vol->conn_ok);
+
+        gtk_widget_show (vol->conn_dialog);
     }
     else
     {
-        sprintf (buffer, _("Failed to connect to device - %s. Try to connect again."), param);
+        buffer = g_strdup_printf (_("Failed to connect to device - %s. Try to connect again."), param);
         gtk_label_set_text (GTK_LABEL (vol->conn_label), buffer);
-        vol->conn_ok = gtk_dialog_add_button (GTK_DIALOG (vol->conn_dialog), _("_OK"), 1);
-        g_signal_connect (vol->conn_ok, "clicked", G_CALLBACK (volumealsa_close_connect_dialog), vol);
         gtk_widget_show (vol->conn_ok);
     }
+    g_free (buffer);
 }
 
 static void volumealsa_close_connect_dialog (GtkButton *button, gpointer user_data)
