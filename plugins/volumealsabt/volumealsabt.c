@@ -1816,7 +1816,8 @@ static GtkWidget *volumealsa_menu_item_add (VolumeALSAPlugin *vol, GtkWidget *me
     int count;
 
 #if GTK_CHECK_VERSION(3, 0, 0)
-    GtkWidget *mi = lxpanel_plugin_new_menu_item (vol->panel, label, 0, selected ? "dialog-ok-apply" : NULL);
+    GtkWidget *mi = gtk_check_menu_item_new_with_label (label);
+    gtk_check_menu_item_set_active (GTK_CHECK_MENU_ITEM (mi), selected);
     if (selected)
     {
 #else
@@ -1860,11 +1861,7 @@ static GtkWidget *volumealsa_menu_item_add (VolumeALSAPlugin *vol, GtkWidget *me
     // loop forward from the first element, comparing against the new label
     while (l)
     {
-#if GTK_CHECK_VERSION(3, 0, 0)
-        if (g_strcmp0 (label, lxpanel_plugin_get_menu_label (GTK_WIDGET (l->data))) < 0) break;
-#else
         if (g_strcmp0 (label, gtk_menu_item_get_label (GTK_MENU_ITEM (l->data))) < 0) break;
-#endif
         count++;
         l = l->next;
     }
@@ -1885,9 +1882,6 @@ static void volumealsa_build_device_menu (VolumeALSAPlugin *vol)
     if (vsystem ("raspi-config nonint has_analog")) ajack = FALSE;
 
     vol->menu_popup = gtk_menu_new ();
-#if GTK_CHECK_VERSION(3, 0, 0)
-    gtk_menu_set_reserve_toggle_size (GTK_MENU (vol->menu_popup), FALSE);
-#endif
     // create input selector...
     if (vol->objmanager)
     {
@@ -1913,13 +1907,7 @@ static void volumealsa_build_device_menu (VolumeALSAPlugin *vol)
                         if (name && icon && paired && trusted && g_variant_get_boolean (paired) && g_variant_get_boolean (trusted))
                         {
                             // create a menu if there isn't one already
-                            if (!inputs)
-                            {
-                                im = gtk_menu_new ();
-#if GTK_CHECK_VERSION(3, 0, 0)
-                                gtk_menu_set_reserve_toggle_size (GTK_MENU (im), FALSE);
-#endif
-                            }
+                            if (!inputs) im = gtk_menu_new ();
                             volumealsa_menu_item_add (vol, im, g_variant_get_string (name, NULL), objpath, asound_is_current_bt_dev (objpath, TRUE), TRUE, G_CALLBACK (volumealsa_set_bluetooth_input));
                             if (asound_is_current_bt_dev (objpath, TRUE)) isel = TRUE;
                             inputs++;
@@ -1954,13 +1942,7 @@ static void volumealsa_build_device_menu (VolumeALSAPlugin *vol)
             dev = g_strdup_printf ("%d", card_num);
 
             // either create a menu, or add a separator if there already is one
-            if (!inputs)
-            {
-                im = gtk_menu_new ();
-#if GTK_CHECK_VERSION(3, 0, 0)
-                gtk_menu_set_reserve_toggle_size (GTK_MENU (im), FALSE);
-#endif
-            }
+            if (!inputs) im = gtk_menu_new ();
             else
             {
                 mi = gtk_separator_menu_item_new ();
@@ -1979,7 +1961,7 @@ static void volumealsa_build_device_menu (VolumeALSAPlugin *vol)
         gtk_menu_shell_append (GTK_MENU_SHELL (im), mi);
 
 #if GTK_CHECK_VERSION(3, 0, 0)
-        mi = lxpanel_plugin_new_menu_item (vol->panel, _("Input Device Settings..."), 0, NULL);
+        mi = gtk_menu_item_new_with_label (_("Input Device Settings..."));
 #else
         mi = gtk_image_menu_item_new_with_label (_("Input Device Settings..."));
 #endif
@@ -1989,13 +1971,7 @@ static void volumealsa_build_device_menu (VolumeALSAPlugin *vol)
     }
 
     // create a submenu for the outputs if there is an input submenu
-    if (inputs)
-    {
-        om = gtk_menu_new ();
-#if GTK_CHECK_VERSION(3, 0, 0)
-        gtk_menu_set_reserve_toggle_size (GTK_MENU (om), FALSE);
-#endif
-    }
+    if (inputs) om = gtk_menu_new ();
     else om = vol->menu_popup;
 
     /* add internal device... */
@@ -2141,7 +2117,7 @@ static void volumealsa_build_device_menu (VolumeALSAPlugin *vol)
                 gtk_menu_shell_append (GTK_MENU_SHELL (om), mi);
             }
 
-            volumealsa_menu_item_add (vol, om, nam, dev, card_num == def_card, FALSE, G_CALLBACK (volumealsa_set_external_output));
+            mi = volumealsa_menu_item_add (vol, om, nam, dev, card_num == def_card, FALSE, G_CALLBACK (volumealsa_set_external_output));
             if (card_num == def_card) osel = TRUE;
             if (!asound_has_volume_control (card_num))
             {
@@ -2165,7 +2141,7 @@ static void volumealsa_build_device_menu (VolumeALSAPlugin *vol)
         gtk_menu_shell_append (GTK_MENU_SHELL (om), mi);
 
 #if GTK_CHECK_VERSION(3, 0, 0)
-        mi = lxpanel_plugin_new_menu_item (vol->panel, _("Output Device Settings..."), 0, NULL);
+        mi = gtk_menu_item_new_with_label (_("Output Device Settings..."));
 #else
         mi = gtk_image_menu_item_new_with_label (_("Output Device Settings..."));
 #endif
@@ -2178,7 +2154,7 @@ static void volumealsa_build_device_menu (VolumeALSAPlugin *vol)
     {
         // insert submenus
 #if GTK_CHECK_VERSION(3, 0, 0)
-        mi = lxpanel_plugin_new_menu_item (vol->panel, _("Audio Outputs"), 0, NULL);
+        mi = gtk_menu_item_new_with_label (_("Audio Outputs"));
 #else
         mi = gtk_menu_item_new_with_label (_("Audio Outputs"));
 #endif
@@ -2189,7 +2165,7 @@ static void volumealsa_build_device_menu (VolumeALSAPlugin *vol)
         gtk_menu_shell_append (GTK_MENU_SHELL (vol->menu_popup), mi);
 
 #if GTK_CHECK_VERSION(3, 0, 0)
-        mi = lxpanel_plugin_new_menu_item (vol->panel, _("Audio Inputs"), 0, NULL);
+        mi = gtk_menu_item_new_with_label (_("Audio Inputs"));
 #else
         mi = gtk_menu_item_new_with_label (_("Audio Inputs"));
 #endif
@@ -2200,7 +2176,7 @@ static void volumealsa_build_device_menu (VolumeALSAPlugin *vol)
     if (!devices)
     {
 #if GTK_CHECK_VERSION(3, 0, 0)
-        mi = lxpanel_plugin_new_menu_item (vol->panel, _("No audio devices found"), 0, NULL);
+        mi = gtk_menu_item_new_with_label (_("No audio devices found"));
 #else
         mi = gtk_image_menu_item_new_with_label (_("No audio devices found"));
 #endif

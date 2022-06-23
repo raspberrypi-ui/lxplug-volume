@@ -1,3 +1,9 @@
+lxplug-volume (0.30) bullseye; urgency=medium
+
+  * Use standard menu item and check menu item
+
+ -- Simon Long <simon@raspberrypi.com>  Thu, 23 Jun 2022 17:03:58 +0100
+
 lxplug-volume (0.29) bullseye; urgency=medium
 
   * Use standard modal dialog box
