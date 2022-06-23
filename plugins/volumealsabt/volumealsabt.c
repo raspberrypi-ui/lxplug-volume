@@ -2286,11 +2286,7 @@ static void volumealsa_set_bluetooth_output (GtkWidget *widget, VolumeALSAPlugin
         vol->bt_input = FALSE;
 
         // show the connection dialog
-#if GTK_CHECK_VERSION(3, 0, 0)
-        volumealsa_show_connect_dialog (vol, FALSE, lxpanel_plugin_get_menu_label (widget));
-#else
         volumealsa_show_connect_dialog (vol, FALSE, gtk_menu_item_get_label (GTK_MENU_ITEM (widget)));
-#endif
 
         // disconnect the device prior to reconnect
         bt_disconnect_device (vol, odevice);
@@ -2321,11 +2317,7 @@ static void volumealsa_set_bluetooth_output (GtkWidget *widget, VolumeALSAPlugin
         vol->bt_input = FALSE;
 
         // show the connection dialog
-#if GTK_CHECK_VERSION(3, 0, 0)
-        volumealsa_show_connect_dialog (vol, FALSE, lxpanel_plugin_get_menu_label (widget));
-#else
         volumealsa_show_connect_dialog (vol, FALSE, gtk_menu_item_get_label (GTK_MENU_ITEM (widget)));
-#endif
 
         // disconnect the current output device unless it is also the input device; otherwise just connect the new device
         if (odevice && g_strcmp0 (idevice, odevice)) bt_disconnect_device (vol, odevice);
@@ -2350,11 +2342,7 @@ static void volumealsa_set_bluetooth_input (GtkWidget *widget, VolumeALSAPlugin 
         vol->bt_input = TRUE;
 
         // show the connection dialog
-#if GTK_CHECK_VERSION(3, 0, 0)
-        volumealsa_show_connect_dialog (vol, FALSE, lxpanel_plugin_get_menu_label (widget));
-#else
         volumealsa_show_connect_dialog (vol, FALSE, gtk_menu_item_get_label (GTK_MENU_ITEM (widget)));
-#endif
 
         // disconnect the current input device unless it is also the output device; otherwise just connect the new device
         bt_disconnect_device (vol, idevice);
@@ -2383,11 +2371,7 @@ static void volumealsa_set_bluetooth_input (GtkWidget *widget, VolumeALSAPlugin 
         vol->bt_input = TRUE;
 
         // show the connection dialog
-#if GTK_CHECK_VERSION(3, 0, 0)
-        volumealsa_show_connect_dialog (vol, FALSE, lxpanel_plugin_get_menu_label (widget));
-#else
         volumealsa_show_connect_dialog (vol, FALSE, gtk_menu_item_get_label (GTK_MENU_ITEM (widget)));
-#endif
 
         // disconnect the current input device unless it is also the output device; otherwise just connect the new device
         if (idevice && g_strcmp0 (idevice, odevice)) bt_disconnect_device (vol, idevice);
