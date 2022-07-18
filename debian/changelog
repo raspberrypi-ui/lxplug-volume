@@ -1,3 +1,9 @@
+lxplug-volume (0.31) bullseye; urgency=medium
+
+  * Tidy constructor; fix translations
+
+ -- Simon Long <simon@raspberrypi.com>  Mon, 18 Jul 2022 14:59:37 +0100
+
 lxplug-volume (0.30) bullseye; urgency=medium
 
   * Use standard menu item and check menu item

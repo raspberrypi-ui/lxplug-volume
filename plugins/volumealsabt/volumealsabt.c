@@ -202,7 +202,6 @@ static char *asound_default_input_name (void);
 
 /* Handlers and graphics */
 static void volumealsa_update_display (VolumeALSAPlugin *vol);
-static void volumealsa_theme_change (GtkWidget *widget, VolumeALSAPlugin *vol);
 static void volumealsa_open_config_dialog (GtkWidget *widget, VolumeALSAPlugin *vol);
 static void volumealsa_show_connect_dialog (VolumeALSAPlugin *vol, gboolean failed, const gchar *param);
 static void volumealsa_close_connect_dialog (GtkButton *button, gpointer user_data);
@@ -1579,10 +1578,6 @@ static void volumealsa_update_display (VolumeALSAPlugin *vol)
 {
     gboolean mute;
     int level;
-#ifdef ENABLE_NLS
-    // need to rebind here for tooltip update
-    textdomain (GETTEXT_PACKAGE);
-#endif
 
     if (vol->options_dlg) update_options (vol);
 
@@ -1636,11 +1631,6 @@ static void volumealsa_update_display (VolumeALSAPlugin *vol)
         tooltip = g_strdup_printf (_("No volume control on this device"));
     gtk_widget_set_tooltip_text (vol->plugin, tooltip);
     g_free (tooltip);
-}
-
-static void volumealsa_theme_change (GtkWidget *widget, VolumeALSAPlugin *vol)
-{
-    volumealsa_update_display (vol);
 }
 
 static void volumealsa_open_config_dialog (GtkWidget *widget, VolumeALSAPlugin *vol)
@@ -1713,9 +1703,6 @@ static gboolean volumealsa_button_press_event (GtkWidget *widget, GdkEventButton
 {
     VolumeALSAPlugin *vol = lxpanel_plugin_get_data (widget);
 
-#ifdef ENABLE_NLS
-    textdomain (GETTEXT_PACKAGE);
-#endif
     if (vol->stopped) return TRUE;
 
     if (!asound_current_dev_check (vol)) volumealsa_update_display (vol);
@@ -3036,10 +3023,6 @@ static GtkWidget *volumealsa_configure (LXPanel *panel, GtkWidget *plugin)
     const gchar *command_line = NULL;
     GAppInfoCreateFlags flags = G_APP_INFO_CREATE_NONE;
 
-#ifdef ENABLE_NLS
-    textdomain (GETTEXT_PACKAGE);
-#endif
-
     /* check if command line was configured */
     config_setting_lookup_string (vol->settings, "MixerCommand", &command_line);
 
@@ -3182,17 +3165,33 @@ static gboolean volumealsa_control_msg (GtkWidget *plugin, const char *cmd)
 
 static GtkWidget *volumealsa_constructor (LXPanel *panel, config_setting_t *settings)
 {
-    /* Allocate and initialize plugin context and set into Plugin private data pointer. */
+    /* Allocate and initialize plugin context */
     VolumeALSAPlugin *vol = g_new0 (VolumeALSAPlugin, 1);
-    GtkWidget *p;
 
 #ifdef ENABLE_NLS
     setlocale (LC_ALL, "");
     bindtextdomain (GETTEXT_PACKAGE, PACKAGE_LOCALE_DIR);
     bind_textdomain_codeset (GETTEXT_PACKAGE, "UTF-8");
-    textdomain (GETTEXT_PACKAGE);
 #endif
 
+    /* Allocate top level widget and set into plugin widget pointer. */
+    vol->panel = panel;
+    vol->settings = settings;
+    vol->plugin = gtk_button_new ();
+    lxpanel_plugin_set_data (vol->plugin, vol, volumealsa_destructor);
+
+    /* Allocate icon as a child of top level. */
+    vol->tray_icon = gtk_image_new ();
+    gtk_container_add (GTK_CONTAINER (vol->plugin), vol->tray_icon);
+
+    /* Set up button */
+    gtk_button_set_relief (GTK_BUTTON (vol->plugin), GTK_RELIEF_NONE);
+    g_signal_connect (vol->plugin, "button-press-event", G_CALLBACK (volumealsa_button_press_event), vol->panel);
+    g_signal_connect (vol->plugin, "scroll-event", G_CALLBACK (volumealsa_popup_scale_scrolled), vol);
+    gtk_widget_add_events (vol->plugin, GDK_SCROLL_MASK);
+    gtk_widget_set_tooltip_text (vol->plugin, _("Volume control"));
+
+    /* Set up variables */
     vol->bt_conname = NULL;
     vol->bt_reconname = NULL;
     vol->master_element = NULL;
@@ -3201,20 +3200,7 @@ static GtkWidget *volumealsa_constructor (LXPanel *panel, config_setting_t *sett
     vol->idev_name = NULL;
     vol->mixers[OUTPUT_MIXER].mixer = NULL;
     vol->mixers[INPUT_MIXER].mixer = NULL;
-
-    /* Allocate top level widget and set into Plugin widget pointer. */
-    vol->panel = panel;
-    vol->plugin = p = gtk_button_new ();
-    gtk_button_set_relief (GTK_BUTTON (vol->plugin), GTK_RELIEF_NONE);
-    g_signal_connect (vol->plugin, "button-press-event", G_CALLBACK (volumealsa_button_press_event), vol->panel);
-    vol->settings = settings;
-    lxpanel_plugin_set_data (p, vol, volumealsa_destructor);
-    gtk_widget_add_events (p, GDK_BUTTON_PRESS_MASK | GDK_SCROLL_MASK);
-    gtk_widget_set_tooltip_text (p, _("Volume control"));
-
-    /* Allocate icon as a child of top level. */
-    vol->tray_icon = gtk_image_new ();
-    gtk_container_add (GTK_CONTAINER (p), vol->tray_icon);
+    vol->stopped = FALSE;
 
     /* Initialize ALSA if default device isn't Bluetooth */
     if (asound_get_default_card () != BLUEALSA_DEV) asound_initialize (vol);
@@ -3223,23 +3209,13 @@ static GtkWidget *volumealsa_constructor (LXPanel *panel, config_setting_t *sett
     vol->baproxy = NULL;
     g_bus_watch_name (G_BUS_TYPE_SYSTEM, "org.bluez", 0, bt_cb_name_owned, bt_cb_name_unowned, vol, NULL);
     g_bus_watch_name (G_BUS_TYPE_SYSTEM, "org.bluealsa", 0, bt_cb_ba_name_owned, bt_cb_ba_name_unowned, vol, NULL);
-    
-    /* Initialize volume scale */
-    volumealsa_build_popup_window (p);
-
-    /* Connect signals. */
-    g_signal_connect (G_OBJECT (p), "scroll-event", G_CALLBACK (volumealsa_popup_scale_scrolled), vol);
-    g_signal_connect (panel_get_icon_theme (panel), "changed", G_CALLBACK (volumealsa_theme_change), vol);
 
     /* Set up for multiple HDMIs */
     vol->hdmis = hdmi_monitors (vol);
 
-    /* Update the display, show the widget, and return. */
-    volumealsa_update_display (vol);
-    gtk_widget_show_all (p);
-
-    vol->stopped = FALSE;
-    return p;
+    /* Show the widget and return. */
+    gtk_widget_show_all (vol->plugin);
+    return vol->plugin;
 }
 
 /* Plugin destructor */
@@ -3255,8 +3231,6 @@ static void volumealsa_destructor (gpointer user_data)
     if (vol->menu_popup != NULL) gtk_widget_destroy (vol->menu_popup);
 
     if (vol->restart_idle) g_source_remove (vol->restart_idle);
-
-    if (vol->panel) g_signal_handlers_disconnect_by_func (panel_get_icon_theme (vol->panel), volumealsa_theme_change, vol);
 
     /* Deallocate all memory. */
     g_free (vol);
