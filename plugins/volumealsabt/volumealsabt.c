@@ -68,7 +68,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #ifdef DEBUG_ON
 #define DEBUG(fmt,args...) if(getenv("DEBUG_VA"))g_message("va: " fmt,##args)
 #else
-#define DEBUG
+#define DEBUG(fmt,args...)
 #endif
 
 typedef struct {
@@ -144,8 +144,6 @@ static gboolean find_in_section (char *file, char *sec, char *seek);
 static int hdmi_monitors (VolumeALSAPlugin *vol);
 
 /* Bluetooth */
-static void bt_cb_object_added (GDBusObjectManager *manager, GDBusObject *object, gpointer user_data);
-static void bt_cb_object_removed (GDBusObjectManager *manager, GDBusObject *object, gpointer user_data);
 static void bt_cb_name_owned (GDBusConnection *connection, const gchar *name, const gchar *owner, gpointer user_data);
 static void bt_cb_name_unowned (GDBusConnection *connection, const gchar *name, gpointer user_data);
 static void bt_cb_ba_name_owned (GDBusConnection *connection, const gchar *name, const gchar *owner, gpointer user_data);
@@ -177,7 +175,6 @@ static void asound_deinitialize (VolumeALSAPlugin *vol);
 static gboolean asound_find_master_elem (VolumeALSAPlugin *vol);
 static gboolean asound_mixer_initialize (VolumeALSAPlugin *vol, MixerIO io);
 static void asound_mixer_deinitialize (VolumeALSAPlugin *vol, MixerIO io);
-static int asound_find_valid_device (void);
 static gboolean asound_current_dev_check (VolumeALSAPlugin *vol);
 static gboolean asound_has_volume_control (int dev);
 static gboolean asound_has_input (int dev);
@@ -205,7 +202,6 @@ static void volumealsa_update_display (VolumeALSAPlugin *vol);
 static void volumealsa_open_config_dialog (GtkWidget *widget, VolumeALSAPlugin *vol);
 static void volumealsa_show_connect_dialog (VolumeALSAPlugin *vol, gboolean failed, const gchar *param);
 static void volumealsa_close_connect_dialog (GtkButton *button, gpointer user_data);
-static gint volumealsa_delete_connect_dialog (GtkWidget *widget, GdkEvent *event, gpointer user_data);
 static gboolean volumealsa_button_press_event (GtkWidget *widget, GdkEventButton *event, LXPanel *panel);
 
 /* Menu popup */
@@ -222,13 +218,8 @@ static void volumealsa_build_popup_window (GtkWidget *p);
 static void volumealsa_popup_scale_changed (GtkRange *range, VolumeALSAPlugin *vol);
 static void volumealsa_popup_scale_scrolled (GtkScale *scale, GdkEventScroll *evt, VolumeALSAPlugin *vol);
 static void volumealsa_popup_mute_toggled (GtkWidget *widget, VolumeALSAPlugin *vol);
-static void volumealsa_popup_set_position (GtkWidget *menu, gint *px, gint *py, gboolean *push_in, gpointer data);
-#if GTK_CHECK_VERSION(3, 0, 0)
 static gboolean volumealsa_popup_mapped (GtkWidget *widget, GdkEvent *event, VolumeALSAPlugin *vol);
 static gboolean volumealsa_popup_button_press (GtkWidget *widget, GdkEventButton *event, VolumeALSAPlugin *vol);
-#else
-static gboolean volumealsa_mouse_out (GtkWidget *widget, GdkEventButton *event, VolumeALSAPlugin *vol);
-#endif
 
 /* Options dialog */
 static void show_options (VolumeALSAPlugin *vol, snd_mixer_t *mixer, gboolean input, char *devname);
@@ -350,30 +341,6 @@ static int hdmi_monitors (VolumeALSAPlugin *vol)
 /*----------------------------------------------------------------------------*/
 /* Bluetooth D-Bus interface                                                  */
 /*----------------------------------------------------------------------------*/
-
-static void bt_cb_object_added (GDBusObjectManager *manager, GDBusObject *object, gpointer user_data)
-{
-    VolumeALSAPlugin *vol = (VolumeALSAPlugin *) user_data;
-    const char *obj = g_dbus_object_get_object_path (object);
-    if (asound_is_current_bt_dev (obj, FALSE) || asound_is_current_bt_dev (obj, TRUE))
-    {
-        DEBUG ("Selected Bluetooth audio device has connected");
-        asound_initialize (vol);
-        volumealsa_update_display (vol);
-    }
-}
-
-static void bt_cb_object_removed (GDBusObjectManager *manager, GDBusObject *object, gpointer user_data)
-{
-    VolumeALSAPlugin *vol = (VolumeALSAPlugin *) user_data;
-    const char *obj = g_dbus_object_get_object_path (object);
-    if (asound_is_current_bt_dev (obj, FALSE) || asound_is_current_bt_dev (obj, TRUE))
-    {
-        DEBUG ("Selected Bluetooth audio device has disconnected");
-        asound_initialize (vol);
-        volumealsa_update_display (vol);
-    }
-}
 
 static void bt_cb_name_owned (GDBusConnection *connection, const gchar *name, const gchar *owner, gpointer user_data)
 {
@@ -540,7 +507,10 @@ static void bt_cb_trusted (GObject *source, GAsyncResult *res, gpointer user_dat
         DEBUG ("Trusting error %s", error->message);
         g_error_free (error);
     }
-    else DEBUG ("Trusted OK");
+    else
+    {
+        DEBUG ("Trusted OK");
+    }
 }
 
 static void bt_reconnect_devices (VolumeALSAPlugin *vol)
@@ -580,8 +550,14 @@ static void bt_cb_reconnected (GObject *source, GAsyncResult *res, gpointer user
     GVariant *var = g_dbus_proxy_call_finish (G_DBUS_PROXY (source), res, &error);
     if (var) g_variant_unref (var);
 
-    if (error) DEBUG ("Connect error %s", error->message);
-    else DEBUG ("Connected OK");
+    if (error)
+    {
+        DEBUG ("Connect error %s", error->message);
+    }
+    else
+    {
+        DEBUG ("Connected OK");
+    }
 
     // delete the connection information
     g_free (vol->bt_conname);
@@ -636,7 +612,10 @@ static void bt_cb_disconnected (GObject *source, GAsyncResult *res, gpointer use
         DEBUG ("Disconnect error %s", error->message);
         g_error_free (error);
     }
-    else DEBUG ("Disconnected OK");
+    else
+    {
+        DEBUG ("Disconnected OK");
+    }
 
     // call BlueZ over DBus to connect to the device
     if (vol->bt_conname)
@@ -880,8 +859,6 @@ static gboolean asound_initialize (VolumeALSAPlugin *vol)
 
 static void asound_deinitialize (VolumeALSAPlugin *vol)
 {
-    guint i;
-
     DEBUG ("Deinitializing...");
     if (vol->mixer_evt_idle != 0)
     {
@@ -1015,40 +992,6 @@ static void asound_mixer_deinitialize (VolumeALSAPlugin *vol, MixerIO io)
     vol->mixers[io].mixer = NULL;
 
     g_free (device);
-}
-
-static int asound_find_valid_device (void)
-{
-    // call this if the current ALSA device is invalid - it tries to find an alternative
-    g_warning ("volumealsa: Default ALSA device not valid - resetting to internal");
-
-    int num = asound_get_bcm_device_num ();
-    if (num != -1)
-    {
-        g_warning ("volumealsa: Setting to internal device hw:%d", num);
-        asound_set_default_card (num);
-        return num;
-    }
-    else
-    {
-        g_warning ("volumealsa: Internal device not available - looking for first valid ALSA device...");
-        while (1)
-        {
-            if (snd_card_next (&num) < 0)
-            {
-                g_warning ("volumealsa: Cannot enumerate devices");
-                break;
-            }
-            if (num == -1) break;
-
-            g_warning ("volumealsa: Valid ALSA device hw:%d found", num);
-            asound_set_default_card (num);
-            return num;
-        }
-        g_warning ("volumealsa: No ALSA devices found");
-        asound_set_default_card (-1);
-    }
-    return -1;
 }
 
 static gboolean asound_current_dev_check (VolumeALSAPlugin *vol)
@@ -1686,17 +1629,6 @@ static void volumealsa_close_connect_dialog (GtkButton *button, gpointer user_da
     }
 }
 
-static gint volumealsa_delete_connect_dialog (GtkWidget *widget, GdkEvent *event, gpointer user_data)
-{
-    VolumeALSAPlugin *vol = (VolumeALSAPlugin *) user_data;
-    if (vol->conn_dialog)
-    {
-        gtk_widget_destroy (vol->conn_dialog);
-        vol->conn_dialog = NULL;
-    }
-    return TRUE;
-}
-
 /* Handler for "button-press-event" signal on main widget. */
 
 static gboolean volumealsa_button_press_event (GtkWidget *widget, GdkEventButton *event, LXPanel *panel)
@@ -1736,12 +1668,7 @@ static gboolean volumealsa_button_press_event (GtkWidget *widget, GdkEventButton
             gtk_widget_set_sensitive (mi, FALSE);
             gtk_menu_shell_append (GTK_MENU_SHELL (vol->menu_popup), mi);
             gtk_widget_show_all (vol->menu_popup);
-#if GTK_CHECK_VERSION(3, 0, 0)
             gtk_menu_popup_at_widget (GTK_MENU (vol->menu_popup), vol->plugin, GDK_GRAVITY_NORTH_WEST, GDK_GRAVITY_NORTH_WEST, (GdkEvent *) event);
-#else
-            gtk_menu_popup (GTK_MENU (vol->menu_popup), NULL, NULL, (GtkMenuPositionFunc) volumealsa_popup_set_position, (gpointer) vol,
-                event->button, event->time);
-#endif
             return TRUE;
         }
 
@@ -1763,13 +1690,8 @@ static gboolean volumealsa_button_press_event (GtkWidget *widget, GdkEventButton
             lxpanel_plugin_popup_set_position_helper (panel, widget, vol->popup_window, &x, &y);
             gdk_window_move (gtk_widget_get_window (vol->popup_window), x, y);
             gtk_window_present (GTK_WINDOW (vol->popup_window));
-#if GTK_CHECK_VERSION(3, 0, 0)
             g_signal_connect (G_OBJECT (vol->popup_window), "map-event", G_CALLBACK (volumealsa_popup_mapped), vol);
             g_signal_connect (G_OBJECT (vol->popup_window), "button-press-event", G_CALLBACK (volumealsa_popup_button_press), vol);
-#else
-            gdk_pointer_grab (gtk_widget_get_window (vol->popup_window), TRUE, GDK_BUTTON_PRESS_MASK, NULL, NULL, GDK_CURRENT_TIME);
-            g_signal_connect (G_OBJECT (vol->popup_window), "focus-out-event", G_CALLBACK (volumealsa_mouse_out), vol);
-#endif
             vol->show_popup = TRUE;
         }
     }
@@ -1783,12 +1705,7 @@ static gboolean volumealsa_button_press_event (GtkWidget *widget, GdkEventButton
         /* right-click - show device list */
         volumealsa_build_device_menu (vol);
         gtk_widget_show_all (vol->menu_popup);
-#if GTK_CHECK_VERSION(3, 0, 0)
         gtk_menu_popup_at_widget (GTK_MENU (vol->menu_popup), vol->plugin, GDK_GRAVITY_NORTH_WEST, GDK_GRAVITY_NORTH_WEST, (GdkEvent *) event);
-#else
-        gtk_menu_popup (GTK_MENU (vol->menu_popup), NULL, NULL, (GtkMenuPositionFunc) volumealsa_popup_set_position, (gpointer) vol,
-            event->button, event->time);
-#endif
     }
     return TRUE;
 }
@@ -1802,20 +1719,10 @@ static GtkWidget *volumealsa_menu_item_add (VolumeALSAPlugin *vol, GtkWidget *me
     GList *list, *l;
     int count;
 
-#if GTK_CHECK_VERSION(3, 0, 0)
     GtkWidget *mi = gtk_check_menu_item_new_with_label (label);
     gtk_check_menu_item_set_active (GTK_CHECK_MENU_ITEM (mi), selected);
     if (selected)
     {
-#else
-    GtkWidget *mi = gtk_image_menu_item_new_with_label (label);
-    gtk_image_menu_item_set_always_show_image (GTK_IMAGE_MENU_ITEM (mi), TRUE);
-    if (selected)
-    {
-        GtkWidget *image = gtk_image_new ();
-        lxpanel_plugin_set_menu_icon (vol->panel, image, "dialog-ok-apply");
-        gtk_image_menu_item_set_image (GTK_IMAGE_MENU_ITEM(mi), image);
-#endif
         if (input)
         {
             if (vol->idev_name) g_free (vol->idev_name);
@@ -1860,7 +1767,7 @@ static GtkWidget *volumealsa_menu_item_add (VolumeALSAPlugin *vol, GtkWidget *me
 
 static void volumealsa_build_device_menu (VolumeALSAPlugin *vol)
 {
-    GtkWidget *mi, *im, *om;
+    GtkWidget *mi, *im = NULL, *om;
     gint devices = 0, inputs = 0, card_num, def_card, def_inp;
     gboolean ext_dev = FALSE, bt_dev = FALSE, osel = FALSE, isel = FALSE, ajack = TRUE;
 
@@ -1894,7 +1801,7 @@ static void volumealsa_build_device_menu (VolumeALSAPlugin *vol)
                         if (name && icon && paired && trusted && g_variant_get_boolean (paired) && g_variant_get_boolean (trusted))
                         {
                             // create a menu if there isn't one already
-                            if (!inputs) im = gtk_menu_new ();
+                            if (!im) im = gtk_menu_new ();
                             volumealsa_menu_item_add (vol, im, g_variant_get_string (name, NULL), objpath, asound_is_current_bt_dev (objpath, TRUE), TRUE, G_CALLBACK (volumealsa_set_bluetooth_input));
                             if (asound_is_current_bt_dev (objpath, TRUE)) isel = TRUE;
                             inputs++;
@@ -1947,11 +1854,7 @@ static void volumealsa_build_device_menu (VolumeALSAPlugin *vol)
         mi = gtk_separator_menu_item_new ();
         gtk_menu_shell_append (GTK_MENU_SHELL (im), mi);
 
-#if GTK_CHECK_VERSION(3, 0, 0)
         mi = gtk_menu_item_new_with_label (_("Input Device Settings..."));
-#else
-        mi = gtk_image_menu_item_new_with_label (_("Input Device Settings..."));
-#endif
         g_signal_connect (mi, "activate", G_CALLBACK (volumealsa_open_input_config_dialog), (gpointer) vol);
         gtk_menu_shell_append (GTK_MENU_SHELL (im), mi);
         gtk_widget_set_sensitive (mi, isel);
@@ -2127,11 +2030,7 @@ static void volumealsa_build_device_menu (VolumeALSAPlugin *vol)
         mi = gtk_separator_menu_item_new ();
         gtk_menu_shell_append (GTK_MENU_SHELL (om), mi);
 
-#if GTK_CHECK_VERSION(3, 0, 0)
         mi = gtk_menu_item_new_with_label (_("Output Device Settings..."));
-#else
-        mi = gtk_image_menu_item_new_with_label (_("Output Device Settings..."));
-#endif
         g_signal_connect (mi, "activate", G_CALLBACK (volumealsa_open_config_dialog), (gpointer) vol);
         gtk_menu_shell_append (GTK_MENU_SHELL (om), mi);
         gtk_widget_set_sensitive (mi, osel);
@@ -2140,33 +2039,21 @@ static void volumealsa_build_device_menu (VolumeALSAPlugin *vol)
     if (inputs)
     {
         // insert submenus
-#if GTK_CHECK_VERSION(3, 0, 0)
         mi = gtk_menu_item_new_with_label (_("Audio Outputs"));
-#else
-        mi = gtk_menu_item_new_with_label (_("Audio Outputs"));
-#endif
         gtk_menu_item_set_submenu (GTK_MENU_ITEM (mi), om);
         gtk_menu_shell_append (GTK_MENU_SHELL (vol->menu_popup), mi);
 
         mi = gtk_separator_menu_item_new ();
         gtk_menu_shell_append (GTK_MENU_SHELL (vol->menu_popup), mi);
 
-#if GTK_CHECK_VERSION(3, 0, 0)
         mi = gtk_menu_item_new_with_label (_("Audio Inputs"));
-#else
-        mi = gtk_menu_item_new_with_label (_("Audio Inputs"));
-#endif
         gtk_menu_item_set_submenu (GTK_MENU_ITEM (mi), im);
         gtk_menu_shell_append (GTK_MENU_SHELL (vol->menu_popup), mi);
     }
 
     if (!devices)
     {
-#if GTK_CHECK_VERSION(3, 0, 0)
         mi = gtk_menu_item_new_with_label (_("No audio devices found"));
-#else
-        mi = gtk_image_menu_item_new_with_label (_("No audio devices found"));
-#endif
         gtk_widget_set_sensitive (GTK_WIDGET (mi), FALSE);
         gtk_menu_shell_append (GTK_MENU_SHELL (vol->menu_popup), mi);
     }
@@ -2383,26 +2270,15 @@ static void volumealsa_build_popup_window (GtkWidget *p)
 
     /* Create a new window. */
     vol->popup_window = gtk_window_new (GTK_WINDOW_TOPLEVEL);
-#if GTK_CHECK_VERSION(3, 0, 0)
     gtk_widget_set_name (vol->popup_window, "panelpopup");
-#else
-    gtk_widget_set_name (vol->popup_window, "volals");
-#endif
     gtk_window_set_decorated (GTK_WINDOW (vol->popup_window), FALSE);
     gtk_container_set_border_width (GTK_CONTAINER (vol->popup_window), 5);
     gtk_window_set_skip_taskbar_hint (GTK_WINDOW (vol->popup_window), TRUE);
     gtk_window_set_skip_pager_hint (GTK_WINDOW (vol->popup_window), TRUE);
-#if GTK_CHECK_VERSION(3, 0, 0)
     gtk_window_set_type_hint (GTK_WINDOW (vol->popup_window), GDK_WINDOW_TYPE_HINT_DROPDOWN_MENU);
-#else
-    gtk_window_set_type_hint (GTK_WINDOW (vol->popup_window), GDK_WINDOW_TYPE_HINT_DIALOG);
-#endif
 
     /* Create a scrolled window as the child of the top level window. */
     GtkWidget *scrolledwindow = gtk_scrolled_window_new (NULL, NULL);
-#if !GTK_CHECK_VERSION(3, 0, 0)
-    gtk_widget_set_name (scrolledwindow, "whitewd");
-#endif
     gtk_container_set_border_width (GTK_CONTAINER (scrolledwindow), 0);
     gtk_widget_show (scrolledwindow);
     gtk_container_add (GTK_CONTAINER (vol->popup_window), scrolledwindow);
@@ -2419,19 +2295,11 @@ static void volumealsa_build_popup_window (GtkWidget *p)
     gtk_container_set_border_width (GTK_CONTAINER (vol->popup_window), 0);
     gtk_scrolled_window_set_shadow_type (GTK_SCROLLED_WINDOW (scrolledwindow), GTK_SHADOW_IN);
     /* Create a vertical box as the child of the viewport. */
-#if GTK_CHECK_VERSION(3, 0, 0)
     GtkWidget *box = gtk_box_new (GTK_ORIENTATION_VERTICAL, 0);
-#else
-    GtkWidget *box = gtk_vbox_new (FALSE, 0);
-#endif
     gtk_container_add (GTK_CONTAINER (viewport), box);
 
     /* Create a vertical scale as the child of the vertical box. */
-#if GTK_CHECK_VERSION(3, 0, 0)
     vol->volume_scale = gtk_scale_new (GTK_ORIENTATION_VERTICAL, GTK_ADJUSTMENT (gtk_adjustment_new (100, 0, 100, 0, 0, 0)));
-#else
-    vol->volume_scale = gtk_vscale_new (GTK_ADJUSTMENT (gtk_adjustment_new (100, 0, 100, 0, 0, 0)));
-#endif
     gtk_widget_set_name (vol->volume_scale, "volscale");
     g_object_set (vol->volume_scale, "height-request", 120, NULL);
     gtk_scale_set_draw_value (GTK_SCALE (vol->volume_scale), FALSE);
@@ -2493,17 +2361,6 @@ static void volumealsa_popup_mute_toggled (GtkWidget *widget, VolumeALSAPlugin *
     volumealsa_update_display (vol);
 }
 
-static void volumealsa_popup_set_position (GtkWidget *menu, gint *px, gint *py, gboolean *push_in, gpointer data)
-{
-    VolumeALSAPlugin *vol = (VolumeALSAPlugin *) data;
-
-    /* Determine the coordinates. */
-    lxpanel_plugin_popup_set_position_helper (vol->panel, vol->plugin, menu, px, py);
-    *push_in = TRUE;
-}
-
-/* Handler for "focus-out" signal on popup window. */
-#if GTK_CHECK_VERSION(3, 0, 0)
 static gboolean volumealsa_popup_mapped (GtkWidget *widget, GdkEvent *event, VolumeALSAPlugin *vol)
 {
     gdk_seat_grab (gdk_display_get_default_seat (gdk_display_get_default ()), gtk_widget_get_window (widget), GDK_SEAT_CAPABILITY_ALL_POINTING, TRUE, NULL, NULL, NULL, NULL);
@@ -2522,16 +2379,6 @@ static gboolean volumealsa_popup_button_press (GtkWidget *widget, GdkEventButton
     }
     return FALSE;
 }
-#else
-static gboolean volumealsa_mouse_out (GtkWidget *widget, GdkEventButton *event, VolumeALSAPlugin *vol)
-{
-    /* Hide the widget. */
-    gtk_widget_hide (vol->popup_window);
-    vol->show_popup = FALSE;
-    gdk_pointer_ungrab (GDK_CURRENT_TIME);
-    return FALSE;
-}
-#endif
 
 /*----------------------------------------------------------------------------*/
 /* Options dialog                                                             */
@@ -2542,7 +2389,6 @@ static void show_options (VolumeALSAPlugin *vol, snd_mixer_t *mixer, gboolean in
     snd_mixer_elem_t *elem;
     GtkWidget *slid, *box, *btn, *scr, *wid;
     GtkAdjustment *adj;
-    guint cols;
     int swval;
     char *lbl;
 
@@ -2564,13 +2410,8 @@ static void show_options (VolumeALSAPlugin *vol, snd_mixer_t *mixer, gboolean in
 #endif
         if (snd_mixer_selem_has_playback_volume (elem))
         {
-#if GTK_CHECK_VERSION(3, 0, 0)
             if (!vol->options_play) vol->options_play = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 5);
             box = gtk_box_new (GTK_ORIENTATION_VERTICAL, 5);
-#else
-            if (!vol->options_play) vol->options_play = gtk_hbox_new (FALSE, 5);
-            box = gtk_vbox_new (FALSE, 5);
-#endif
             gtk_box_pack_start (GTK_BOX (vol->options_play), box, FALSE, FALSE, 5);
             gtk_box_pack_start (GTK_BOX (box), gtk_label_new (snd_mixer_selem_get_name (elem)), FALSE, FALSE, 5);
             if (snd_mixer_selem_has_playback_switch (elem))
@@ -2583,16 +2424,9 @@ static void show_options (VolumeALSAPlugin *vol, snd_mixer_t *mixer, gboolean in
                 g_signal_connect (btn, "toggled", G_CALLBACK (playback_switch_toggled_event), elem);
             }
             adj = gtk_adjustment_new (50.0, 0.0, 100.0, 1.0, 0.0, 0.0);
-#if GTK_CHECK_VERSION(3, 0, 0)
             slid = gtk_scale_new (GTK_ORIENTATION_VERTICAL, GTK_ADJUSTMENT (adj));
-#else
-            slid = gtk_vscale_new (GTK_ADJUSTMENT (adj));
-#endif
             gtk_widget_set_name (slid, snd_mixer_selem_get_name (elem));
             gtk_range_set_inverted (GTK_RANGE (slid), TRUE);
-#if !GTK_CHECK_VERSION(3, 0, 0)
-            gtk_range_set_update_policy (GTK_RANGE (slid), GTK_UPDATE_DISCONTINUOUS);  /* !!!! Bad things will happen if this isn't fixed !!!! */
-#endif
             gtk_range_set_value (GTK_RANGE (slid), get_normalized_volume (elem, FALSE));
             gtk_widget_set_size_request (slid, 80, 150);
             gtk_scale_set_draw_value (GTK_SCALE (slid), FALSE);
@@ -2601,13 +2435,8 @@ static void show_options (VolumeALSAPlugin *vol, snd_mixer_t *mixer, gboolean in
         }
         else if (snd_mixer_selem_has_playback_switch (elem))
         {
-#if GTK_CHECK_VERSION(3, 0, 0)
             if (!vol->options_set) vol->options_set = gtk_box_new (GTK_ORIENTATION_VERTICAL, 5);
             box = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 5);
-#else
-            if (!vol->options_set) vol->options_set = gtk_vbox_new (FALSE, 5);
-            box = gtk_hbox_new (FALSE, 5);
-#endif
             lbl = g_strdup_printf (_("%s (Playback)"), snd_mixer_selem_get_name (elem));
             gtk_box_pack_start (GTK_BOX (box), gtk_label_new (lbl), FALSE, FALSE, 5);
             g_free (lbl);
@@ -2622,13 +2451,8 @@ static void show_options (VolumeALSAPlugin *vol, snd_mixer_t *mixer, gboolean in
 
         if (snd_mixer_selem_has_capture_volume (elem))
         {
-#if GTK_CHECK_VERSION(3, 0, 0)
             if (!vol->options_capt) vol->options_capt = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 5);
             box = gtk_box_new (GTK_ORIENTATION_VERTICAL, 5);
-#else
-            if (!vol->options_capt) vol->options_capt = gtk_hbox_new (FALSE, 5);
-            box = gtk_vbox_new (FALSE, 5);
-#endif
             gtk_box_pack_start (GTK_BOX (vol->options_capt), box, FALSE, FALSE, 5);
             gtk_box_pack_start (GTK_BOX (box), gtk_label_new (snd_mixer_selem_get_name (elem)), FALSE, FALSE, 5);
             if (snd_mixer_selem_has_capture_switch (elem))
@@ -2641,16 +2465,9 @@ static void show_options (VolumeALSAPlugin *vol, snd_mixer_t *mixer, gboolean in
                 g_signal_connect (btn, "toggled", G_CALLBACK (capture_switch_toggled_event), elem);
             }
             adj = gtk_adjustment_new (50.0, 0.0, 100.0, 1.0, 0.0, 0.0);
-#if GTK_CHECK_VERSION(3, 0, 0)
             slid = gtk_scale_new (GTK_ORIENTATION_VERTICAL, GTK_ADJUSTMENT (adj));
-#else
-            slid = gtk_vscale_new (GTK_ADJUSTMENT (adj));
-#endif
             gtk_widget_set_name (slid, snd_mixer_selem_get_name (elem));
             gtk_range_set_inverted (GTK_RANGE (slid), TRUE);
-#if !GTK_CHECK_VERSION(3, 0, 0)
-            gtk_range_set_update_policy (GTK_RANGE (slid), GTK_UPDATE_DISCONTINUOUS);  /* !!!! Bad things will happen if this isn't fixed !!!!*/
-#endif
             gtk_range_set_value (GTK_RANGE (slid), get_normalized_volume (elem, TRUE));
             gtk_widget_set_size_request (slid, 80, 150);
             gtk_scale_set_draw_value (GTK_SCALE (slid), FALSE);
@@ -2659,13 +2476,8 @@ static void show_options (VolumeALSAPlugin *vol, snd_mixer_t *mixer, gboolean in
         }
         else if (snd_mixer_selem_has_capture_switch (elem))
         {
-#if GTK_CHECK_VERSION(3, 0, 0)
             if (!vol->options_set) vol->options_set = gtk_box_new (GTK_ORIENTATION_VERTICAL, 5);
             box = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 5);
-#else
-            if (!vol->options_set) vol->options_set = gtk_vbox_new (FALSE, 5);
-            box = gtk_hbox_new (FALSE, 5);
-#endif
             lbl = g_strdup_printf (_("%s (Capture)"), snd_mixer_selem_get_name (elem));
             gtk_box_pack_start (GTK_BOX (box), gtk_label_new (lbl), FALSE, FALSE, 5);
             g_free (lbl);
@@ -2680,13 +2492,8 @@ static void show_options (VolumeALSAPlugin *vol, snd_mixer_t *mixer, gboolean in
 
         if (snd_mixer_selem_is_enumerated (elem))
         {
-#if GTK_CHECK_VERSION(3, 0, 0)
             if (!vol->options_set) vol->options_set = gtk_box_new (GTK_ORIENTATION_VERTICAL, 5);
             box = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 5);
-#else
-            if (!vol->options_set) vol->options_set = gtk_vbox_new (FALSE, 5);
-            box = gtk_hbox_new (FALSE, 5);
-#endif
             if (snd_mixer_selem_is_enum_playback (elem) && !snd_mixer_selem_is_enum_capture (elem))
                 lbl = g_strdup_printf (_("%s (Playback)"), snd_mixer_selem_get_name (elem));
             else if (snd_mixer_selem_is_enum_capture (elem) && !snd_mixer_selem_is_enum_playback (elem))
@@ -2705,7 +2512,7 @@ static void show_options (VolumeALSAPlugin *vol, snd_mixer_t *mixer, gboolean in
                 snd_mixer_selem_get_enum_item_name (elem, i, 128, buffer);
                 gtk_combo_box_text_append_text (GTK_COMBO_BOX_TEXT (btn), buffer);
             }
-            int sel;
+            unsigned int sel;
             snd_mixer_selem_get_enum_item (elem, SND_MIXER_SCHN_MONO, &sel);
             gtk_combo_box_set_active (GTK_COMBO_BOX (btn), sel);
             gtk_box_pack_start (GTK_BOX (vol->options_set), box, FALSE, FALSE, 5);
@@ -2722,20 +2529,12 @@ static void show_options (VolumeALSAPlugin *vol, snd_mixer_t *mixer, gboolean in
     gtk_window_set_icon_name (GTK_WINDOW (vol->options_dlg), "multimedia-volume-control");
     g_signal_connect (vol->options_dlg, "delete-event", G_CALLBACK (options_wd_close_handler), vol);
 
-#if GTK_CHECK_VERSION(3, 0, 0)
     box = gtk_box_new (GTK_ORIENTATION_VERTICAL, 5);
-#else
-    box = gtk_vbox_new (FALSE, 5);
-#endif
     gtk_container_add (GTK_CONTAINER (vol->options_dlg), box);
 
     char *dev = g_strdup_printf (_("%s Device : %s"), input ? _("Input") : _("Output"), devname);
     wid = gtk_label_new (dev);
-#if GTK_CHECK_VERSION(3, 0, 0)
     gtk_label_set_xalign (GTK_LABEL (wid), 0.0);
-#else
-    gtk_misc_set_alignment (GTK_MISC (wid), 0.0, 0.5);
-#endif
     gtk_box_pack_start (GTK_BOX (box), wid, FALSE, FALSE, 5);
     g_free (dev);
 
@@ -2750,51 +2549,31 @@ static void show_options (VolumeALSAPlugin *vol, snd_mixer_t *mixer, gboolean in
         {
             scr = gtk_scrolled_window_new (NULL, NULL);
             gtk_scrolled_window_set_policy (GTK_SCROLLED_WINDOW (scr), GTK_POLICY_AUTOMATIC, GTK_POLICY_NEVER);
-#if GTK_CHECK_VERSION(3, 0, 0)
             gtk_container_add (GTK_CONTAINER (scr), vol->options_play);
-#else
-            gtk_scrolled_window_add_with_viewport (GTK_SCROLLED_WINDOW (scr), vol->options_play);
-#endif
             gtk_notebook_append_page (GTK_NOTEBOOK (wid), scr, gtk_label_new (_("Playback")));
         }
         if (vol->options_capt)
         {
             scr = gtk_scrolled_window_new (NULL, NULL);
             gtk_scrolled_window_set_policy (GTK_SCROLLED_WINDOW (scr), GTK_POLICY_AUTOMATIC, GTK_POLICY_NEVER);
-#if GTK_CHECK_VERSION(3, 0, 0)
             gtk_container_add (GTK_CONTAINER (scr), vol->options_capt);
-#else
-            gtk_scrolled_window_add_with_viewport (GTK_SCROLLED_WINDOW (scr), vol->options_capt);
-#endif
             gtk_notebook_append_page (GTK_NOTEBOOK (wid), scr, gtk_label_new (_("Capture")));
         }
         if (vol->options_set)
         {
             scr = gtk_scrolled_window_new (NULL, NULL);
             gtk_scrolled_window_set_policy (GTK_SCROLLED_WINDOW (scr), GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
-#if GTK_CHECK_VERSION(3, 0, 0)
             gtk_container_add (GTK_CONTAINER (scr), vol->options_set);
-#else
-            gtk_scrolled_window_add_with_viewport (GTK_SCROLLED_WINDOW (scr), vol->options_set);
-#endif
             gtk_notebook_append_page (GTK_NOTEBOOK (wid), scr, gtk_label_new (_("Options")));
         }
         gtk_box_pack_start (GTK_BOX (box), wid, FALSE, FALSE, 5);
     }
 
-#if GTK_CHECK_VERSION(3, 0, 0)
     wid = gtk_button_box_new (GTK_ORIENTATION_HORIZONTAL);
-#else
-    wid = gtk_hbutton_box_new ();
-#endif
     gtk_button_box_set_layout (GTK_BUTTON_BOX (wid), GTK_BUTTONBOX_END);
     gtk_box_pack_start (GTK_BOX (box), wid, FALSE, FALSE, 5);
 
-#if GTK_CHECK_VERSION(3, 0, 0)
     btn = gtk_button_new_with_mnemonic (_("_OK"));
-#else
-    btn = gtk_button_new_from_stock (GTK_STOCK_OK);
-#endif
     g_signal_connect (btn, "clicked", G_CALLBACK (options_ok_handler), vol);
     gtk_box_pack_end (GTK_BOX (wid), btn, FALSE, FALSE, 5);
 
@@ -2825,20 +2604,16 @@ static void show_input_options (VolumeALSAPlugin *vol)
 static void update_options (VolumeALSAPlugin *vol)
 {
     snd_mixer_elem_t *elem;
-    guint pcol = 0, ccol = 0;
     GtkWidget *wid;
     int swval, i;
+    unsigned int item;
 
     i = vol->mixers[INPUT_MIXER].mixer ? 1 : 0;
     for (elem = snd_mixer_first_elem (vol->mixers[i].mixer); elem != NULL; elem = snd_mixer_elem_next (elem))
     {
         if (snd_mixer_selem_has_playback_volume (elem))
         {
-#if GTK_CHECK_VERSION(3, 0, 0)
             wid = find_box_child (vol->options_play, GTK_TYPE_SCALE, snd_mixer_selem_get_name (elem));
-#else
-            wid = find_box_child (vol->options_play, GTK_TYPE_VSCALE, snd_mixer_selem_get_name (elem));
-#endif
             if (wid)
             {
                 g_signal_handlers_block_by_func (wid, playback_range_change_event, elem);
@@ -2860,11 +2635,7 @@ static void update_options (VolumeALSAPlugin *vol)
         }
         if (snd_mixer_selem_has_capture_volume (elem))
         {
-#if GTK_CHECK_VERSION(3, 0, 0)
             wid = find_box_child (vol->options_capt, GTK_TYPE_SCALE, snd_mixer_selem_get_name (elem));
-#else
-            wid = find_box_child (vol->options_capt, GTK_TYPE_VSCALE, snd_mixer_selem_get_name (elem));
-#endif
             {
                 g_signal_handlers_block_by_func (wid, capture_range_change_event, elem);
                 gtk_range_set_value (GTK_RANGE (wid), get_normalized_volume (elem, TRUE));
@@ -2888,7 +2659,7 @@ static void update_options (VolumeALSAPlugin *vol)
             wid = find_box_child (vol->options_set, GTK_TYPE_COMBO_BOX_TEXT, snd_mixer_selem_get_name (elem));
             if (wid)
             {
-                snd_mixer_selem_get_enum_item (elem, SND_MIXER_SCHN_MONO, &swval);
+                snd_mixer_selem_get_enum_item (elem, SND_MIXER_SCHN_MONO, &item);
                 g_signal_handlers_block_by_func (wid, enum_changed_event, elem);
                 gtk_combo_box_set_active (GTK_COMBO_BOX (wid), swval);
                 g_signal_handlers_unblock_by_func (wid, enum_changed_event, elem);
@@ -2983,11 +2754,7 @@ static GtkWidget *find_box_child (GtkWidget *container, gint type, const char *n
                 g_list_free (list);
                 return m->data;
             }
-#if GTK_CHECK_VERSION(3, 0, 0)
             if (G_OBJECT_TYPE (m->data) == GTK_TYPE_BUTTON_BOX)
-#else
-            if (G_OBJECT_TYPE (m->data) == GTK_TYPE_HBUTTON_BOX)
-#endif
             {
                 GList *n, *nist = gtk_container_get_children (GTK_CONTAINER (m->data));
                 for (n = nist; n; n = n->next)
